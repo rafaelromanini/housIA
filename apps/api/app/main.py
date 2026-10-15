@@ -6,12 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.alerts.router import router as alerts_router
 from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
 from app.config import get_settings
 from app.db import session as db_session
 from app.db.session import Base
 from app.fhir_client.client import FhirUnavailable, get_fhir
+from app.handoff.router import router as handoff_router
 from app.patients.router import router as patients_router
 
 logger = logging.getLogger("housia")
@@ -73,6 +75,8 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(patients_router)
+    app.include_router(handoff_router)
+    app.include_router(alerts_router)
     return app
 
 

@@ -153,3 +153,80 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
   }
   return data as T;
 }
+
+// ---------- Passagem de plantão ----------
+export type Audience = "medico" | "enfermagem";
+
+export interface ItemRef {
+  texto: string;
+  refs: string[];
+}
+
+export interface HandoffRisk extends ItemRef {
+  horizonte_h: number;
+  severidade: Severity;
+  alert_id?: number;
+}
+
+export interface HandoffPending extends ItemRef {
+  horario: string;
+}
+
+export interface Fact {
+  tipo: string;
+  texto: string;
+  severidade: Severity;
+  refs: string[];
+  publico: Audience[];
+  horario: string | null;
+  horizonte_h: number | null;
+}
+
+export interface HandoffContent {
+  headline: string;
+  situacao: string;
+  situacao_refs: string[];
+  mudancas_no_periodo: ItemRef[];
+  riscos_proximas_horas: HandoffRisk[];
+  pendencias: HandoffPending[];
+  perguntas_para_quem_sai: string[];
+  fatos: Fact[];
+  descartados: { secao: string; texto: string; refs_invalidas: string[]; motivo: string }[];
+  meta: {
+    gerado_em: string;
+    janela_h: number;
+    publico: Audience;
+    destino: string | null;
+    modo: "mock" | "real";
+    reparado: boolean;
+    eventos_na_janela: number;
+    pseudonimizacoes: number;
+  };
+}
+
+export interface HandoffReport {
+  id: number;
+  patient_id: string;
+  audience: Audience;
+  window_hours: number;
+  to_location: string | null;
+  created_at: string;
+  model: string;
+  prompt_version: string;
+  cached: boolean;
+  content: HandoffContent;
+}
+
+export interface AlertItem {
+  id: number;
+  patient_id: string;
+  source: "handoff" | "medrec" | "discharge";
+  severity: Severity;
+  title: string;
+  detail: string;
+  source_refs: string[];
+  status: "aberto" | "reconhecido" | "descartado";
+  acted_by: number | null;
+  acted_at: string | null;
+  created_at: string;
+}

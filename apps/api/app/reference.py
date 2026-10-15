@@ -70,3 +70,13 @@ def matches(token: str, ingredient: str, drug_class: str) -> bool:
     if token.startswith("@"):
         return token[1:] == drug_class
     return token == ingredient
+
+
+def high_alert_reason(ingredient: str, drug_class: str) -> str | None:
+    """Motivo de alto alerta (MPP) se o medicamento constar em high_alert_meds.csv."""
+    for row in high_alert():
+        if (row["tipo"] == "classe" and row["item"] == drug_class) or (
+            row["tipo"] == "ingrediente" and row["item"] == ingredient
+        ):
+            return row["motivo"]
+    return None

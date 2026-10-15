@@ -8,7 +8,7 @@ Camada inteligente sobre prontuários (via **FHIR R4**) para o momento mais peri
 ## Como rodar
 
 ```bash
-cp .env.example .env        # LLM_MODE=mock roda sem chave
+cp .env.example .env        # LLM_MODE=mock roda sem chave; LLM_MODE=real + ANTHROPIC_API_KEY usa o Claude
 docker compose up --build
 ```
 
@@ -40,6 +40,8 @@ cd apps/web && npm install && npm run dev
 - [x] Fase 0 — esqueleto: compose (web, api, db, fhir), healthchecks, `/health`
 - [x] Fase 1 — dados e timeline: 5 cenários + população de fundo, `fhir_client` (HAPI/local), timeline
       normalizada com `source_ref` em todo evento, login, painel de leitos, visão geral do paciente
+- [x] Fase 2 — passagem de plantão (pilar 1): fatos determinísticos, pseudonimização, Claude com saída
+      estruturada (ou mock), validação de refs, cache por `input_hash`, alertas reconhecíveis
 
 ## Estrutura
 

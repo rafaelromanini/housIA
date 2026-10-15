@@ -1,0 +1,180 @@
+"""Wrapper do Claude para gerações estruturadas.
+
+- Prompts versionados em app/llm/prompts/*.md (cabeçalho `version:`); a versão vai junto de cada resultado.
+- Saída sempre validada com Pydantic; JSON inválido ganha 1 tentativa de reparo e depois vira erro amigável.
+- LLM_MODE=mock usa geradores determinísticos (fixtures) — roda sem chave, usado no CI.
+- O texto enviado já chega pseudonimizado (app/llm/pseudonymize.py); com LOG_PROMPTS=false nada é logado.
+"""
+
+import json
+import logging
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from string import Template
+from typing import Any
+
+import anthropic
+from pydantic import BaseModel, ValidationError
+
+from app.config import get_settings
+from app.llm.schema import strict_schema
+
+logger = logging.getLogger("housia.llm")
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+# Recusa de classificador de segurança: o servidor tenta outro modelo automaticamente.
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+class LLMError(RuntimeError):
+    """Erro com mensagem amigável para exibir na interface."""
+
+
+@dataclass(frozen=True)
+class Prompt:
+    name: str
+    version: str
+    system: str
+    user: str
+
+
+@dataclass
+class LLMResult:
+    output: BaseModel
+    model: str
+    prompt_version: str
+    mode: str
+    repaired: bool = False
+
+
+@lru_cache
+def load_prompt(name: str) -> Prompt:
+    text = (PROMPTS_DIR / f"{name}.md").read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        raise ValueError(f"Prompt {name} sem cabeçalho de versão")
+    _, header, body = text.split("---", 2)
+    meta = dict(line.split(":", 1) for line in header.strip().splitlines() if ":" in line)
+    version = meta.get("version", "").strip()
+    if not version:
+        raise ValueError(f"Prompt {name} sem `version:`")
+    system, _, user = body.partition("# user")
+    system = system.replace("# system", "", 1).strip()
+    return Prompt(name=name, version=version, system=system, user=user.strip())
+
+
+_client_lock = threading.Lock()
+_client: anthropic.Anthropic | None = None
+
+
+def _anthropic() -> anthropic.Anthropic:
+    global _client
+    with _client_lock:
+        if _client is None:
+            settings = get_settings()
+            # Timeout configurável e 1 retry (o SDK repete 408/409/429/5xx e falhas de conexão)
+            _client = anthropic.Anthropic(
+                api_key=settings.anthropic_api_key or None,
+                timeout=settings.llm_timeout_s,
+                max_retries=1,
+            )
+        return _client
+
+
+def _call(system: str, messages: list[dict], schema: dict) -> str:
+    settings = get_settings()
+    try:
+        response = _anthropic().beta.messages.create(
+            model=settings.llm_model,
+            max_tokens=settings.llm_max_tokens,
+            system=system,
+            messages=messages,
+            output_config={"effort": settings.llm_effort, "format": {"type": "json_schema", "schema": schema}},
+            betas=[FALLBACK_BETA],
+            fallbacks="default",
+        )
+    except anthropic.AuthenticationError as exc:
+        raise LLMError("Chave da API do Claude inválida ou ausente (ANTHROPIC_API_KEY).") from exc
+    except anthropic.RateLimitError as exc:
+        raise LLMError("Limite de uso da API do Claude atingido. Tente novamente em instantes.") from exc
+    except anthropic.APITimeoutError as exc:
+        raise LLMError("A IA demorou demais para responder. Tente novamente.") from exc
+    except anthropic.APIConnectionError as exc:
+        raise LLMError("Sem conexão com a API do Claude.") from exc
+    except anthropic.BadRequestError as exc:
+        logger.error("Requisição rejeitada pela API do Claude: %s", exc.message)
+        raise LLMError("A requisição à IA foi rejeitada. Verifique LLM_MODEL e a configuração.") from exc
+    except anthropic.APIStatusError as exc:
+        raise LLMError(f"Erro da API do Claude ({exc.status_code}). Tente novamente.") from exc
+
+    if response.stop_reason == "refusal":
+        raise LLMError("A IA não gerou este conteúdo (recusa de segurança). Use os dados brutos da timeline.")
+    if response.stop_reason == "max_tokens":
+        raise LLMError("A resposta da IA foi truncada (limite de tokens).")
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    if not text:
+        raise LLMError("A IA retornou uma resposta vazia.")
+    return text
+
+
+def generate_structured[T: BaseModel](
+    prompt_name: str,
+    variables: dict[str, Any],
+    schema: type[T],
+    mock: Callable[[dict[str, Any]], dict[str, Any]],
+) -> LLMResult:
+    settings = get_settings()
+    prompt = load_prompt(prompt_name)
+
+    if settings.llm_mode == "mock":
+        return LLMResult(
+            output=schema.model_validate(mock(variables)),
+            model="mock-deterministico",
+            prompt_version=prompt.version,
+            mode="mock",
+        )
+
+    rendered = {
+        k: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, indent=1) for k, v in variables.items()
+    }
+    user = Template(prompt.user).safe_substitute(rendered)
+    system = Template(prompt.system).safe_substitute(rendered)
+    if settings.log_prompts:
+        logger.info("Prompt %s v%s (pseudonimizado):\n%s", prompt_name, prompt.version, user)
+
+    json_schema = strict_schema(schema)
+    messages: list[dict] = [{"role": "user", "content": user}]
+    text = _call(system, messages, json_schema)
+    try:
+        return LLMResult(
+            output=schema.model_validate_json(text),
+            model=settings.llm_model,
+            prompt_version=prompt.version,
+            mode="real",
+        )
+    except ValidationError as first_error:
+        logger.warning("Saída inválida do LLM em %s; tentando reparo: %s", prompt_name, first_error.errors()[:3])
+        messages += [
+            {"role": "assistant", "content": text},
+            {
+                "role": "user",
+                "content": (
+                    "A resposta anterior não passou na validação do schema. Erros: "
+                    f"{json.dumps(first_error.errors()[:5], ensure_ascii=False, default=str)}. "
+                    "Devolva o JSON completo corrigido, sem texto adicional."
+                ),
+            },
+        ]
+        repaired = _call(system, messages, json_schema)
+        try:
+            return LLMResult(
+                output=schema.model_validate_json(repaired),
+                model=settings.llm_model,
+                prompt_version=prompt.version,
+                mode="real",
+                repaired=True,
+            )
+        except ValidationError as exc:
+            raise LLMError("A IA retornou um formato inválido duas vezes. Tente regenerar.") from exc
