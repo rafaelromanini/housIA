@@ -1,6 +1,7 @@
 """Pilar 2 — "Waze" da alta: score de reinternação, sugestões e trava suave com override auditado."""
 
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -9,7 +10,9 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.alerts.service import upsert_alert
 from app.audit.service import log_action
-from app.db.models import Alert, DischargeAssessment, DischargeOverride, User
+from app.config import get_settings
+from app.db.models import Alert, DischargeAssessment, DischargeDocument, DischargeOverride, User
+from app.discharge.documents import DischargeDocsOutput, home_meds, mock_documents
 from app.discharge.scoring import SocialChecklist, final_risk, lace, lace_band, social_band, social_score
 from app.discharge.suggestions import DischargeLLMOutput, mock_suggestions
 from app.fhir_client.client import FhirSource
@@ -18,6 +21,7 @@ from app.llm.pseudonymize import Pseudonymizer
 from app.patients.service import load_record
 from app.reference import social_weights
 from app.timeline.context import build_context
+from app.timeline.events import build_timeline
 from app.timeline.record import MedInfo, PatientRecord
 
 PROMPT = "discharge"
@@ -269,3 +273,150 @@ def confirm_discharge(db: Session, user: User, assessment_id: int) -> dict:
     )
     db.commit()
     return assessment_out(db, a)
+
+
+def _local(dt) -> str:
+    return dt.astimezone(ZoneInfo(get_settings().timezone)).strftime("%d/%m %H:%M")
+
+
+def documents_out(doc: DischargeDocument) -> dict:
+    return {
+        "id": doc.id,
+        "patient_id": doc.patient_id,
+        "assessment_id": doc.assessment_id,
+        "idioma": doc.language,
+        "created_at": doc.created_at.isoformat(),
+        "model": doc.model,
+        "prompt_version": doc.prompt_version,
+        **doc.content_json,
+    }
+
+
+def generate_documents(db: Session, fhir: FhirSource, user: User, patient_id: str, language: str) -> dict:
+    now = clock.now()
+    record = load_record(fhir, patient_id)
+    record.now = now
+    events = [e for e in build_timeline(record) if e.timestamp <= now]
+    latest = db.scalar(
+        select(DischargeAssessment)
+        .where(DischargeAssessment.patient_id == patient_id)
+        .order_by(DischargeAssessment.id.desc())
+    )
+    assessment = assessment_out(db, latest) if latest else None
+    meds = home_meds(record)
+    ctx = build_context(record)
+
+    recent = [e for e in events if e.timestamp >= now - timedelta(hours=24) and e.kind in ("vital", "lab", "note")]
+    pseudo = Pseudonymizer(**record.identifiers_for_pseudonymization())
+    variables = pseudo.apply(
+        {
+            "internacao": {
+                "ref": f"Encounter/{record.hospitalization['id']}" if record.hospitalization else None,
+                "idade": record.age,
+                "sexo": record.sex,
+                "motivo": record.admission_reason,
+                "dias": record.length_of_stay_days,
+                "diagnosticos": [{"ref": d.source_ref, "texto": d.summary} for d in ctx.diagnosticos],
+                "alergias": [{"ref": a.source_ref, "texto": a.summary} for a in ctx.alergias]
+                or "sem alergias registradas",
+                "procedimentos": [{"ref": e.source_ref, "texto": e.summary} for e in events if e.kind == "procedure"],
+            },
+            "registros": [
+                {
+                    "ref": e.source_ref,
+                    "horario": _local(e.timestamp),
+                    "tipo": e.kind,
+                    "resumo": e.summary,
+                    **({"texto": e.text} if e.text else {}),
+                }
+                for e in recent
+            ],
+            "medicamentos": [{"ref": m.ref, "texto": m.text, "classe": m.drug_class} for m in meds],
+            "avaliacao": {
+                "risco": assessment["final_risk"],
+                "lace": assessment["lace"]["score"],
+                "social": assessment["social"]["score"],
+                "checklist": assessment["checklist"],
+                "sugestoes": [{"texto": s["texto"], "refs": s["refs"]} for s in assessment["sugestoes"]],
+            }
+            if assessment
+            else "sem avaliação de alta registrada",
+        }
+    ) | {"idioma": language}
+    result = generate_structured(
+        "discharge_docs",
+        variables,
+        DischargeDocsOutput,
+        mock=lambda _v: mock_documents(record, events, assessment),
+    )
+
+    valid = {e.source_ref for e in events} | ctx.refs() | {m.ref for m in record.medications}
+    valid |= {f"Checklist/{k}" for k in (assessment or {}).get("checklist", {})}
+    if record.hospitalization:
+        valid.add(f"Encounter/{record.hospitalization['id']}")
+    dropped: list[dict] = []
+    content = result.output.model_dump()
+
+    def clean_section(section: dict, where: str) -> dict:
+        bad = [r for r in section["refs"] if r not in valid]
+        if bad:
+            dropped.append({"onde": where, "refs_invalidas": bad})
+        section["refs"] = [r for r in section["refs"] if r in valid]
+        section["sem_fonte"] = not section["refs"]
+        return section
+
+    for key in ("subjetivo", "objetivo", "avaliacao", "plano"):
+        clean_section(content["soap"][key], f"soap.{key}")
+    ori = content["orientacoes"]
+    clean_section(ori["resumo_internacao"], "orientacoes.resumo_internacao")
+    clean_section(ori["retorno"], "orientacoes.retorno")
+    for key in ("medicamentos", "sinais_de_alerta", "cuidados_em_casa"):
+        kept = []
+        for item in ori[key]:
+            bad = [r for r in item["refs"] if r not in valid]
+            if bad or not item["refs"]:
+                dropped.append(
+                    {
+                        "onde": f"orientacoes.{key}",
+                        "texto": item.get("texto") or item.get("medicamento"),
+                        "refs_invalidas": bad,
+                    }
+                )
+            else:
+                kept.append(item)
+        ori[key] = kept
+    content["descartados"] = dropped
+    content["meta"] = {
+        "modo": result.mode,
+        "gerado_em": now.isoformat(),
+        "traducao_disponivel": result.mode == "real" or language == "pt-BR",
+    }
+
+    doc = DischargeDocument(
+        patient_id=patient_id,
+        assessment_id=latest.id if latest else None,
+        language=language,
+        content_json=content,
+        model=result.model,
+        prompt_version=result.prompt_version,
+        created_by=user.id,
+        created_at=now,
+    )
+    db.add(doc)
+    db.flush()
+    log_action(
+        db,
+        user,
+        "discharge.documentos",
+        "discharge_document",
+        doc.id,
+        {
+            "patient_id": patient_id,
+            "idioma": language,
+            "modelo": result.model,
+            "itens_descartados": len(dropped),
+        },
+        commit=False,
+    )
+    db.commit()
+    return documents_out(doc)

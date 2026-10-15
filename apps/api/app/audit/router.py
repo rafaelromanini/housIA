@@ -8,7 +8,16 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.auth.deps import require_roles
 from app.config import get_settings
-from app.db.models import Alert, AuditLog, DischargeAssessment, DischargeOverride, HandoffReport, MedrecRun, User
+from app.db.models import (
+    AIFeedback,
+    Alert,
+    AuditLog,
+    DischargeAssessment,
+    DischargeOverride,
+    HandoffReport,
+    MedrecRun,
+    User,
+)
 from app.db.session import get_db
 
 router = APIRouter(prefix="/audit", tags=["auditoria"])
@@ -90,11 +99,25 @@ def metrics(
         )
     ):
         dropped += int((payload or {}).get("itens_descartados", 0))
+    feedback: dict[str, dict[str, int]] = {}
+    for kind, useful, n in db.execute(
+        select(AIFeedback.kind, AIFeedback.useful, func.count())
+        .where(AIFeedback.created_at >= start, AIFeedback.created_at <= end)
+        .group_by(AIFeedback.kind, AIFeedback.useful)
+    ):
+        feedback.setdefault(kind, {"util": 0, "nao_util": 0})["util" if useful else "nao_util"] += n
+    total_useful = sum(v["util"] for v in feedback.values())
+    total_feedback = total_useful + sum(v["nao_util"] for v in feedback.values())
+    statuses = {s: n for s, n in status_rows}
+    acted = statuses.get("reconhecido", 0) + statuses.get("descartado", 0)
     return {
         "periodo": {"inicio": start.isoformat(), "fim": end.isoformat()},
+        "feedback_ia": feedback,
+        "taxa_utilidade_ia": round(total_useful / total_feedback, 3) if total_feedback else None,
+        "taxa_aceitacao_alertas": round(statuses.get("reconhecido", 0) / acted, 3) if acted else None,
         "alertas_criticos": count(Alert, *alerts_in, Alert.severity == "critico"),
         "alertas_criticos_por_origem": {s: n for s, n in source_rows},
-        "alertas_por_status": {s: n for s, n in status_rows},
+        "alertas_por_status": statuses,
         "overrides": count(
             DischargeOverride, DischargeOverride.created_at >= start, DischargeOverride.created_at <= end
         ),

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Calculator, CircleCheck, ClipboardList, Loader2, Lock, LockOpen, ShieldAlert, Sparkles } from "lucide-react";
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
+import { FeedbackButtons } from "@/components/ai/feedback";
+import { DischargeDocumentsCard } from "@/components/discharge/discharge-documents";
 import { usePatient } from "@/components/patient/patient-context";
 import { RiskBadge } from "@/components/severity";
 import { SourceRefs } from "@/components/source-ref";
@@ -446,8 +448,13 @@ export function DischargeView() {
                     ))}
                   </ol>
                 )}
+                <div className="mt-3">
+                  <FeedbackButtons kind="discharge" entityId={a.id} patientId={patient.id} />
+                </div>
               </CardContent>
             </Card>
+
+            <DischargeDocumentsCard />
 
             <Card>
               <CardHeader>

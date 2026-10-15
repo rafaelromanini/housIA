@@ -114,3 +114,21 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Impressão das orientações de alta: só o bloco #handout vai para o papel */
+@media print {
+  body.printing-handout * {
+    visibility: hidden;
+  }
+  body.printing-handout #handout,
+  body.printing-handout #handout * {
+    visibility: visible;
+  }
+  body.printing-handout #handout {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: none;
+    font-size: 14pt;
+  }
+}

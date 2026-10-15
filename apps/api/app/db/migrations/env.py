@@ -15,6 +15,13 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def render_item(type_, obj, autogen_context):
+    """UTCDateTime é só um adaptador de leitura: na migração vira DateTime(timezone=True)."""
+    if type_ == "type" and isinstance(obj, models.UTCDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
+
+
 def run_migrations_offline() -> None:
     context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
@@ -26,7 +33,7 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(connection=connection, target_metadata=target_metadata, render_item=render_item)
         with context.begin_transaction():
             context.run_migrations()
 

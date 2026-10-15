@@ -374,6 +374,9 @@ export interface AuditEntry {
 
 export interface AuditMetrics {
   periodo: { inicio: string; fim: string };
+  feedback_ia: Record<string, { util: number; nao_util: number }>;
+  taxa_utilidade_ia: number | null;
+  taxa_aceitacao_alertas: number | null;
   alertas_criticos: number;
   alertas_criticos_por_origem: Record<string, number>;
   alertas_por_status: Record<string, number>;
@@ -384,4 +387,50 @@ export interface AuditMetrics {
   passagens_do_cache: number;
   reconciliacoes: number;
   itens_ia_descartados_sem_fonte: number;
+}
+
+// ---------- Melhorias (benchmark): feedback, conferência verbal, documentos de alta ----------
+export type FeedbackKind = "handoff" | "handoff_check" | "medrec" | "discharge" | "discharge_docs";
+
+export interface HandoffCheckItem {
+  fato: string;
+  status: "mencionado" | "omitido" | "divergente";
+  severidade: Severity;
+  comentario: string;
+  refs: string[];
+}
+
+export interface HandoffCheck {
+  resumo: string;
+  itens: HandoffCheckItem[];
+  contagem: { mencionado: number; omitido: number; divergente: number };
+  cobertura: number | null;
+  descartados: number;
+  meta: { modo: "mock" | "real"; modelo: string; prompt_version: string; gerado_em: string; publico: Audience };
+}
+
+export interface DocSection {
+  texto: string;
+  refs: string[];
+  sem_fonte?: boolean;
+}
+
+export interface DischargeDocuments {
+  id: number;
+  patient_id: string;
+  idioma: "pt-BR" | "es" | "en";
+  created_at: string;
+  model: string;
+  prompt_version: string;
+  soap: { subjetivo: DocSection; objetivo: DocSection; avaliacao: DocSection; plano: DocSection };
+  orientacoes: {
+    titulo: string;
+    resumo_internacao: DocSection;
+    medicamentos: { medicamento: string; como_usar: string; horarios: string[]; para_que: string; refs: string[] }[];
+    sinais_de_alerta: DocSection[];
+    cuidados_em_casa: DocSection[];
+    retorno: DocSection;
+  };
+  descartados: { onde: string; texto?: string; refs_invalidas: string[] }[];
+  meta: { modo: "mock" | "real"; gerado_em: string; traducao_disponivel: boolean };
 }

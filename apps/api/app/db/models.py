@@ -121,3 +121,34 @@ class AuditLog(Base):
     entity_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     payload_json: Mapped[dict] = mapped_column(JsonType, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class AIFeedback(Base):
+    """Avaliação "útil / não útil" de uma saída da IA (medida de qualidade para o piloto)."""
+
+    __tablename__ = "ai_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    patient_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(40))  # handoff | handoff_check | medrec | discharge | discharge_docs
+    entity_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    useful: Mapped[bool] = mapped_column()
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class DischargeDocument(Base):
+    """Sumário de alta (SOAP) e orientações ao paciente/cuidador gerados para uma avaliação de alta."""
+
+    __tablename__ = "discharge_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    patient_id: Mapped[str] = mapped_column(String(64), index=True)
+    assessment_id: Mapped[int | None] = mapped_column(ForeignKey("discharge_assessments.id"), nullable=True)
+    language: Mapped[str] = mapped_column(String(10))
+    content_json: Mapped[dict] = mapped_column(JsonType)
+    model: Mapped[str] = mapped_column(String(80))
+    prompt_version: Mapped[str] = mapped_column(String(20))
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

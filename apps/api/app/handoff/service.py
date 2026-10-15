@@ -18,9 +18,10 @@ from app.audit.service import log_action
 from app.config import get_settings
 from app.db.models import HandoffReport, User
 from app.fhir_client.client import FhirSource
+from app.handoff.check import HandoffCheckOutput, mock_check
 from app.handoff.facts import compute_facts
 from app.handoff.mock import mock_handoff
-from app.handoff.schemas import Fact, HandoffOutput, HandoffRequest
+from app.handoff.schemas import Fact, HandoffCheckRequest, HandoffOutput, HandoffRequest
 from app.handoff.validation import validate_refs
 from app.llm.client import generate_structured, load_prompt
 from app.llm.pseudonymize import Pseudonymizer
@@ -271,3 +272,72 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
         )
     db.commit()
     return report_out(report, cached=False)
+
+
+def check_verbal_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str, req: HandoffCheckRequest) -> dict:
+    """Confere o relato verbal contra os fatos duros e a timeline da janela."""
+    now = clock.now()
+    record = load_record(fhir, patient_id)
+    events = build_timeline(record)
+    in_window = window(events, now, req.window_hours)
+    facts = compute_facts(record, events, now, req.window_hours)
+    relevant = [f for f in facts if req.audience in f.publico and f.severidade in ("critico", "atencao") and f.refs]
+    events_by_ref = {e.source_ref: e for e in events}
+
+    pseudo = Pseudonymizer(**record.identifiers_for_pseudonymization())
+    variables = pseudo.apply(
+        {
+            "relato": req.texto,
+            "fatos": [{"texto": f.texto, "tipo": f.tipo, "severidade": f.severidade, "refs": f.refs} for f in relevant],
+            "eventos": [
+                {"ref": e.source_ref, "horario": _local(e.timestamp), "tipo": e.kind, "resumo": e.summary}
+                for e in in_window
+                if e.kind != "med_admin"
+            ],
+        }
+    ) | {"publico": req.audience}
+    result = generate_structured(
+        "handoff_check",
+        variables,
+        HandoffCheckOutput,
+        mock=lambda _v: mock_check(req.texto, facts, req.audience, record, events_by_ref),
+    )
+    valid = {e.source_ref for e in events} | {r for f in facts for r in f.refs}
+    items, dropped = [], []
+    for it in result.output.itens:
+        bad = [r for r in it.refs if r not in valid]
+        (dropped if not it.refs or bad else items).append(it.model_dump())
+    order = {"critico": 0, "atencao": 1, "info": 2}
+    items.sort(key=lambda i: (order[i["severidade"]], i["status"]))
+    counts = {s: sum(i["status"] == s for i in items) for s in ("mencionado", "omitido", "divergente")}
+    out = {
+        "resumo": result.output.resumo,
+        "itens": items,
+        "contagem": counts,
+        "cobertura": round(counts["mencionado"] / len(items), 2) if items else None,
+        "descartados": len(dropped),
+        "meta": {
+            "modo": result.mode,
+            "modelo": result.model,
+            "prompt_version": result.prompt_version,
+            "gerado_em": now.isoformat(),
+            "janela_h": req.window_hours,
+            "publico": req.audience,
+        },
+    }
+    # o relato em si não vai para a auditoria (texto clínico livre); só as contagens
+    log_action(
+        db,
+        user,
+        "handoff.conferencia",
+        "patient",
+        patient_id,
+        {
+            "patient_id": patient_id,
+            "audience": req.audience,
+            **counts,
+            "omitidos_criticos": sum(i["status"] == "omitido" and i["severidade"] == "critico" for i in items),
+            "modelo": result.model,
+        },
+    )
+    return out

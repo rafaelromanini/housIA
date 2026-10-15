@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.db import session as db_session
 from app.db.session import Base
 from app.discharge.router import router as discharge_router
+from app.feedback.router import router as feedback_router
 from app.fhir_client.client import FhirUnavailable, get_fhir
 from app.handoff.router import router as handoff_router
 from app.medrec.router import router as medrec_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(medrec_router)
     app.include_router(discharge_router)
     app.include_router(audit_router)
+    app.include_router(feedback_router)
     return app
 
 

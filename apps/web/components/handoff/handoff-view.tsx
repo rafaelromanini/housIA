@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 
 import { AckButton } from "@/components/ai/alert-ack";
+import { FeedbackButtons } from "@/components/ai/feedback";
+import { VerbalCheck } from "@/components/handoff/verbal-check";
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { usePatient } from "@/components/patient/patient-context";
 import { SeverityBadge, SeverityIcon } from "@/components/severity";
@@ -153,6 +155,8 @@ export function HandoffView() {
           </form>
         </CardContent>
       </Card>
+
+      <VerbalCheck audience={audience} windowH={windowH} />
 
       {error && (
         <Alert variant="critico">
@@ -353,6 +357,8 @@ export function HandoffView() {
               </CardContent>
             </Card>
           </div>
+
+          <FeedbackButtons kind="handoff" entityId={report.id} patientId={patient.id} />
 
           <details className="rounded-lg border bg-card p-4">
             <summary className="cursor-pointer font-bold">

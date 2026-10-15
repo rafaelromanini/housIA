@@ -36,6 +36,9 @@ const ACTION_LABEL: Record<string, string> = {
   "alerta.reconhecido": "Alerta reconhecido",
   "alerta.descartado": "Alerta descartado",
   "alerta.aberto": "Alerta reaberto",
+  "handoff.conferencia": "Conferência da passagem verbal",
+  "discharge.documentos": "Documentos de alta gerados",
+  "ia.feedback": "Avaliação da IA (útil/não útil)",
 };
 
 const FILTERS = [
@@ -63,6 +66,16 @@ function StatTile({ label, value, hint, tone }: { label: string; value: number; 
   );
 }
 
+function PercentTile({ label, value, hint }: { label: string; value: number | null; hint?: string }) {
+  return (
+    <div className="rounded-lg border bg-card p-3 shadow-sm">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="mt-1 text-3xl font-bold leading-none">{value == null ? "—" : `${Math.round(value * 100)}%`}</p>
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
 function summarize(e: AuditEntry): string {
   const p = e.payload ?? {};
   switch (e.action) {
@@ -74,6 +87,10 @@ function summarize(e: AuditEntry): string {
       return `${p.audience} · ${p.model} · prompt v${p.prompt_version}${p.itens_descartados ? ` · ${p.itens_descartados} descartado(s)` : ""}`;
     case "medrec.executada":
       return `${p.origem} → ${p.destino} · ${p.criticos} crítico(s) · ${p.hipoteses} hipótese(s)`;
+    case "handoff.conferencia":
+      return `${p.mencionado} citado(s) · ${p.omitido} omitido(s) (${p.omitidos_criticos} crítico) · ${p.divergente} divergência(s)`;
+    case "ia.feedback":
+      return `${e.entity}: ${p.util ? "útil" : "não útil"}${p.comentario ? ` — “${p.comentario}”` : ""}`;
     case "alerta.reconhecido":
     case "alerta.descartado":
       return `${p.titulo}${p.justificativa ? ` — “${p.justificativa}”` : ""}`;
@@ -153,7 +170,7 @@ export function AuditView() {
 
       <section aria-label="Métricas do período" className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {!m ? (
-          Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-24" />)
+          Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} className="h-24" />)
         ) : (
           <>
             <StatTile
@@ -171,6 +188,20 @@ export function AuditView() {
             <StatTile label="Alertas reconhecidos" value={m.alertas_por_status.reconhecido ?? 0} />
             <StatTile label="Alertas em aberto" value={m.alertas_por_status.aberto ?? 0} />
             <StatTile label="Itens da IA sem fonte" value={m.itens_ia_descartados_sem_fonte} hint="Descartados antes de exibir" />
+            <PercentTile
+              label="Utilidade percebida da IA"
+              value={m.taxa_utilidade_ia}
+              hint={(() => {
+                const f = Object.values(m.feedback_ia);
+                const total = f.reduce((n, x) => n + x.util + x.nao_util, 0);
+                return total ? `${total} avaliação(ões) "isto foi útil?"` : "Sem avaliações no período";
+              })()}
+            />
+            <PercentTile
+              label="Aceitação de alertas"
+              value={m.taxa_aceitacao_alertas}
+              hint="Reconhecidos ÷ (reconhecidos + descartados)"
+            />
           </>
         )}
       </section>

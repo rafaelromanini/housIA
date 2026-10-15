@@ -5,6 +5,7 @@ import { ArrowRight, Bot, FlaskConical, Loader2, PlayCircle, ShieldAlert, TableP
 
 import { AckButton } from "@/components/ai/alert-ack";
 import { reidentify } from "@/components/ai/ai-badge";
+import { FeedbackButtons } from "@/components/ai/feedback";
 import { usePatient } from "@/components/patient/patient-context";
 import { SeverityBadge, SeverityIcon } from "@/components/severity";
 import { SourceRefs } from "@/components/source-ref";
@@ -258,6 +259,7 @@ export function MedrecView() {
                 ))}
               </ul>
             )}
+            {run.meta.modo && <FeedbackButtons kind="medrec" entityId={run.id} patientId={patient.id} />}
           </section>
 
           {run.origem && (

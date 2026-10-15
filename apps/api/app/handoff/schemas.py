@@ -53,3 +53,9 @@ class HandoffRequest(BaseModel):
     window_hours: int = Field(12, ge=1, le=72)
     to_location: str | None = None
     force: bool = False
+
+
+class HandoffCheckRequest(BaseModel):
+    audience: Audience
+    texto: str = Field(..., min_length=10, max_length=6000, description="Relato verbal de quem está saindo")
+    window_hours: int = Field(12, ge=1, le=72)

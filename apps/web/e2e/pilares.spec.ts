@@ -38,8 +38,9 @@ test("pilar 1 — passagem de plantão por perfil com fonte de cada item", async
   await expect(page.getByText(/Risco de queda/).first()).toBeVisible();
   expect(medHeadline.length).toBeGreaterThan(10);
 
-  const ack = page.getByRole("button", { name: "Reconhecer alerta" }).first();
-  await ack.click();
+  // idempotente: em execuções repetidas sobre o mesmo banco os alertas podem já estar reconhecidos
+  const ack = page.getByRole("button", { name: "Reconhecer alerta" });
+  if (await ack.count()) await ack.first().click();
   await expect(page.getByText("Reconhecido").first()).toBeVisible();
 });
 
