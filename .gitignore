@@ -21,3 +21,6 @@ node_modules/
 .idea/
 .vscode/
 .sandbox-ca.crt
+
+# brag (vídeo): frames e intermediários
+brag-output/work/
