@@ -1,8 +1,7 @@
-from datetime import UTC, datetime
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.db.models import Alert
 
 
@@ -36,7 +35,7 @@ def upsert_alert(
         detail=detail,
         source_refs=refs or [],
         status="aberto",
-        created_at=datetime.now(UTC),
+        created_at=clock.now(),
     )
     db.add(alert)
     db.flush()

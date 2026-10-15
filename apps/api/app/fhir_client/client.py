@@ -11,7 +11,6 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Protocol
 
 import httpx
@@ -127,11 +126,10 @@ class LocalFhirStore:
 
 _lock = threading.Lock()
 _source: FhirSource | None = None
-_loaded_at: datetime | None = None
 
 
 def get_fhir() -> FhirSource:
-    global _source, _loaded_at
+    global _source
     with _lock:
         if _source is None:
             settings = get_settings()
@@ -141,7 +139,6 @@ def get_fhir() -> FhirSource:
                 from app.seed.scenarios import build_demo_resources
 
                 _source = LocalFhirStore.from_resources(build_demo_resources())
-            _loaded_at = datetime.now(UTC)
         return _source
 
 

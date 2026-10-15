@@ -10,3 +10,4 @@ Registros curtos das decisões tomadas fora do `HOUSIA_MVP_PLAN.md`.
 | [0004](0004-regulatorio-e-lgpd.md) | Requisitos regulatórios e de LGPD para uso real |
 | [0005](0005-llm-saida-estruturada-e-mock.md) | LLM: saída estruturada, esforço em vez de temperatura, fallback e modo mock |
 | [0006](0006-reconciliacao-medicamentosa.md) | Regras da reconciliação medicamentosa |
+| [0007](0007-score-de-alta-e-trava.md) | Score de reinternação (LACE + social) e trava suave da alta |

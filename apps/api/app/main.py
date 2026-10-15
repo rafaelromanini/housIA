@@ -7,11 +7,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.alerts.router import router as alerts_router
+from app.audit.router import router as audit_router
 from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
 from app.config import get_settings
 from app.db import session as db_session
 from app.db.session import Base
+from app.discharge.router import router as discharge_router
 from app.fhir_client.client import FhirUnavailable, get_fhir
 from app.handoff.router import router as handoff_router
 from app.medrec.router import router as medrec_router
@@ -79,6 +81,8 @@ def create_app() -> FastAPI:
     app.include_router(handoff_router)
     app.include_router(alerts_router)
     app.include_router(medrec_router)
+    app.include_router(discharge_router)
+    app.include_router(audit_router)
     return app
 
 

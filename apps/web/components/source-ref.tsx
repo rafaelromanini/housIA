@@ -42,6 +42,14 @@ export function SourceRefs({ patientId, refs, label = "ver fonte" }: { patientId
           <ul className="space-y-2">
             {refs.map((ref) => {
               const matches = events.filter((e) => e.source_ref === ref);
+              if (ref.startsWith("Checklist/")) {
+                return (
+                  <li key={ref} className="rounded-md border p-3 text-sm">
+                    <p className="font-mono text-xs text-muted-foreground">{ref}</p>
+                    <p className="mt-1">Resposta do checklist social de alta ({ref.split("/")[1].replaceAll("_", " ")}).</p>
+                  </li>
+                );
+              }
               return (
                 <li key={ref} className="rounded-md border p-3 text-sm">
                   <p className="font-mono text-xs text-muted-foreground">{ref}</p>

@@ -4,7 +4,10 @@
     "mora_sozinho": {
       "risco_quando": true,
       "peso": 2,
-      "rotulo": "Mora sozinho"
+      "rotulo": "Mora sozinho e sem cuidador designado",
+      "so_se": {
+        "tem_cuidador": false
+      }
     },
     "tem_cuidador": {
       "risco_quando": false,

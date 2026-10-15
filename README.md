@@ -44,6 +44,8 @@ cd apps/web && npm install && npm run dev
       estruturada (ou mock), validação de refs, cache por `input_hash`, alertas reconhecíveis
 - [x] Fase 3 — reconciliação (pilar 3): origem × destino por princípio ativo, omissão, duplicidade, interações,
       alto alerta e alergia (regras com testes unitários) + hipóteses da IA sobre sintomas novos
+- [x] Fase 4 — "Waze" da alta (pilar 2): checklist pré-preenchido do FHIR, LACE + score social transparentes,
+      sugestões da IA com fonte, trava suave com override justificado e auditado
 
 ## Estrutura
 

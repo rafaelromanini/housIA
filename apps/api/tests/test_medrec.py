@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 import pytest
 
 from app.fhir_client.client import LocalFhirStore
@@ -17,8 +15,9 @@ from app.medrec.rules import (
 from app.seed.builder import build_all
 from app.timeline.events import build_timeline
 from app.timeline.record import PatientRecord
+from tests.conftest import ANCHOR  # noqa: E402
 
-NOW = datetime.now(UTC).replace(second=0, microsecond=0)
+NOW = ANCHOR
 
 
 def make_record(prescricoes: list[dict], alergias: list[dict] | None = None, **extra) -> PatientRecord:
@@ -45,8 +44,15 @@ def make_record(prescricoes: list[dict], alergias: list[dict] | None = None, **e
 
 
 def rx(med: str, setores: list[str], **kw) -> dict:
-    return {"id": med, "med": med, "dose": kw.pop("dose", "10 mg"), "via": "VO", "horarios": ["08:00"],
-            "setores": setores, **kw}
+    return {
+        "id": med,
+        "med": med,
+        "dose": kw.pop("dose", "10 mg"),
+        "via": "VO",
+        "horarios": ["08:00"],
+        "setores": setores,
+        **kw,
+    }
 
 
 def statuses(rec: PatientRecord) -> dict[str, str]:
@@ -56,13 +62,15 @@ def statuses(rec: PatientRecord) -> dict[str, str]:
 
 # ---------- regra: omissão / comparação origem x destino ----------
 def test_omission_vs_kept_vs_new_vs_changed():
-    rec = make_record([
-        rx("metoprolol", ["uti"]),
-        rx("omeprazol", ["uti", "enf"]),
-        rx("furosemida", ["uti"]),
-        {**rx("furosemida", ["enf"]), "id": "furo2", "dose": "80 mg"},
-        rx("enoxaparina", ["enf"]),
-    ])
+    rec = make_record(
+        [
+            rx("metoprolol", ["uti"]),
+            rx("omeprazol", ["uti", "enf"]),
+            rx("furosemida", ["uti"]),
+            {**rx("furosemida", ["enf"]), "id": "furo2", "dose": "80 mg"},
+            rx("enoxaparina", ["enf"]),
+        ]
+    )
     st = statuses(rec)
     assert st["metoprolol"] == "omitida"
     assert st["omeprazol"] == "mantida"
@@ -81,10 +89,12 @@ def test_registered_stop_is_not_omission():
 
 
 def test_replacement_by_prior_prescription_is_not_omission():
-    rec = make_record([
-        rx("anlodipino", ["uti"]),
-        rx("losartana", ["enf"], substitui="anlodipino"),
-    ])
+    rec = make_record(
+        [
+            rx("anlodipino", ["uti"]),
+            rx("losartana", ["enf"], substitui="anlodipino"),
+        ]
+    )
     st = statuses(rec)
     assert st["anlodipino"] == "suspensa" and st["losartana"] == "nova"
 
@@ -97,8 +107,9 @@ def test_non_critical_class_omission_is_attention():
 
 # ---------- regra: duplicidade ----------
 def test_duplicity_same_class_and_same_ingredient():
-    rec = make_record([rx("omeprazol", ["enf"]), rx("pantoprazol", ["enf"]),
-                       rx("dipirona", ["enf"]), rx("paracetamol", ["enf"])])
+    rec = make_record(
+        [rx("omeprazol", ["enf"]), rx("pantoprazol", ["enf"]), rx("dipirona", ["enf"]), rx("paracetamol", ["enf"])]
+    )
     meds = [m for m in rec.medications if m.status == "active"]
     found = duplicity_findings(meds)
     assert len(found) == 1 and "omeprazol" in found[0].medicamentos  # analgésicos simples são exceção
@@ -107,8 +118,12 @@ def test_duplicity_same_class_and_same_ingredient():
 # ---------- regra: interações ----------
 @pytest.mark.parametrize(
     ("a", "b", "severity"),
-    [("morfina", "diazepam", "critico"), ("varfarina", "ibuprofeno", "critico"),
-     ("enalapril", "espironolactona", "critico"), ("clopidogrel", "omeprazol", "atencao")],
+    [
+        ("morfina", "diazepam", "critico"),
+        ("varfarina", "ibuprofeno", "critico"),
+        ("enalapril", "espironolactona", "critico"),
+        ("clopidogrel", "omeprazol", "atencao"),
+    ],
 )
 def test_interactions_table(a, b, severity):
     rec = make_record([rx(a, ["enf"]), rx(b, ["enf"])])
@@ -163,8 +178,9 @@ def test_scenario2_metoprolol_omission_and_withdrawal_hypothesis(client, auth):
 
 def test_scenario5_two_critical_deterministic_alerts(client, auth):
     h = auth("enfermagem")
-    run = client.post("/patients/cen5/medrec", json={"from": "Pronto-Socorro", "to": "Clínica Cirúrgica 4A"},
-                      headers=h).json()
+    run = client.post(
+        "/patients/cen5/medrec", json={"from": "Pronto-Socorro", "to": "Clínica Cirúrgica 4A"}, headers=h
+    ).json()
     critical = [a for a in run["achados"] if a["severidade"] == "critico"]
     assert {a["tipo"] for a in critical} == {"alergia", "interacao"}
     assert len(critical) == 2

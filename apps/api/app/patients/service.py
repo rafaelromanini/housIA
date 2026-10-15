@@ -1,9 +1,10 @@
-from datetime import UTC, date, datetime
+from datetime import date
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.db.models import Alert, DischargeAssessment
 from app.fhir_client import codes
 from app.fhir_client.client import FhirSource
@@ -60,7 +61,7 @@ def latest_discharge_risk(db: Session) -> dict[str, str]:
 
 def bed_panel(fhir: FhirSource, db: Session) -> list[dict]:
     """Linhas do painel de leitos: só pacientes com setor ativo (sub-encounter em andamento)."""
-    now = datetime.now(UTC)
+    now = clock.now()
     locations = fhir.locations()
     patients = {p["id"]: p for p in fhir.list_patients()}
     encounters = fhir.active_encounters()

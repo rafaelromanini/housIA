@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.audit.service import log_action
 from app.auth.deps import get_current_user
 from app.db.models import Alert, User
@@ -63,7 +63,7 @@ def set_alert_status(
     previous = alert.status
     alert.status = body.status
     alert.acted_by = user.id
-    alert.acted_at = datetime.now(UTC)
+    alert.acted_at = clock.now()
     log_action(
         db,
         user,

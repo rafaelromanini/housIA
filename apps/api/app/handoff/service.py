@@ -6,12 +6,13 @@ estruturada → validação de refs (itens sem fonte válida são descartados e 
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.alerts.service import upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
@@ -83,7 +84,7 @@ def report_out(report: HandoffReport, cached: bool) -> dict:
 def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str, req: HandoffRequest) -> dict:
     settings = get_settings()
     prompt = load_prompt(PROMPT)
-    now = datetime.now(UTC)
+    now = clock.now()
     record = load_record(fhir, patient_id)
     events = build_timeline(record)
     in_window = window(events, now, req.window_hours)

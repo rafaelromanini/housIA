@@ -300,3 +300,63 @@ export interface MedrecRun {
     aviso: string;
   };
 }
+
+// ---------- Planejamento de alta ----------
+export interface SocialChecklist {
+  mora_sozinho: boolean | null;
+  tem_cuidador: boolean | null;
+  cuidador_capacitado: boolean | null;
+  escadas_em_casa: boolean | null;
+  mobilidade_reduzida: boolean | null;
+  acesso_medicamentos: boolean | null;
+  precisa_dispositivos: boolean | null;
+  dispositivos: string[];
+  ja_tem_dispositivos: boolean | null;
+  consulta_retorno_agendada: boolean | null;
+  teach_back_realizado: boolean | null;
+  observacoes?: string | null;
+}
+
+export interface LaceComponent {
+  rotulo: string;
+  valor: string;
+  pontos: number;
+  refs: string[];
+  categorias?: { categoria: string; peso: number; cid10: string; refs: string[] }[];
+}
+
+export interface DischargeSuggestion {
+  texto: string;
+  motivo: string;
+  prioridade: "alta" | "media" | "baixa";
+  responsavel: string;
+  refs: string[];
+}
+
+export interface DischargeAssessment {
+  id: number;
+  patient_id: string;
+  created_at: string;
+  checklist: SocialChecklist;
+  lace: { score: number; banda: Risk; componentes: Record<"L" | "A" | "C" | "E", LaceComponent> };
+  social: {
+    score: number;
+    banda: Risk;
+    itens: { campo: string; rotulo: string; peso: number; refs: string[] }[];
+    aviso: string;
+    faixas: { moderado: number; alto: number };
+  };
+  final_risk: Risk;
+  explicacao: string;
+  sugestoes: DischargeSuggestion[];
+  descartados: DischargeSuggestion[];
+  meta: { modo: "mock" | "real"; modelo: string; prompt_version: string };
+  trava: { ativa: boolean; motivo: string | null };
+  overrides: { id: number; usuario: string; papel: string; justificativa: string; created_at: string }[];
+  confirmada: { em: string; por: string | null } | null;
+}
+
+export interface DischargePrefill {
+  valores: Partial<Pick<SocialChecklist, "mora_sozinho" | "tem_cuidador" | "mobilidade_reduzida">>;
+  fontes: Record<string, { ref: string | null; explicacao: string }>;
+}

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from app import clock
 from app.config import get_settings
 from app.fhir_client import codes
 from app.reference import drugs
@@ -787,7 +788,7 @@ class ScenarioBuilder:
 
 def build_all(scenarios: list[dict], anchor: datetime | None = None) -> list[dict]:
     """Constrói todos os recursos (Locations compartilhadas primeiro)."""
-    anchor = (anchor or datetime.now(UTC)).replace(second=0, microsecond=0)
+    anchor = (anchor or clock.now()).replace(second=0, microsecond=0)
     registry = LocationRegistry()
     resources: list[dict] = []
     for sc in scenarios:

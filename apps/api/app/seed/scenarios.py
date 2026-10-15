@@ -1,7 +1,8 @@
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from functools import lru_cache
 
+from app import clock
 from app.config import get_settings
 from app.seed import background
 from app.seed.builder import build_all
@@ -29,4 +30,4 @@ def build_demo_resources(anchor: datetime | None = None, include_background: boo
     scenarios = list(load_scenarios())
     if include_background:
         scenarios += background.generate()
-    return build_all(scenarios, anchor or datetime.now(UTC))
+    return build_all(scenarios, anchor or clock.now())

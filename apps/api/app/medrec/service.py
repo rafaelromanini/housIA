@@ -1,11 +1,12 @@
 """Pilar 3 — orquestra regras determinísticas + hipóteses da IA e persiste em medrec_runs."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.alerts.service import upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
@@ -45,7 +46,7 @@ def run_out(run: MedrecRun) -> dict:
 def run_medrec(
     db: Session, fhir: FhirSource, user: User, patient_id: str, origin_key: str | None, dest_key: str | None
 ) -> dict:
-    now = datetime.now(UTC)
+    now = clock.now()
     record = load_record(fhir, patient_id)
     default_origin, default_dest = default_transition(record)
     dest = resolve_sector(record, dest_key) if dest_key else default_dest

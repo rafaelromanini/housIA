@@ -42,8 +42,15 @@ def test_pseudonymizer_generic_patterns_and_nested_data():
 
 # ---------- validação de refs ----------
 def _output(**kw) -> HandoffOutput:
-    base = dict(headline="h", situacao="s", situacao_refs=["Encounter/x", "Observation/fake"],
-                mudancas_no_periodo=[], riscos_proximas_horas=[], pendencias=[], perguntas_para_quem_sai=[])
+    base = dict(
+        headline="h",
+        situacao="s",
+        situacao_refs=["Encounter/x", "Observation/fake"],
+        mudancas_no_periodo=[],
+        riscos_proximas_horas=[],
+        pendencias=[],
+        perguntas_para_quem_sai=[],
+    )
     return HandoffOutput.model_validate(base | kw)
 
 
@@ -99,8 +106,15 @@ class FakeAnthropic:
         return self.responses.pop(0)
 
 
-VALID = HandoffOutput(headline="h", situacao="s", situacao_refs=[], mudancas_no_periodo=[],
-                      riscos_proximas_horas=[], pendencias=[], perguntas_para_quem_sai=[]).model_dump_json()
+VALID = HandoffOutput(
+    headline="h",
+    situacao="s",
+    situacao_refs=[],
+    mudancas_no_periodo=[],
+    riscos_proximas_horas=[],
+    pendencias=[],
+    perguntas_para_quem_sai=[],
+).model_dump_json()
 
 
 @pytest.fixture
@@ -162,10 +176,12 @@ def test_cen1_handoff_differs_by_audience_and_cites_valid_sources(client, auth, 
     assert m != e
 
     # médico: risco de pico hipertensivo (PA em ascensão, crítico)
-    assert any(r["severidade"] == "critico" and "PA sistólica em ascensão" in r["texto"]
-               for r in m["riscos_proximas_horas"])
-    assert any("exame" in r["texto"].lower() or "Hemoglobina" in r["texto"] for r in m["riscos_proximas_horas"]) or \
-        any("Leucócitos" in c["texto"] for c in m["mudancas_no_periodo"])
+    assert any(
+        r["severidade"] == "critico" and "PA sistólica em ascensão" in r["texto"] for r in m["riscos_proximas_horas"]
+    )
+    assert any("exame" in r["texto"].lower() or "Hemoglobina" in r["texto"] for r in m["riscos_proximas_horas"]) or any(
+        "Leucócitos" in c["texto"] for c in m["mudancas_no_periodo"]
+    )
     # enfermagem: horário do ATB e acesso venoso
     assert any("Ceftriaxona" in p["texto"] and p["horario"] == "20:00" for p in e["pendencias"])
     assert any("Acesso venoso" in r["texto"] for r in e["riscos_proximas_horas"])

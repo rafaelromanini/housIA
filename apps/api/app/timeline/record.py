@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from functools import cached_property
 
+from app import clock
 from app.fhir_client import codes
 from app.fhir_client.client import FhirSource
 from app.reference import drugs, drugs_by_atc
@@ -140,7 +141,7 @@ class PatientRecord:
         self.patient = patient
         self.resources = resources
         self.locations = locations
-        self.now = now or datetime.now(UTC)
+        self.now = now or clock.now()
 
     @classmethod
     def load(cls, fhir: FhirSource, patient_id: str) -> PatientRecord | None:

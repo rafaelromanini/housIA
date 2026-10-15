@@ -1,5 +1,6 @@
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -10,13 +11,16 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app import clock  # noqa: E402
 from app.db import session as db_session  # noqa: E402
 from app.db.session import Base  # noqa: E402
 from app.fhir_client.client import LocalFhirStore, set_fhir  # noqa: E402
 from app.seed.scenarios import build_demo_resources  # noqa: E402
 from app.timeline.record import PatientRecord  # noqa: E402
 
-ANCHOR = datetime.now(UTC).replace(second=0, microsecond=0)
+# Âncora fixa (15:00 em São Paulo) e relógio congelado: testes não dependem da hora em que rodam.
+ANCHOR = datetime.combine(date.today(), time(15, 0), tzinfo=ZoneInfo("America/Sao_Paulo")).astimezone(UTC)
+clock.freeze(ANCHOR + timedelta(minutes=1))
 
 
 @pytest.fixture(scope="session")

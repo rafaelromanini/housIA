@@ -1,16 +1,17 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app import clock
 from app.db.session import Base
 
 JsonType = JSON().with_variant(JSONB(), "postgresql")
 
 
 def utcnow() -> datetime:
-    return datetime.now(UTC)
+    return clock.now()
 
 
 class User(Base):
