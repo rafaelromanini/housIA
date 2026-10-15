@@ -2,6 +2,7 @@
 
 import { ArrowRightLeft, ClipboardList, History, Pill, Users } from "lucide-react";
 
+import { AlertsCard } from "@/components/patient/alerts-card";
 import { usePatient } from "@/components/patient/patient-context";
 import { Timeline } from "@/components/timeline";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +27,7 @@ export function PatientOverview({ highlightRef }: { highlightRef?: string | null
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
       <div className="space-y-4">
+        <AlertsCard />
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

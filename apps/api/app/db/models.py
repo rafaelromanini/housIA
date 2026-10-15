@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -8,6 +8,18 @@ from app import clock
 from app.db.session import Base
 
 JsonType = JSON().with_variant(JSONB(), "postgresql")
+
+
+class UTCDateTime(TypeDecorator):
+    """DateTime sempre com fuso: o SQLite devolve datas sem tzinfo; tratamos como UTC."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 def utcnow() -> datetime:
@@ -22,7 +34,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(20))  # medico | enfermagem | gestor
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class HandoffReport(Base):
@@ -40,7 +52,7 @@ class HandoffReport(Base):
     prompt_version: Mapped[str] = mapped_column(String(20))
     input_hash: Mapped[str] = mapped_column(String(64), index=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class Alert(Base):
@@ -55,8 +67,8 @@ class Alert(Base):
     source_refs: Mapped[list] = mapped_column(JsonType, default=list)
     status: Mapped[str] = mapped_column(String(20), default="aberto")  # aberto | reconhecido | descartado
     acted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    acted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    acted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class DischargeAssessment(Base):
@@ -72,9 +84,9 @@ class DischargeAssessment(Base):
     final_risk: Mapped[str] = mapped_column(String(20))  # baixo | moderado | alto
     suggestions_json: Mapped[dict] = mapped_column(JsonType, default=dict)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     confirmed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class DischargeOverride(Base):
@@ -84,7 +96,7 @@ class DischargeOverride(Base):
     assessment_id: Mapped[int] = mapped_column(ForeignKey("discharge_assessments.id"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     justification: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class MedrecRun(Base):
@@ -96,7 +108,7 @@ class MedrecRun(Base):
     to_encounter_or_location: Mapped[str] = mapped_column(String(120))
     findings_json: Mapped[dict] = mapped_column(JsonType)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class AuditLog(Base):
@@ -108,4 +120,4 @@ class AuditLog(Base):
     entity: Mapped[str] = mapped_column(String(80))
     entity_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     payload_json: Mapped[dict] = mapped_column(JsonType, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)

@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.auth.deps import require_roles
+from app.config import get_settings
 from app.db.models import Alert, AuditLog, DischargeAssessment, DischargeOverride, HandoffReport, MedrecRun, User
 from app.db.session import get_db
 
@@ -14,9 +16,11 @@ gestor = require_roles("gestor")
 
 
 def _range(since: date | None, until: date | None) -> tuple[datetime, datetime]:
-    end = datetime.combine(until, time.max, tzinfo=UTC) if until else clock.now() + timedelta(minutes=1)
-    start = datetime.combine(since, time.min, tzinfo=UTC) if since else end - timedelta(days=30)
-    return start, end
+    """Datas do filtro são dias no fuso do hospital (America/Sao_Paulo por padrão)."""
+    tz = ZoneInfo(get_settings().timezone)
+    end = datetime.combine(until, time.max, tzinfo=tz) if until else clock.now() + timedelta(minutes=1)
+    start = datetime.combine(since, time.min, tzinfo=tz) if since else end - timedelta(days=30)
+    return start.astimezone(UTC), end.astimezone(UTC)
 
 
 @router.get("")

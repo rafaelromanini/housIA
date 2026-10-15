@@ -360,3 +360,28 @@ export interface DischargePrefill {
   valores: Partial<Pick<SocialChecklist, "mora_sozinho" | "tem_cuidador" | "mobilidade_reduzida">>;
   fontes: Record<string, { ref: string | null; explicacao: string }>;
 }
+
+// ---------- Auditoria ----------
+export interface AuditEntry {
+  id: number;
+  created_at: string;
+  user: { id: number; name: string; role: Role } | null;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface AuditMetrics {
+  periodo: { inicio: string; fim: string };
+  alertas_criticos: number;
+  alertas_criticos_por_origem: Record<string, number>;
+  alertas_por_status: Record<string, number>;
+  overrides: number;
+  altas_alto_risco: number;
+  altas_confirmadas: number;
+  passagens_geradas: number;
+  passagens_do_cache: number;
+  reconciliacoes: number;
+  itens_ia_descartados_sem_fonte: number;
+}

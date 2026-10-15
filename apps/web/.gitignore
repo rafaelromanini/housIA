@@ -6,3 +6,5 @@ next-env.d.ts
 playwright-report/
 test-results/
 .env*.local
+/blob-report/
+/playwright/.cache/
