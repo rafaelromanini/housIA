@@ -1,8 +1,9 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.auth.router import router as auth_router
@@ -10,6 +11,8 @@ from app.auth.router import seed_demo_users
 from app.config import get_settings
 from app.db import session as db_session
 from app.db.session import Base
+from app.fhir_client.client import FhirUnavailable, get_fhir
+from app.patients.router import router as patients_router
 
 logger = logging.getLogger("housia")
 
@@ -43,6 +46,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.exception_handler(FhirUnavailable)
+    async def fhir_unavailable(_: Request, exc: FhirUnavailable) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
     @app.get("/health", tags=["infra"])
     def health() -> dict:
         db_ok = True
@@ -51,14 +58,21 @@ def create_app() -> FastAPI:
                 conn.execute(text("SELECT 1"))
         except Exception:  # noqa: BLE001
             db_ok = False
+        fhir_ok = True
+        try:
+            get_fhir().locations()
+        except FhirUnavailable:
+            fhir_ok = False
         return {
             "status": "ok" if db_ok else "degradado",
             "db": db_ok,
+            "fhir": fhir_ok,
             "fhir_mode": settings.fhir_mode,
             "llm_mode": settings.llm_mode,
         }
 
     app.include_router(auth_router)
+    app.include_router(patients_router)
     return app
 
 

@@ -1,0 +1,89 @@
+principio_ativo,nome,atc,classe
+metoprolol,Metoprolol,C07AB02,betabloqueador
+atenolol,Atenolol,C07AB03,betabloqueador
+carvedilol,Carvedilol,C07AG02,betabloqueador
+propranolol,Propranolol,C07AA05,betabloqueador
+bisoprolol,Bisoprolol,C07AB07,betabloqueador
+enalapril,Enalapril,C09AA02,ieca
+captopril,Captopril,C09AA01,ieca
+lisinopril,Lisinopril,C09AA03,ieca
+losartana,Losartana,C09CA01,bra
+valsartana,Valsartana,C09CA03,bra
+anlodipino,Anlodipino,C08CA01,bloqueador_canal_calcio
+nifedipino,Nifedipino,C08CA05,bloqueador_canal_calcio
+verapamil,Verapamil,C08DA01,bloqueador_canal_calcio_nao_di
+diltiazem,Diltiazem,C08DB01,bloqueador_canal_calcio_nao_di
+hidralazina,Hidralazina,C02DB02,vasodilatador
+clonidina,Clonidina,C02AC01,agonista_alfa2
+espironolactona,Espironolactona,C03DA01,diuretico_poupador_potassio
+furosemida,Furosemida,C03CA01,diuretico_alca
+hidroclorotiazida,Hidroclorotiazida,C03AA03,diuretico_tiazidico
+amiodarona,Amiodarona,C01BD01,antiarritmico
+digoxina,Digoxina,C01AA05,digitalico
+varfarina,Varfarina,B01AA03,anticoagulante_oral
+rivaroxabana,Rivaroxabana,B01AF01,anticoagulante_oral
+apixabana,Apixabana,B01AF02,anticoagulante_oral
+heparina,Heparina não fracionada,B01AB01,heparina
+enoxaparina,Enoxaparina,B01AB05,heparina
+aas,Ácido acetilsalicílico,B01AC06,antiagregante
+clopidogrel,Clopidogrel,B01AC04,antiagregante
+sinvastatina,Sinvastatina,C10AA01,estatina
+atorvastatina,Atorvastatina,C10AA05,estatina
+insulina_nph,Insulina NPH,A10AC01,insulina_basal
+insulina_glargina,Insulina glargina,A10AE04,insulina_basal
+insulina_regular,Insulina regular,A10AB01,insulina_rapida
+metformina,Metformina,A10BA02,biguanida
+glibenclamida,Glibenclamida,A10BB01,sulfonilureia
+gliclazida,Gliclazida,A10BB09,sulfonilureia
+omeprazol,Omeprazol,A02BC01,ibp
+pantoprazol,Pantoprazol,A02BC02,ibp
+ondansetrona,Ondansetrona,A04AA01,antiemetico
+metoclopramida,Metoclopramida,A03FA01,procinetico
+dipirona,Dipirona,N02BB02,analgesico_simples
+paracetamol,Paracetamol,N02BE01,analgesico_simples
+morfina,Morfina,N02AA01,opioide
+tramadol,Tramadol,N02AX02,opioide
+fentanil,Fentanil,N01AH01,opioide
+oxicodona,Oxicodona,N02AA05,opioide
+codeina,Codeína,R05DA04,opioide
+cetoprofeno,Cetoprofeno,M01AE03,aine
+ibuprofeno,Ibuprofeno,M01AE01,aine
+diclofenaco,Diclofenaco,M01AB05,aine
+cetorolaco,Cetorolaco,M01AB15,aine
+diazepam,Diazepam,N05BA01,benzodiazepinico
+midazolam,Midazolam,N05CD08,benzodiazepinico
+clonazepam,Clonazepam,N03AE01,benzodiazepinico
+lorazepam,Lorazepam,N05BA06,benzodiazepinico
+haloperidol,Haloperidol,N05AD01,antipsicotico
+quetiapina,Quetiapina,N05AH04,antipsicotico
+sertralina,Sertralina,N06AB06,isrs
+fluoxetina,Fluoxetina,N06AB03,isrs
+amitriptilina,Amitriptilina,N06AA09,antidepressivo_triciclico
+ceftriaxona,Ceftriaxona,J01DD04,cefalosporina
+cefazolina,Cefazolina,J01DB04,cefalosporina
+cefepima,Cefepima,J01DE01,cefalosporina
+amoxicilina,Amoxicilina,J01CA04,penicilina
+amoxicilina_clavulanato,Amoxicilina + clavulanato,J01CR02,penicilina
+piperacilina_tazobactam,Piperacilina + tazobactam,J01CR05,penicilina
+ciprofloxacino,Ciprofloxacino,J01MA02,fluoroquinolona
+levofloxacino,Levofloxacino,J01MA12,fluoroquinolona
+claritromicina,Claritromicina,J01FA09,macrolideo
+azitromicina,Azitromicina,J01FA10,macrolideo
+vancomicina,Vancomicina,J01XA01,glicopeptideo
+metronidazol,Metronidazol,J01XD01,nitroimidazol
+sulfametoxazol_trimetoprima,Sulfametoxazol + trimetoprima,J01EE01,sulfonamida
+fluconazol,Fluconazol,J02AC01,antifungico_azolico
+cloreto_potassio,Cloreto de potássio,A12BA01,eletrolito_potassio
+levotiroxina,Levotiroxina,H03AA01,hormonio_tireoidiano
+prednisona,Prednisona,H02AB07,corticoide
+hidrocortisona,Hidrocortisona,H02AB09,corticoide
+dexametasona,Dexametasona,H02AB02,corticoide
+salbutamol,Salbutamol,R03AC02,beta2_agonista
+ipratropio,Brometo de ipratrópio,R03BB01,anticolinergico_inalatorio
+noradrenalina,Noradrenalina,C01CA03,vasopressor
+fenitoina,Fenitoína,N03AB02,anticonvulsivante
+levetiracetam,Levetiracetam,N03AX14,anticonvulsivante
+carbamazepina,Carbamazepina,N03AF01,anticonvulsivante
+alopurinol,Alopurinol,M04AA01,antigotoso
+lactulose,Lactulose,A06AD11,laxativo
+bromoprida,Bromoprida,A03FA04,procinetico

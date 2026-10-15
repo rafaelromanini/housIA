@@ -1,0 +1,55 @@
+a,b,severidade,descricao,recomendacao
+@opioide,@benzodiazepinico,critico,Opioide + benzodiazepínico: depressão respiratória e sedação aditivas,Evitar a associação; se inevitável usar menor dose e monitorar FR/SpO2 e nível de sedação
+@anticoagulante_oral,@aine,critico,Anticoagulante + AINE: risco aumentado de sangramento,Evitar AINE; preferir paracetamol/dipirona se não houver contraindicação
+@anticoagulante_oral,@antiagregante,atencao,Anticoagulante + antiagregante: risco aumentado de sangramento,Confirmar indicação da terapia dupla e monitorar sangramento
+@heparina,@anticoagulante_oral,atencao,Heparina + anticoagulante oral: anticoagulação sobreposta,Confirmar se é ponte intencional e monitorar coagulograma
+@heparina,@aine,atencao,Heparina + AINE: risco aumentado de sangramento,Evitar AINE se possível
+@heparina,@antiagregante,atencao,Heparina + antiagregante: risco aumentado de sangramento,Confirmar indicação e monitorar sangramento
+varfarina,amiodarona,critico,Amiodarona potencializa a varfarina (aumento do INR),Reduzir dose de varfarina e monitorar INR
+varfarina,sulfametoxazol_trimetoprima,critico,Sulfametoxazol-trimetoprima potencializa a varfarina,Considerar outro antimicrobiano ou monitorar INR de perto
+varfarina,fluconazol,critico,Fluconazol potencializa a varfarina,Monitorar INR e ajustar dose
+varfarina,metronidazol,critico,Metronidazol potencializa a varfarina,Monitorar INR e ajustar dose
+varfarina,ciprofloxacino,atencao,Ciprofloxacino pode elevar o INR,Monitorar INR
+varfarina,levofloxacino,atencao,Levofloxacino pode elevar o INR,Monitorar INR
+varfarina,claritromicina,atencao,Claritromicina pode elevar o INR,Monitorar INR
+varfarina,fenitoina,atencao,Interação bidirecional varfarina-fenitoína,Monitorar INR e nível de fenitoína
+varfarina,carbamazepina,atencao,Carbamazepina reduz o efeito da varfarina,Monitorar INR
+@ieca,@diuretico_poupador_potassio,critico,IECA + poupador de potássio: risco de hipercalemia,Monitorar potássio e função renal
+@bra,@diuretico_poupador_potassio,critico,BRA + poupador de potássio: risco de hipercalemia,Monitorar potássio e função renal
+@ieca,cloreto_potassio,critico,IECA + suplemento de potássio: risco de hipercalemia,Reavaliar necessidade de KCl e monitorar potássio
+@bra,cloreto_potassio,critico,BRA + suplemento de potássio: risco de hipercalemia,Reavaliar necessidade de KCl e monitorar potássio
+@diuretico_poupador_potassio,cloreto_potassio,critico,Poupador de potássio + KCl: risco de hipercalemia,Evitar associação
+@ieca,@bra,atencao,Duplo bloqueio do SRAA: hipercalemia e lesão renal,Evitar associação
+@ieca,@aine,atencao,IECA + AINE: menor efeito anti-hipertensivo e risco de lesão renal,Evitar AINE ou monitorar função renal
+@bra,@aine,atencao,BRA + AINE: menor efeito anti-hipertensivo e risco de lesão renal,Evitar AINE ou monitorar função renal
+@diuretico_alca,@aine,atencao,Diurético de alça + AINE: menor efeito diurético e risco renal,Monitorar diurese e função renal
+@diuretico_poupador_potassio,@aine,atencao,Poupador de potássio + AINE: hipercalemia e lesão renal,Monitorar potássio e função renal
+digoxina,amiodarona,critico,Amiodarona eleva o nível sérico de digoxina,Reduzir dose de digoxina e monitorar nível sérico
+digoxina,@diuretico_alca,atencao,Hipocalemia por diurético potencializa toxicidade digitálica,Monitorar potássio
+digoxina,claritromicina,atencao,Claritromicina eleva nível de digoxina,Monitorar sinais de intoxicação digitálica
+@isrs,tramadol,critico,ISRS + tramadol: síndrome serotoninérgica e redução do limiar convulsivo,Evitar associação ou monitorar de perto
+amitriptilina,tramadol,atencao,Tricíclico + tramadol: síndrome serotoninérgica e convulsões,Monitorar
+@isrs,@aine,atencao,ISRS + AINE: risco de sangramento gastrointestinal,Considerar proteção gástrica
+@isrs,@anticoagulante_oral,atencao,ISRS + anticoagulante: risco de sangramento,Monitorar sangramento
+@betabloqueador,verapamil,critico,Betabloqueador + verapamil: bradicardia e bloqueio AV,Evitar associação
+@betabloqueador,diltiazem,atencao,Betabloqueador + diltiazem: bradicardia e bloqueio AV,Monitorar FC e ECG
+@betabloqueador,clonidina,atencao,Betabloqueador + clonidina: rebote hipertensivo se clonidina for suspensa,Retirar clonidina de forma gradual
+sinvastatina,claritromicina,critico,Claritromicina eleva sinvastatina: risco de rabdomiólise,Suspender estatina durante o macrolídeo
+sinvastatina,amiodarona,atencao,Amiodarona eleva sinvastatina: miopatia,Limitar dose de sinvastatina a 20 mg
+sinvastatina,fluconazol,atencao,Fluconazol eleva sinvastatina: miopatia,Monitorar sintomas musculares
+atorvastatina,claritromicina,atencao,Claritromicina eleva atorvastatina: miopatia,Considerar suspensão temporária
+@fluoroquinolona,@corticoide,atencao,Fluoroquinolona + corticoide: risco de ruptura de tendão,Orientar e monitorar
+@fluoroquinolona,amiodarona,critico,Fluoroquinolona + amiodarona: prolongamento do QT,Evitar associação ou monitorar ECG
+@macrolideo,amiodarona,critico,Macrolídeo + amiodarona: prolongamento do QT,Evitar associação ou monitorar ECG
+haloperidol,amiodarona,critico,Haloperidol + amiodarona: prolongamento do QT,Monitorar ECG
+ondansetrona,amiodarona,atencao,Ondansetrona + amiodarona: prolongamento do QT,Monitorar ECG
+haloperidol,ondansetrona,atencao,Haloperidol + ondansetrona: prolongamento do QT,Monitorar ECG
+quetiapina,@macrolideo,atencao,Quetiapina + macrolídeo: prolongamento do QT,Monitorar ECG
+@opioide,@antipsicotico,atencao,Opioide + antipsicótico: sedação aditiva,Monitorar nível de consciência
+carbamazepina,claritromicina,critico,Claritromicina eleva carbamazepina: toxicidade,Evitar associação ou monitorar nível sérico
+@sulfonilureia,@insulina_basal,atencao,Sulfonilureia + insulina: risco de hipoglicemia,Monitorar glicemia capilar
+metoclopramida,haloperidol,atencao,Metoclopramida + haloperidol: efeitos extrapiramidais,Evitar associação
+vancomicina,piperacilina_tazobactam,atencao,Vancomicina + piperacilina-tazobactam: risco de lesão renal aguda,Monitorar creatinina
+vancomicina,@aine,atencao,Vancomicina + AINE: nefrotoxicidade,Evitar AINE e monitorar creatinina
+clopidogrel,omeprazol,atencao,Omeprazol reduz a ativação do clopidogrel,Preferir pantoprazol
+aas,@aine,atencao,AAS + AINE: sangramento GI e redução do efeito antiagregante,Evitar AINE

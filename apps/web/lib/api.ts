@@ -1,0 +1,155 @@
+"use client";
+
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+const TOKEN_KEY = "housia.token";
+const USER_KEY = "housia.user";
+
+export type Role = "medico" | "enfermagem" | "gestor";
+export type Severity = "info" | "atencao" | "critico";
+export type Risk = "baixo" | "moderado" | "alto";
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: Role;
+}
+
+export interface AlertCounts {
+  critico: number;
+  atencao: number;
+  info: number;
+}
+
+export interface BedRow {
+  id: string;
+  nome: string;
+  idade: number | null;
+  sexo: string;
+  setor: string;
+  leito: string;
+  internado_em: string | null;
+  dias_internacao: number;
+  horas_no_setor: number | null;
+  motivo: string;
+  alertas_abertos: AlertCounts;
+  risco_alta: Risk | null;
+  cenario: string | null;
+}
+
+export interface ContextItem {
+  source_ref: string;
+  summary: string;
+  detail: Record<string, unknown> | null;
+}
+
+export interface PatientDetail {
+  id: string;
+  nome: string;
+  idade: number | null;
+  sexo: string;
+  setor: string | null;
+  leito: string | null;
+  internado_em: string | null;
+  dias_internacao: number;
+  tipo_internacao: string;
+  motivo: string;
+  encounter_id: string | null;
+  setores: { encounter_id: string; setor: string; leito: string; inicio: string | null; fim: string | null }[];
+  atendimentos_urgencia_anteriores: { source_ref: string; inicio: string; motivo: string }[];
+  contexto: {
+    diagnosticos: ContextItem[];
+    alergias: ContextItem[];
+    medicamentos_ativos: ContextItem[];
+    familiares: ContextItem[];
+    nega_alergias: boolean;
+  };
+  alertas_abertos: AlertCounts;
+  risco_alta: Risk | null;
+  cenario: { id: string; tag: string; titulo: string; esperado: string } | null;
+}
+
+export type EventKind = "vital" | "lab" | "med_order" | "med_admin" | "note" | "procedure" | "transfer" | "diagnosis" | "io";
+
+export interface ClinicalEvent {
+  id: string;
+  patient_id: string;
+  timestamp: string;
+  kind: EventKind;
+  summary: string;
+  value: Record<string, unknown> | null;
+  source_ref: string;
+  encounter_id: string | null;
+  location: string | null;
+  severity: "normal" | "atencao" | "critico" | null;
+  text: string | null;
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public body?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+export function getToken(): string | null {
+  try {
+    return window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function getStoredUser(): User | null {
+  try {
+    const raw = window.localStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeSession(token: string, user: User) {
+  try {
+    window.localStorage.setItem(TOKEN_KEY, token);
+    window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch {
+    /* armazenamento indisponível: sessão só em memória */
+  }
+}
+
+export function clearSession() {
+  try {
+    window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(USER_KEY);
+  } catch {
+    /* noop */
+  }
+}
+
+export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  let body = init.body;
+  if (init.json !== undefined) {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify(init.json);
+  }
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers, body });
+  if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/login")) {
+    clearSession();
+    window.location.href = "/login";
+  }
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const detail = data && typeof data === "object" && "detail" in data ? data.detail : res.statusText;
+    throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail), data);
+  }
+  return data as T;
+}

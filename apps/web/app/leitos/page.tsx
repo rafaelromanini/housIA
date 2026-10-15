@@ -1,3 +1,12 @@
+import { AppShell } from "@/components/app-shell";
+import { BedPanel } from "@/components/bed-panel";
+
+export const metadata = { title: "Painel de leitos" };
+
 export default function LeitosPage() {
-  return <main className="p-6">Painel de leitos (fase 1)</main>;
+  return (
+    <AppShell>
+      <BedPanel />
+    </AppShell>
+  );
 }

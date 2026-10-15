@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Atkinson_Hyperlegible } from "next/font/google";
 
 import { DemoBanner, Disclaimer } from "@/components/demo-banner";
+import { Providers } from "@/components/providers";
 
 import "./globals.css";
 
@@ -28,7 +29,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR" className={atkinson.variable}>
       <body className="min-h-dvh flex flex-col antialiased">
         <DemoBanner />
-        <div className="flex-1 flex flex-col">{children}</div>
+        <div className="flex-1 flex flex-col">
+          <Providers>{children}</Providers>
+        </div>
         <Disclaimer />
       </body>
     </html>

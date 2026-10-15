@@ -1,0 +1,92 @@
+{
+  "id": "cen1",
+  "tag": "cenario-1",
+  "titulo": "Cenário 1 — UTI → Enfermaria: pós-operatório com PA instável",
+  "esperado": "Passagem médica destaca risco de pico hipertensivo (PA em ascensão após troca de anlodipino por losartana). Passagem de enfermagem destaca horário do antibiótico (ceftriaxona às 20h), acesso venoso periférico com ~3 dias, ausência de diurese após retirada da SVD e risco de queda.",
+  "paciente": {
+    "nome": "Antônio Carlos Ribeiro",
+    "sexo": "male",
+    "nascimento": "1959-04-18",
+    "cpf": "412.587.963-20",
+    "telefone": "(11) 98432-1177",
+    "endereco": "Rua das Acácias, 120, Vila Mariana, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-3d2h",
+    "tipo": "urgencia",
+    "motivo": "Colecistite aguda litiásica com sinais de colangite — admitido pelo Pronto-Socorro",
+    "setores": [
+      {"id": "ps", "setor": "Pronto-Socorro", "leito": "OBS-02", "inicio": "-3d2h", "fim": "-2d22h"},
+      {"id": "uti", "setor": "UTI Adulto", "leito": "04", "inicio": "-2d22h", "fim": "-3h"},
+      {"id": "enf", "setor": "Enfermaria 3B", "leito": "12", "inicio": "-3h"}
+    ]
+  },
+  "diagnosticos": [
+    {"cid": "K81.0", "texto": "Colecistite aguda", "principal": true, "inicio": "-3d2h"},
+    {"cid": "K83.0", "texto": "Colangite", "inicio": "-3d2h"},
+    {"cid": "I10", "texto": "Hipertensão arterial sistêmica", "inicio": "-3650d", "registro": "-3d2h"},
+    {"cid": "E11.9", "texto": "Diabetes mellitus tipo 2 sem complicações", "inicio": "-2920d", "registro": "-3d2h"}
+  ],
+  "alergias": [],
+  "familiares": [
+    {"nome": "Maria Helena Ribeiro", "parentesco": "esposa", "codigo": "WIFE", "cuidador": true, "telefone": "(11) 98432-1178"}
+  ],
+  "social": {"moradores": 2},
+  "prescricoes": [
+    {"id": "noradrenalina", "med": "noradrenalina", "dose": "0,1 mcg/kg/min", "via": "IV", "frequencia": "contínuo em bomba de infusão",
+     "setor": "uti", "fim": "-2d10h", "status": "stopped", "motivo": "Desmame de droga vasoativa concluído", "administrar": false},
+    {"id": "anlodipino", "med": "anlodipino", "dose": "5 mg", "via": "VO", "horarios": ["08:00"], "setor": "uti",
+     "fim": "-3h", "status": "stopped", "motivo": "Substituído por losartana na transferência (DM2 com microalbuminúria)"},
+    {"id": "losartana", "med": "losartana", "dose": "50 mg", "via": "VO", "horarios": ["08:00", "20:00"], "setor": "enf",
+     "substitui": "anlodipino", "prescritor": "Dr. Paulo Mendes"},
+    {"id": "ceftriaxona", "med": "ceftriaxona", "dose": "2 g", "via": "IV", "horarios": ["20:00"], "setores": ["uti", "enf"]},
+    {"id": "metronidazol", "med": "metronidazol", "dose": "500 mg", "via": "IV", "horarios": ["06:00", "14:00", "22:00"], "setores": ["uti", "enf"]},
+    {"id": "enoxaparina", "med": "enoxaparina", "dose": "40 mg", "via": "SC", "horarios": ["18:00"], "setores": ["uti", "enf"]},
+    {"id": "omeprazol", "med": "omeprazol", "dose": "40 mg", "via": "IV", "horarios": ["06:00"], "setores": ["uti", "enf"]},
+    {"id": "dipirona", "med": "dipirona", "dose": "1 g", "via": "IV", "se_necessario": true, "condicao": "se dor ou febre",
+     "setores": ["uti", "enf"], "administracoes": ["-1d10h", "-9h"]},
+    {"id": "insulina", "med": "insulina_regular", "dose": "conforme esquema", "via": "SC", "se_necessario": true,
+     "condicao": "conforme glicemia capilar", "setores": ["uti", "enf"], "administracoes": ["-6h"]}
+  ],
+  "sinais": [
+    {"t": "-2d12h", "pa": [128, 76], "fc": 92, "fr": 18, "temp": 37.9, "spo2": 95},
+    {"t": "-1d20h", "pa": [132, 80], "fc": 86, "fr": 17, "temp": 37.2, "spo2": 96},
+    {"t": "-1d8h", "pa": [138, 82], "fc": 84, "fr": 16, "temp": 36.8, "spo2": 97},
+    {"t": "-20h", "pa": [142, 84], "fc": 80, "fr": 16, "temp": 36.7, "spo2": 97},
+    {"t": "-12h", "pa": [144, 86], "fc": 82, "fr": 16, "temp": 36.6, "spo2": 97},
+    {"t": "-6h", "pa": [146, 88], "fc": 84, "fr": 16, "temp": 36.8, "spo2": 97, "glicemia": 182},
+    {"t": "-4h", "pa": [148, 88], "fc": 82, "fr": 16, "temp": 36.7, "spo2": 97},
+    {"t": "-2h50m", "pa": [152, 90], "fc": 84, "fr": 18, "temp": 36.8, "spo2": 96},
+    {"t": "-1h30m", "pa": [168, 96], "fc": 88, "fr": 18, "temp": 36.9, "spo2": 96, "dor": 3},
+    {"t": "-25m", "pa": [184, 102], "fc": 92, "fr": 18, "temp": 36.9, "spo2": 96, "glicemia": 210}
+  ],
+  "exames": [
+    {"t": "-1d6h", "leucocitos": 16.2, "pcr": 148, "creatinina": 1.0, "potassio": 4.0, "hemoglobina": 11.8},
+    {"t": "-10h", "leucocitos": 12.4, "pcr": 96, "creatinina": 1.1, "potassio": 4.2, "hemoglobina": 11.2, "glicose": 168}
+  ],
+  "balanco": [
+    {"t": "-13h", "diurese": 450, "obs": "via SVD"},
+    {"t": "-7h", "diurese": 400, "obs": "via SVD"}
+  ],
+  "escalas": [
+    {"t": "-2h40m", "morse": 55, "braden": 16}
+  ],
+  "procedimentos": [
+    {"t": "-3d", "texto": "Punção venosa periférica em MSE (cateter 20G)", "categoria": "acesso vascular"},
+    {"t": "-2d23h", "texto": "Colecistectomia convertida para via aberta com exploração de vias biliares", "categoria": "cirurgia"},
+    {"t": "-2d22h", "texto": "Dreno tubular em flanco direito", "categoria": "dispositivo"},
+    {"t": "-5h", "texto": "Retirada de sonda vesical de demora", "categoria": "dispositivo"}
+  ],
+  "evolucoes": [
+    {"t": "-2d20h", "tipo": "medica", "autor": "Dra. Renata Okada (UTI)",
+     "texto": "Pós-operatório imediato de colecistectomia convertida para via aberta por colecistite aguda com colangite. Admitido na UTI em uso de noradrenalina 0,1 mcg/kg/min. Iniciados ceftriaxona e metronidazol. Plano: desmame de droga vasoativa, controle glicêmico e analgesia."},
+    {"t": "-1d9h", "tipo": "medica", "autor": "Dra. Renata Okada (UTI)",
+     "texto": "Sr. Antônio evolui estável, sem droga vasoativa desde ontem. Afebril há 24h. Dreno com débito seroso de 80 mL/24h. Leucocitose em queda. Mantido anlodipino 5 mg. Plano: alta da UTI se mantiver estabilidade."},
+    {"t": "-4h", "tipo": "medica", "autor": "Dr. Paulo Mendes (UTI)",
+     "texto": "Alta da UTI para a Enfermaria 3B. Hemodinamicamente estável, PA 146-148/88 nas últimas medidas. Troco anlodipino por losartana 50 mg 12/12h (DM2 com microalbuminúria); primeira dose conforme aprazamento da enfermaria. Manter ceftriaxona (D3) e metronidazol. Solicitado USG de abdome de controle para amanhã. Atenção a picos pressóricos nas próximas horas."},
+    {"t": "-3h30m", "tipo": "enfermagem", "autor": "Enf. Juliana Castro (UTI)",
+     "texto": "Paciente transferido para a Enfermaria 3B. Consciente, orientado, deambula com auxílio. AVP em MSE (20G) puncionado há cerca de 3 dias, sem sinais flogísticos. SVD retirada há 1h30, aguardando diurese espontânea. Dreno em flanco D com débito seroso. Dieta branda liberada. Glicemia capilar 182 mg/dL às 6h."},
+    {"t": "-1h20m", "tipo": "enfermagem", "autor": "Enf. Marcos Lima (Enfermaria 3B)",
+     "texto": "Admitido no leito 12. Refere cefaleia leve (dor 3/10). PA 168/96 mmHg. Comunicado plantonista. Ainda sem diurese espontânea após retirada da SVD. Orientado sobre risco de queda (Morse 55): grades elevadas e campainha ao alcance. Esposa Maria Helena acompanha."}
+  ]
+}

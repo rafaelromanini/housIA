@@ -1,0 +1,78 @@
+{
+  "id": "cen2",
+  "tag": "cenario-2",
+  "titulo": "Cenário 2 — Omissão na transferência: betabloqueador some da prescrição",
+  "esperado": "Reconciliação UTI → Enfermaria aponta omissão do metoprolol (ativo na UTI, ausente na enfermaria, sem registro de suspensão). Cerca de 12h depois surge taquicardia: a camada de IA levanta a hipótese de efeito de retirada do betabloqueador.",
+  "paciente": {
+    "nome": "Maria das Graças Souza",
+    "sexo": "female",
+    "nascimento": "1954-02-09",
+    "cpf": "238.114.570-06",
+    "telefone": "(11) 97321-4410",
+    "endereco": "Av. Brigadeiro Faria Lima, 880, apto 42, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-4d6h",
+    "tipo": "urgencia",
+    "motivo": "Pneumonia comunitária com insuficiência respiratória aguda",
+    "setores": [
+      {"id": "uti", "setor": "UTI Adulto", "leito": "07", "inicio": "-4d6h", "fim": "-14h"},
+      {"id": "enf", "setor": "Enfermaria 3B", "leito": "05", "inicio": "-14h"}
+    ]
+  },
+  "diagnosticos": [
+    {"cid": "J18.9", "texto": "Pneumonia comunitária", "principal": true, "inicio": "-4d6h"},
+    {"cid": "I48", "texto": "Fibrilação atrial", "inicio": "-1460d", "registro": "-4d6h"},
+    {"cid": "I50.0", "texto": "Insuficiência cardíaca congestiva", "inicio": "-1095d", "registro": "-4d6h"},
+    {"cid": "I10", "texto": "Hipertensão arterial sistêmica", "inicio": "-3650d", "registro": "-4d6h"}
+  ],
+  "alergias": [],
+  "familiares": [
+    {"nome": "Ricardo Souza", "parentesco": "filho", "codigo": "SON", "cuidador": true, "telefone": "(11) 97321-4411"}
+  ],
+  "social": {"moradores": 2},
+  "prescricoes": [
+    {"id": "metoprolol", "med": "metoprolol", "dose": "50 mg", "via": "VO", "horarios": ["08:00", "20:00"], "setor": "uti",
+     "prescritor": "Dra. Renata Okada"},
+    {"id": "ceftriaxona", "med": "ceftriaxona", "dose": "1 g", "via": "IV", "horarios": ["08:00", "20:00"], "setores": ["uti", "enf"]},
+    {"id": "azitromicina", "med": "azitromicina", "dose": "500 mg", "via": "IV", "horarios": ["08:00"], "setores": ["uti", "enf"]},
+    {"id": "furosemida", "med": "furosemida", "dose": "40 mg", "via": "IV", "horarios": ["08:00"], "setores": ["uti", "enf"]},
+    {"id": "enoxaparina", "med": "enoxaparina", "dose": "60 mg", "via": "SC", "horarios": ["08:00", "20:00"], "setores": ["uti", "enf"],
+     "observacao": "Anticoagulação plena (FA)"},
+    {"id": "omeprazol", "med": "omeprazol", "dose": "20 mg", "via": "VO", "horarios": ["06:00"], "setores": ["uti", "enf"]},
+    {"id": "paracetamol", "med": "paracetamol", "dose": "750 mg", "via": "VO", "se_necessario": true, "condicao": "se dor ou febre",
+     "setores": ["uti", "enf"], "administracoes": ["-2d4h"]}
+  ],
+  "sinais": [
+    {"t": "-1d", "pa": [128, 78], "fc": 78, "fr": 20, "temp": 37.0, "spo2": 94},
+    {"t": "-20h", "pa": [124, 76], "fc": 76, "fr": 19, "temp": 36.8, "spo2": 95},
+    {"t": "-16h", "pa": [126, 78], "fc": 74, "fr": 18, "temp": 36.7, "spo2": 95},
+    {"t": "-12h", "pa": [132, 80], "fc": 86, "fr": 18, "temp": 36.8, "spo2": 95},
+    {"t": "-8h", "pa": [138, 84], "fc": 98, "fr": 20, "temp": 36.9, "spo2": 95},
+    {"t": "-5h", "pa": [146, 88], "fc": 108, "fr": 20, "temp": 37.0, "spo2": 94},
+    {"t": "-2h", "pa": [158, 94], "fc": 124, "fr": 22, "temp": 37.1, "spo2": 93},
+    {"t": "-30m", "pa": [156, 92], "fc": 128, "fr": 22, "temp": 37.0, "spo2": 93}
+  ],
+  "exames": [
+    {"t": "-1d", "potassio": 4.1, "creatinina": 1.0, "leucocitos": 13.2, "pcr": 88},
+    {"t": "-6h", "potassio": 3.9, "creatinina": 1.1, "leucocitos": 11.0, "pcr": 60}
+  ],
+  "balanco": [
+    {"t": "-9h", "diurese": 600},
+    {"t": "-3h", "diurese": 450}
+  ],
+  "escalas": [
+    {"t": "-13h", "morse": 35, "braden": 17}
+  ],
+  "procedimentos": [
+    {"t": "-2d", "texto": "Punção venosa periférica em MSD (cateter 22G)", "categoria": "acesso vascular"}
+  ],
+  "evolucoes": [
+    {"t": "-16h", "tipo": "medica", "autor": "Dra. Renata Okada (UTI)",
+     "texto": "Pneumonia comunitária em melhora, sem necessidade de VNI há 48h. FA com resposta ventricular controlada com metoprolol 50 mg 12/12h. Alta para enfermaria. Manter antibioticoterapia (D5), anticoagulação plena e controle de frequência cardíaca."},
+    {"t": "-13h", "tipo": "enfermagem", "autor": "Enf. Carla Nunes (Enfermaria 3B)",
+     "texto": "Recebida da UTI. Prescrição da enfermaria conferida e aprazada. Paciente calma, eupneica em ar ambiente, SpO2 95%."},
+    {"t": "-2h", "tipo": "enfermagem", "autor": "Enf. Carla Nunes (Enfermaria 3B)",
+     "texto": "Dona Maria está agitada e ansiosa, refere palpitações. FC 124 bpm, ritmo irregular. PA 158/94 mmHg. Comunicado médico plantonista."}
+  ]
+}

@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     fhir_base_url: str = "http://localhost:8080/fhir"
 
     # Auth
-    jwt_secret: str = "dev-secret-troque-em-producao"
+    jwt_secret: str = "dev-secret-housia-mvp-troque-em-producao"
     jwt_expires_minutes: int = 12 * 60
 
     data_dir: Path = Field(default_factory=_default_data_dir)

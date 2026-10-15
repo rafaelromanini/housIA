@@ -1,0 +1,60 @@
+{
+  "_aviso": "HEURÍSTICA PROVISÓRIA, NÃO VALIDADA. Pesos definidos para demonstração do MVP; exigem validação clínica antes de qualquer uso real.",
+  "itens": {
+    "mora_sozinho": {
+      "risco_quando": true,
+      "peso": 2,
+      "rotulo": "Mora sozinho"
+    },
+    "tem_cuidador": {
+      "risco_quando": false,
+      "peso": 2,
+      "rotulo": "Sem cuidador"
+    },
+    "cuidador_capacitado": {
+      "risco_quando": false,
+      "peso": 1,
+      "rotulo": "Cuidador não capacitado",
+      "so_se": {
+        "tem_cuidador": true
+      }
+    },
+    "escadas_em_casa": {
+      "risco_quando": true,
+      "peso": 1,
+      "rotulo": "Escadas em casa"
+    },
+    "mobilidade_reduzida": {
+      "risco_quando": true,
+      "peso": 2,
+      "rotulo": "Mobilidade reduzida"
+    },
+    "acesso_medicamentos": {
+      "risco_quando": false,
+      "peso": 2,
+      "rotulo": "Sem acesso garantido aos medicamentos"
+    },
+    "ja_tem_dispositivos": {
+      "risco_quando": false,
+      "peso": 3,
+      "rotulo": "Precisa de dispositivo (O2, sonda, curativo) e ainda não tem",
+      "so_se": {
+        "precisa_dispositivos": true
+      }
+    },
+    "consulta_retorno_agendada": {
+      "risco_quando": false,
+      "peso": 2,
+      "rotulo": "Sem consulta de retorno agendada"
+    },
+    "teach_back_realizado": {
+      "risco_quando": false,
+      "peso": 2,
+      "rotulo": "Plano de alta não confirmado por teach-back"
+    }
+  },
+  "faixas": {
+    "moderado": 3,
+    "alto": 6
+  }
+}

@@ -18,6 +18,35 @@ docker compose up --build
 | API (FastAPI) | http://localhost:8000 (docs em `/docs`, saúde em `/health`) |
 | HAPI FHIR | http://localhost:8080/fhir |
 
+O serviço `seed` carrega no HAPI os 5 cenários roteirizados + 19 pacientes de fundo, com horários
+ancorados no momento da carga. Para reancorar antes de uma demo: `docker compose run --rm seed`.
+
+Usuários de demonstração (senha `housia123`): `medico@housia.dev`, `enfermeira@housia.dev`, `gestor@housia.dev`.
+
+### Desenvolvimento sem Docker
+
+```bash
+# API (FHIR em memória, SQLite, LLM mock)
+cd apps/api && uv venv && uv pip install -e ".[dev]"
+.venv/bin/uvicorn app.main:app --reload --port 8000
+.venv/bin/pytest
+
+# Web
+cd apps/web && npm install && npm run dev
+```
+
 ## Status por fase
 
 - [x] Fase 0 — esqueleto: compose (web, api, db, fhir), healthchecks, `/health`
+- [x] Fase 1 — dados e timeline: 5 cenários + população de fundo, `fhir_client` (HAPI/local), timeline
+      normalizada com `source_ref` em todo evento, login, painel de leitos, visão geral do paciente
+
+## Estrutura
+
+```
+apps/api      FastAPI (fhir_client, timeline, handoff, discharge, medrec, llm, audit)
+apps/web      Next.js 15 + Tailwind 4 + componentes shadcn/ui
+data/         cenários (DSL PT-BR), tabelas de referência curadas, script de carga no HAPI
+docs/         ADRs
+design-system Design system gerado com a skill ui-ux-pro-max + overrides clínicos
+```

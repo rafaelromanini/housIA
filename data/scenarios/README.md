@@ -1,0 +1,45 @@
+# Cenários de transição (DSL)
+
+Cada arquivo descreve um paciente sintético. O construtor (`apps/api/app/seed/builder.py`) gera os recursos
+FHIR R4. **Todos os horários são relativos à âncora** (o "agora" da carga): `-3d2h`, `-4h`, `-25m`, `+2h`.
+
+```jsonc
+{
+  "id": "cen1",                       // vira Patient/cen1 e prefixo de todos os IDs
+  "tag": "cenario-1", "titulo": "...", "esperado": "...",
+  "paciente": {"nome", "sexo": "male|female", "nascimento", "cpf", "telefone", "endereco"},
+  "internacao": {
+    "inicio": "-3d2h", "tipo": "urgencia|eletiva", "motivo": "...",
+    "setores": [{"id": "uti", "setor": "UTI Adulto", "leito": "04", "inicio": "-2d22h", "fim": "-3h"}, ...]
+  },
+  "encontros_anteriores": [{"inicio": "-41d", "motivo": "...", "duracao": "5h"}],   // idas ao PS (LACE "E")
+  "diagnosticos": [{"cid": "I10", "texto": "...", "principal": true, "inicio": "-3650d", "registro": "-3d"}],
+  "alergias": [{"principio_ativo": "dipirona" | "classe": "penicilina", "texto", "reacao", "criticidade"}],
+  "familiares": [{"nome", "parentesco", "codigo": "DAU", "cuidador": true, "telefone"}],
+  "social": {"moradores": 1},
+  "prescricoes": [{
+    "id": "losartana", "med": "losartana",           // chave de data/reference/drugs.csv
+    "dose": "50 mg", "via": "VO", "horarios": ["08:00", "20:00"],
+    "setor": "enf" | "setores": ["uti", "enf"],      // uma MedicationRequest por setor
+    "inicio", "fim", "status": "stopped", "motivo", "substitui": "anlodipino",
+    "se_necessario": true, "condicao": "...", "administracoes": ["-6h"], "administrar": false
+  }],
+  "sinais": [{"t": "-25m", "pa": [184, 102], "fc": 92, "fr": 18, "temp": 36.9, "spo2": 96, "glicemia": 210, "dor": 3}],
+  "exames": [{"t": "-10h", "potassio": 4.2, "creatinina": 1.1, "leucocitos": 12.4}],
+  "balanco": [{"t": "-7h", "diurese": 400, "obs": "via SVD"}],
+  "escalas": [{"t": "-2h40m", "morse": 55, "braden": 16}],
+  "procedimentos": [{"t": "-3d", "texto": "...", "categoria": "acesso vascular"}],
+  "evolucoes": [{"t": "-4h", "tipo": "medica|enfermagem", "autor": "...", "texto": "..."}]
+}
+```
+
+O setor de cada evento é inferido pelo horário (ou forçado com `"setor"`). Administrações de medicamentos
+aprazados são geradas automaticamente a partir de `horarios`.
+
+| Arquivo | Cenário |
+|---|---|
+| `cenario1_uti_enfermaria.json` | UTI → Enfermaria, PA instável, anti-hipertensivo trocado, ATB às 20h |
+| `cenario2_omissao_transferencia.json` | Betabloqueador omitido na transferência; taquicardia 12h depois |
+| `cenario3_alta_alto_risco.json` | Idoso que mora sozinho, 3 idas ao PS em 6 meses, insulina nova |
+| `cenario4_alta_baixo_risco.json` | Jovem, apendicectomia sem intercorrências |
+| `cenario5_interacao_alergia.json` | Opioide + benzodiazepínico em idosa; dipirona prescrita em alérgica |
