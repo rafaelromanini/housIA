@@ -16,6 +16,7 @@ RISK_PREFIX = {
     "alergia": "Alergia x prescrição",
     "interacao": "Interação medicamentosa",
     "omissao": "Possível omissão na transferência",
+    "duplicidade": "Duplicidade terapêutica",
 }
 HEADLINE_PRIORITY = ["alergia", "interacao", "omissao", "tendencia", "sinal_vital_fora_da_faixa", "diurese"]
 

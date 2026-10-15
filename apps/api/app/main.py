@@ -14,6 +14,7 @@ from app.db import session as db_session
 from app.db.session import Base
 from app.fhir_client.client import FhirUnavailable, get_fhir
 from app.handoff.router import router as handoff_router
+from app.medrec.router import router as medrec_router
 from app.patients.router import router as patients_router
 
 logger = logging.getLogger("housia")
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(patients_router)
     app.include_router(handoff_router)
     app.include_router(alerts_router)
+    app.include_router(medrec_router)
     return app
 
 

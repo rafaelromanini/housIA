@@ -42,6 +42,8 @@ cd apps/web && npm install && npm run dev
       normalizada com `source_ref` em todo evento, login, painel de leitos, visão geral do paciente
 - [x] Fase 2 — passagem de plantão (pilar 1): fatos determinísticos, pseudonimização, Claude com saída
       estruturada (ou mock), validação de refs, cache por `input_hash`, alertas reconhecíveis
+- [x] Fase 3 — reconciliação (pilar 3): origem × destino por princípio ativo, omissão, duplicidade, interações,
+      alto alerta e alergia (regras com testes unitários) + hipóteses da IA sobre sintomas novos
 
 ## Estrutura
 

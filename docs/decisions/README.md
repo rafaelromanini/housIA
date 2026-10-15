@@ -9,3 +9,4 @@ Registros curtos das decisões tomadas fora do `HOUSIA_MVP_PLAN.md`.
 | [0003](0003-design-system.md) | Design system gerado com a skill ui-ux-pro-max + overrides clínicos |
 | [0004](0004-regulatorio-e-lgpd.md) | Requisitos regulatórios e de LGPD para uso real |
 | [0005](0005-llm-saida-estruturada-e-mock.md) | LLM: saída estruturada, esforço em vez de temperatura, fallback e modo mock |
+| [0006](0006-reconciliacao-medicamentosa.md) | Regras da reconciliação medicamentosa |

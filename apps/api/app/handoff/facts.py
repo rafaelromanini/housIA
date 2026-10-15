@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from app.config import get_settings
 from app.fhir_client import codes
 from app.handoff.schemas import Fact
+from app.medrec.rules import default_transition, run_rules
 from app.reference import high_alert_reason
 from app.timeline.events import ClinicalEvent
 from app.timeline.record import MedInfo, PatientRecord
@@ -61,6 +62,7 @@ class FactBuilder:
         self._devices()
         self._prescription_changes()
         self._next_doses()
+        self._medication_safety()
         self.facts.sort(key=lambda f: -ORDER[f.severidade])
         return self.facts
 
@@ -342,6 +344,31 @@ class FactBuilder:
                         tipo="mudanca_prescricao",
                         texto=f"Alterado às {hhmm(authored)}: {previous.text} → {m.text}.",
                         refs=[m.ref, previous.ref],
+                    )
+                )
+
+    def _medication_safety(self) -> None:
+        """Achados da reconciliação (alergia, interação, omissão) entram como fatos duros da passagem."""
+        origin, dest = default_transition(self.r)
+        if dest is None:
+            return
+        _, findings = run_rules(self.r, origin, dest)
+        kind = {
+            "alergia": "alergia",
+            "alergia_cruzada": "alergia",
+            "interacao": "interacao",
+            "omissao": "omissao",
+            "duplicidade": "duplicidade",
+        }
+        for f in findings:
+            if f.tipo in kind and f.severidade in ("critico", "atencao"):
+                self.facts.append(
+                    Fact(
+                        tipo=kind[f.tipo],
+                        texto=f"{f.titulo}. {f.detalhe}",
+                        severidade=f.severidade,
+                        refs=f.refs,
+                        horizonte_h=2 if f.severidade == "critico" else 12,
                     )
                 )
 

@@ -230,3 +230,73 @@ export interface AlertItem {
   acted_at: string | null;
   created_at: string;
 }
+
+// ---------- Reconciliação medicamentosa ----------
+export interface SectorRef {
+  encounter_id: string;
+  setor: string;
+  leito: string;
+  inicio: string | null;
+  fim: string | null;
+}
+
+export interface MedSummary {
+  ref: string;
+  texto: string;
+  dose: string;
+  via: string;
+  horarios: string[];
+  se_necessario: boolean;
+  status: string;
+  motivo: string | null;
+}
+
+export interface RecRow {
+  principio_ativo: string;
+  nome: string;
+  classe: string;
+  origem: MedSummary | null;
+  destino: MedSummary | null;
+  status: "mantida" | "alterada" | "suspensa" | "omitida" | "nova";
+  observacao: string | null;
+  refs: string[];
+}
+
+export interface MedFinding {
+  tipo: "omissao" | "duplicidade" | "interacao" | "alto_alerta" | "alergia" | "alergia_cruzada";
+  severidade: Severity;
+  titulo: string;
+  detalhe: string;
+  recomendacao: string;
+  refs: string[];
+  medicamentos: string[];
+  alert_id?: number;
+}
+
+export interface Hypothesis {
+  texto: string;
+  medicamento: string;
+  mecanismo: "retirada" | "efeito_adverso" | "interacao";
+  confidence: "baixa" | "media" | "alta";
+  refs: string[];
+}
+
+export interface MedrecRun {
+  id: number;
+  patient_id: string;
+  created_at: string;
+  origem: SectorRef | null;
+  destino: SectorRef;
+  linhas: RecRow[];
+  achados: MedFinding[];
+  hipoteses: Hypothesis[];
+  sinais_detectados: { sinal: string; texto: string; ref: string; timestamp: string }[];
+  meta: {
+    modo: "mock" | "real" | null;
+    modelo: string | null;
+    prompt_version: string | null;
+    gerado_em: string;
+    descartados: { texto: string; refs_invalidas: string[] }[];
+    aviso: string;
+  };
+}
