@@ -1,0 +1,47 @@
+[project]
+name = "housia-api"
+version = "0.1.0"
+description = "HousIA — camada de IA para transições de cuidado sobre FHIR R4 (MVP)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.140,<1",
+    "uvicorn[standard]>=0.50",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0,<2.2",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "httpx>=0.28",
+    "anthropic>=1.15,<2",
+    "pyjwt>=2.10",
+    "bcrypt>=4.2",
+    "tzdata>=2025.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.llm" = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
