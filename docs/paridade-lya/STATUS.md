@@ -1,6 +1,6 @@
 # Paridade com a Lya Health: status e como continuar
 
-Atualizado em 16/10/2026. Branch de trabalho: `claude/dreamy-pascal-x45x7r`.
+Atualizado em 16/10/2026 (fim da tarde). Branch de trabalho: `claude/dreamy-pascal-x45x7r`.
 
 O objetivo é fazer **tudo o que a Lya faz, melhor**, mantendo os diferenciais do HousIA: passagem de plantão,
 reconciliação na transferência, Waze da alta e fonte em cada item. O plano completo está em
@@ -9,6 +9,8 @@ reconciliação na transferência, Waze da alta e fonte em cada item. O plano co
 - `inventario`: 84 funções da Lya e do mercado;
 - `avaliacao`: o estado de cada função no HousIA, conferido por revisores céticos;
 - `plano.backlog`: 58 itens, de 0 a 57. Cada item traz `o_que_fazer`, `criterios_de_aceite` e `melhor_que_lya`.
+
+Para retomar numa sessão nova, use o prompt de [`PROXIMA-SESSAO.md`](PROXIMA-SESSAO.md).
 
 Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisões de arquitetura:
 [`../decisions/0009-consulta-com-ia.md`](../decisions/0009-consulta-com-ia.md).
@@ -38,13 +40,28 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 
     A equipe de sala (anestesista, circulante, instrumentador) usa Alt+4/5/6.
 - Onda 1, parte entregue (continuação):
+  - **#23/#24 reconferidos** (commit `58a7c68`): todos os critérios ok. Só a equipe registra etapa, lado e dose
+    (antes, fala de paciente mudava o modelo e gerava lateralidade crítica falsa), lado negado e antecedente com ano
+    não contam, microfone do modo cirúrgico começa em "Profissional".
   - **#4** Perguntas sugeridas que acompanham qualquer diálogo: 66 sintomas, 198 perguntas com fonte, idade e sexo;
     "já abordada" só com fala do profissional (inclusive parafraseada), com a resposta do paciente; perguntas que
     separam as 2 hipóteses de maior confiança sobem na ordem.
   - **#9** Anamnese por queixa (`app/consult/semiology.py`, `data/reference/consult_semiology.yaml`): campos
     semiológicos com fonte, HDA redigida no modo regras, tags com os atributos e queixa principal que o médico fixa.
-- Testes: todos os testes do pytest passam (2 xfail estritos, que são limitações documentadas do corpus); ruff,
-  typecheck e lint limpos. **O e2e (Playwright) ainda não foi rodado depois da Onda 1.**
+    **A verificação independente do #4+#9 parou no meio por limite de uso.** O trabalho parcial dela está em
+    `docs/paridade-lya/wip/verificacao-4-9-parcial.patch` (não aplicado: deixa 1 teste falhando,
+    `test_posologia_e_inicio_da_noite_nao_viram_frequencia_nem_piora_da_queixa`).
+  - **#25** OPME em três vias (fala × guia autorizada × etiqueta GS1), rastreio do implante (Device,
+    Procedure.usedReference, cartão do implante na alta, implante na passagem). Verificado (commit `a4e4e43`).
+  - **#26** Anti-glosa em dados (`data/reference/glosa_rules/`), score de prontidão, Claim em rascunho, trava 409
+    `prontidao_critica` no envio sem justificativa. Verificado. Audit da justificativa por linha de OPME com texto e
+    regra (`7da3c4c`).
+  - **#30** Waze da jornada (`app/journey/`, tela `/jornada`, ADR 0010, migração `d001`, cenários cen7..cen7e e
+    coorte alt01..alt18). **Implementado, mas a verificação independente não terminou** (parou por limite de uso,
+    sem commits).
+  - Frente B juntada no branch principal no merge `5cd7e6f`. pytest completo verde depois do merge.
+- Testes: pytest verde em `5cd7e6f` (1 xfail estrito do corpus); ruff, typecheck e lint limpos. e2e (9/9) rodados e
+  verdes em `11262f4`, **ainda não rodados depois do #4, #9, #25, #26 e #30**.
 
 ### Limitações conhecidas que ficaram da Onda 1
 
@@ -52,18 +69,24 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 - Acompanhante sem vocativo ("meu filho tá com febre") é inferido como paciente: o lado está certo, o papel não.
 - Falso positivo gerado pela própria IA, por exemplo um alerta sobre medicamento negado, só é contido pelo prompt.
   O `merge_live` descarta apenas refs inválidas.
-- A verificação independente do #23/#24 parou no meio por limite de uso. As correções que ela já tinha feito estão no
-  commit `1de2b29` e os testes passam, mas vale reconferir os critérios de aceite do #23 e do #24.
+- Os campos novos da saída estruturada da IA (`perguntas_abordadas`, `AiAnamnese`) só foram testados em mock: o
+  container não tinha `ANTHROPIC_API_KEY` no ambiente.
+- OPME: câmera só via `BarcodeDetector` (sem zxing); XML TISS lido de forma tolerante, sem XSD; tabelas de
+  procedimento são de demonstração (DEMO-*).
+- Jornada: a lista varre todos os pacientes a cada chamada (~1,5 s com 54 pacientes no modo local); Task e
+  DocumentReference da jornada são gravados no FHIR mesmo com `EHR_WRITEBACK` desligado (decisão no ADR 0010).
 
 ## O que falta, na ordem
 
-1. **Conferir o que já foi entregue:** reconstruir as imagens, recarregar o seed e rodar os e2e (veja abaixo).
-   Corrigir o que quebrar.
-2. **Resto da Onda 1.**
-   - Frente A, repositório principal, em sequência: #5+#6
-     (CID-10 oficial validado e medicamentos e alergias de qualquer falante), #7+#8 (histórico e exames ditos e
-     resumo com fonte por frase e lembretes), #10 (relevância de cada fala e o painel "fora da nota").
-   - Frente B, worktree: #25+#26 (OPME em três vias e anti-glosa), #30 (Waze da jornada).
+1. **Fechar as verificações interrompidas:**
+   - #4+#9: aplicar ou descartar `docs/paridade-lya/wip/verificacao-4-9-parcial.patch`
+     (`git apply docs/paridade-lya/wip/verificacao-4-9-parcial.patch`), fazer passar o teste que falha, rodar a
+     verificação cética (ver `.claude/workflows/housia-onda.js`, `verifyPrompt`, base `58a7c68`) e apagar a pasta `wip/`.
+   - #30: verificação cética (base `a4e4e43`, commits `7da3c4c`, `c6b7abe`, `09d6bd6`).
+   - Subir a stack, recarregar o seed e rodar os e2e; corrigir o que quebrar.
+2. **Resto da Onda 1, frente A, em sequência:** #5+#6 (CID-10 oficial validado e medicamentos e alergias de qualquer
+   falante), #7+#8 (histórico e exames ditos e resumo com fonte por frase e lembretes), #10 (relevância de cada fala
+   e o painel "fora da nota").
 3. **Onda 2.**
    - Frente A: #2+#13 (transcrição editável e consentimento), #3 (aceitar, descartar e fixar insights), #14+#15
      (revisão segura e cronologia), #16 (modelos de nota, SOAP e-SUS), #22 (tradução em 95+ idiomas).
@@ -108,11 +131,11 @@ docker compose up -d --build        # db, fhir (HAPI), seed, api, web
 cd apps/web && npx playwright test  # e2e em apps/web/e2e
 ```
 
-Na nuvem do Claude Code, se o build do Docker falhar:
-
-- **Erro de TLS:** copie a CA do proxy para `apps/api/.sandbox-ca.crt` e `apps/web/.sandbox-ca.crt`. Esses arquivos
-  são ignorados pelo git. Depois use um Dockerfile que a confie.
-- **Erro 429 do Docker Hub:** use `DOCKER_BUILDKIT=0`.
+Na nuvem do Claude Code, use `scripts/sandbox-stack.sh up -d --build`. Ele sobe o `dockerd`, puxa as imagens
+base pelo `mirror.gcr.io` (o Docker Hub devolve 429), gera Dockerfiles temporários que confiam na CA do proxy e roda o
+compose com `DOCKER_BUILDKIT=0`. Espere o container `housia-seed-1` sair com código 0 e rode os e2e com
+`PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test --reporter=line`. Para recarregar o seed:
+`scripts/sandbox-stack.sh up -d --build seed api web`.
 
 A IA real precisa de `ANTHROPIC_API_KEY` e `LLM_MODE=real` no ambiente da API. A chave fica nos segredos do ambiente
 e **nunca** vai para o repositório.
