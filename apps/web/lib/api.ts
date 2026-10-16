@@ -442,7 +442,21 @@ export interface DischargeDocuments {
     retorno: DocSection;
   };
   descartados: { onde: string; texto?: string; refs_invalidas: string[] }[];
+  /** Cartão do implante: vem do Device FHIR registrado na cirurgia, não do LLM. */
+  cartao_implante?: ImplantCard[];
   meta: { modo: "mock" | "real"; gerado_em: string; traducao_disponivel: boolean };
+}
+
+export interface ImplantCard {
+  descricao: string;
+  lote: string | null;
+  serie: string | null;
+  validade: string | null;
+  registro_anvisa: string | null;
+  gtin: string | null;
+  procedimento: string | null;
+  colocado_em: string | null;
+  refs: string[];
 }
 
 // ---------- Consulta com IA ----------
@@ -564,6 +578,7 @@ export interface Highlight {
   texto: string;
   severidade: Severity;
   refs: string[];
+  categoria?: string | null;
 }
 export interface Anamnese {
   queixa_principal: string;
@@ -584,13 +599,107 @@ export interface ReportField {
   motivo?: string | null;
   fonte?: string | null;
 }
+export type OpmeStatus =
+  | "conferido"
+  | "nao_autorizado"
+  | "nao_citado"
+  | "quantidade_divergente"
+  | "validade_vencida"
+  | "sem_etiqueta"
+  | "sem_fala";
+export type OpmeVia = "ok" | "divergente" | "ausente" | "nao_registrado" | "nao_aplica";
+/** Leitura de etiqueta GS1 de um item consumido (lote, validade, série). */
+export interface OpmeLote {
+  id: string;
+  gtin: string | null;
+  lote: string | null;
+  validade: string | null;
+  serie: string | null;
+  quantidade: number;
+  vencido: boolean;
+  registro_anvisa: string | null;
+  lido_em: string | null;
+  por: string | null;
+}
+/** Conciliação em três vias: narrado (Fala/N), autorizado (guia) e consumido (etiqueta). */
 export interface OpmeLine {
   codigo: string;
   descricao: string;
   autorizado: number;
   citado: number;
-  status: "conferido" | "nao_autorizado" | "nao_citado" | "quantidade_divergente";
+  consumido: number;
+  status: OpmeStatus;
   refs: string[];
+  status_fala: OpmeVia;
+  status_guia: OpmeVia;
+  status_etiqueta: OpmeVia;
+  implantavel: boolean;
+  tamanhos: string[];
+  lotes: OpmeLote[];
+  registro_anvisa: string | null;
+  justificativa: string | null;
+  editado: boolean;
+}
+export interface BillingItem {
+  regra: string;
+  tipo: string;
+  severidade: Severity;
+  texto: string;
+  fonte: string;
+  campo: string | null;
+  refs: string[];
+  peso: number;
+}
+/** Prontidão para faturamento (0–100) segundo as regras de glosa em dados (data/reference/glosa_rules). */
+export interface Readiness {
+  score: number;
+  pronto: boolean;
+  convenio: string;
+  convenio_rotulo: string;
+  regras_avaliadas: number;
+  regras_ok: number;
+  criticas: number;
+  atencoes: number;
+  pendencias: BillingItem[];
+  procedimento: string | null;
+  codigo_demo: string | null;
+  numero_guia: string | null;
+  versao: string;
+}
+export interface OpmeCatalogItem {
+  codigo: string;
+  descricao: string;
+  implantavel: boolean;
+  registro_anvisa: string | null;
+  gtin: string | null;
+}
+export interface ConvenioOption {
+  value: string;
+  label: string;
+  codigos: string;
+}
+export interface OpmeGuideInfo {
+  origem: "manual" | "claimresponse" | "tiss";
+  numero: string | null;
+  senha: string | null;
+  itens: number;
+  por: string;
+  em: string;
+}
+export interface OpmeScanResult {
+  insights: ConsultInsights;
+  leitura: {
+    id: string;
+    codigo: string;
+    descricao: string;
+    gtin: string | null;
+    lote: string | null;
+    serie: string | null;
+    validade: string | null;
+    vencido: boolean;
+    avisos: string[];
+    registro_anvisa: string | null;
+  };
 }
 export interface CidSuggestion {
   codigo: string;
@@ -637,6 +746,7 @@ export interface SurgicalReport {
   verificacoes?: SafetyCheck[];
   pedidos?: ProposedOrder[];
   perioperatorio?: SurgeryItem[];
+  prontidao?: Readiness | null;
 }
 export interface ConsultInsights {
   tipo: ConsultKind;
@@ -720,6 +830,9 @@ export interface Consultation {
   } | null;
   fhir_ref: string | null;
   roteiro_demo: string | null;
+  opme_guia?: OpmeGuideInfo | null;
+  faturamento?: { convenio?: string | null; numero_guia?: string | null } | null;
+  justificativa_envio?: { texto: string; por: string; em: string; regras_justificadas: string[] } | null;
   criado_por: string | null;
   created_at: string;
   finished_at: string | null;

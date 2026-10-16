@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ClipboardCopy, Clock, FileText, Languages, Loader2, Pill, Printer, ShieldAlert, TriangleAlert } from "lucide-react";
+import { ClipboardCopy, Clock, FileText, IdCard, Languages, Loader2, Pill, Printer, ShieldAlert, TriangleAlert } from "lucide-react";
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { FeedbackButtons } from "@/components/ai/feedback";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import { api, type DischargeDocuments, type DocSection } from "@/lib/api";
+import { api, type DischargeDocuments, type DocSection, type ImplantCard } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +34,12 @@ const HANDOUT_LABELS = {
     alert: "Procure atendimento se tiver",
     care: "Cuidados em casa",
     followup: "Retorno",
+    implant: "Cartão do implante",
+    implantNote: "Guarde este cartão e mostre-o em consultas, exames de imagem (como ressonância) e em qualquer atendimento.",
+    lot: "Lote",
+    serial: "Série",
+    valid: "Validade",
+    registry: "Registro ANVISA",
     footer: "Documento gerado com apoio de IA e revisado pela equipe. Em caso de dúvida, ligue para a unidade ou procure a UBS mais próxima.",
     demo: "AMBIENTE DE DEMONSTRAÇÃO — DADOS SINTÉTICOS.",
   },
@@ -44,6 +50,12 @@ const HANDOUT_LABELS = {
     alert: "Busque atención médica si tiene",
     care: "Cuidados en casa",
     followup: "Control",
+    implant: "Tarjeta del implante",
+    implantNote: "Guarde esta tarjeta y muéstrela en consultas, estudios de imagen (como resonancia) y en cualquier atención.",
+    lot: "Lote",
+    serial: "Serie",
+    valid: "Vencimiento",
+    registry: "Registro ANVISA",
     footer: "Documento elaborado con apoyo de IA y revisado por el equipo. Si tiene dudas, llame a la unidad o acuda a la UBS (unidad básica de salud) más cercana.",
     demo: "ENTORNO DE DEMOSTRACIÓN — DATOS SINTÉTICOS.",
   },
@@ -54,6 +66,12 @@ const HANDOUT_LABELS = {
     alert: "Get medical help if you have",
     care: "Care at home",
     followup: "Follow-up",
+    implant: "Implant card",
+    implantNote: "Keep this card and show it at appointments, imaging exams (such as MRI) and any care visit.",
+    lot: "Lot",
+    serial: "Serial",
+    valid: "Expiry",
+    registry: "ANVISA registration",
     footer: "Prepared with AI support and reviewed by the care team. If you have questions, call the unit or go to the nearest primary care clinic (UBS).",
     demo: "DEMO ENVIRONMENT — SYNTHETIC DATA.",
   },
@@ -89,12 +107,24 @@ export function DischargeDocumentsCard() {
   const name = patient.nome;
   const r = (t: string) => reidentify(t, name);
   const L = HANDOUT_LABELS[doc?.meta.traducao_disponivel ? doc.idioma : "pt-BR"];
+  const implants = doc?.cartao_implante ?? [];
+  const implantLine = (i: ImplantCard) =>
+    [
+      i.descricao,
+      i.lote && `lote ${i.lote}`,
+      i.serie && `série ${i.serie}`,
+      i.validade && `validade ${i.validade.slice(0, 10).split("-").reverse().join("/")}`,
+      i.registro_anvisa && `registro ANVISA ${i.registro_anvisa}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
 
   async function copySoap() {
     if (!doc) return;
     const text = [
       `SUMÁRIO DE ALTA — ${name}`,
       ...(Object.keys(SOAP_LABEL) as (keyof typeof SOAP_LABEL)[]).map((k) => `${SOAP_LABEL[k]}: ${r(doc.soap[k].texto)}`),
+      ...(implants.length ? [`Implantes: ${implants.map(implantLine).join("; ")}`] : []),
       "Gerado por IA (HousIA) a partir do prontuário — revisar antes de registrar.",
     ].join("\n\n");
     await navigator.clipboard.writeText(text);
@@ -224,6 +254,49 @@ export function DischargeDocumentsCard() {
                   )}
                   <HandoutList title={L.alert} items={doc.orientacoes.sinais_de_alerta} r={r} alert />
                   <HandoutList title={L.care} items={doc.orientacoes.cuidados_em_casa} r={r} />
+                  {implants.length > 0 && (
+                    <section aria-labelledby="handout-implant" className="rounded-md border-2 border-primary/40 p-3">
+                      <h4 id="handout-implant" className="mb-1 flex items-center gap-1.5 font-bold">
+                        <IdCard aria-hidden className="size-4" /> {L.implant}
+                      </h4>
+                      <ul className="space-y-2">
+                        {implants.map((i, k) => (
+                          <li key={i.refs[0] ?? k} className="text-sm">
+                            <p className="text-base font-bold">{i.descricao}</p>
+                            <p>
+                              {i.lote && (
+                                <>
+                                  <span className="font-bold">{L.lot}:</span> {i.lote}{" "}
+                                </>
+                              )}
+                              {i.serie && (
+                                <>
+                                  · <span className="font-bold">{L.serial}:</span> {i.serie}{" "}
+                                </>
+                              )}
+                              {i.validade && (
+                                <>
+                                  · <span className="font-bold">{L.valid}:</span> {i.validade.slice(0, 10).split("-").reverse().join("/")}{" "}
+                                </>
+                              )}
+                              {i.registro_anvisa && (
+                                <>
+                                  · <span className="font-bold">{L.registry}:</span> {i.registro_anvisa}
+                                </>
+                              )}
+                            </p>
+                            {(i.procedimento || i.colocado_em) && (
+                              <p className="text-muted-foreground">
+                                {i.procedimento}
+                                {i.colocado_em && ` — ${fmtDateTime(i.colocado_em)}`}
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-1 text-xs text-muted-foreground">{L.implantNote}</p>
+                    </section>
+                  )}
                   <div>
                     <p className="font-bold">{L.followup}</p>
                     <p>{r(doc.orientacoes.retorno.texto)}</p>
@@ -239,6 +312,7 @@ export function DischargeDocumentsCard() {
                       ...doc.orientacoes.medicamentos.map((m) => ({ label: m.medicamento, refs: m.refs })),
                       ...doc.orientacoes.sinais_de_alerta.map((s) => ({ label: s.texto, refs: s.refs })),
                       ...doc.orientacoes.cuidados_em_casa.map((s) => ({ label: s.texto, refs: s.refs })),
+                      ...implants.map((i) => ({ label: `${L.implant}: ${implantLine(i)}`, refs: i.refs })),
                     ].map((x, i) => (
                       <li key={i} className="flex flex-wrap items-center gap-1">
                         <span className="line-clamp-1 max-w-md">{r(x.label)}</span>

@@ -11,9 +11,12 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { api, type ConsultNote, type Consultation, type SurgicalReport } from "@/lib/api";
+import { OPME_STATUS } from "@/components/consult/opme-panel";
+import { ReadinessCard } from "@/components/consult/readiness-card";
+import { api, ApiError, type BillingItem, type ConsultNote, type Consultation, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 
 const SECTIONS: { key: keyof ConsultNote; label: string; soap: string }[] = [
@@ -28,7 +31,22 @@ const SECTIONS: { key: keyof ConsultNote; label: string; soap: string }[] = [
   { key: "plano", label: "Plano", soap: "P" },
 ];
 
-type ExportOut = { texto: string; recurso: Record<string, unknown>; pedidos?: Record<string, unknown>[] };
+type ExportOut = {
+  texto: string;
+  recurso: Record<string, unknown>;
+  pedidos?: Record<string, unknown>[];
+  /** Bundle de transação (cirurgia): relatório, pedidos propostos, implantes (Device), Procedure e Claim em rascunho. */
+  bundle?: Record<string, unknown> | null;
+};
+
+type Blocked = { mensagem: string; pendencias: BillingItem[] };
+
+/** 409 da trava de envio: pendência crítica de faturamento sem justificativa. */
+function blockedBy(e: unknown): Blocked | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const detail = (e.body as { detail?: { codigo?: string; mensagem?: string; pendencias?: BillingItem[] } } | null)?.detail;
+  return detail?.codigo === "prontidao_critica" ? { mensagem: detail.mensagem ?? "", pendencias: detail.pendencias ?? [] } : null;
+}
 
 /** Revisão obrigatória: o profissional edita, aprova e só então a nota vai para o prontuário. */
 export function NoteReview({
@@ -48,12 +66,21 @@ export function NoteReview({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sent = c.status === "enviada";
+  const [blocked, setBlocked] = useState<Blocked | null>(null);
+  const [justification, setJustification] = useState("");
 
   const note = draft as unknown as ConsultNote;
   const report = (draft as { relatorio_cirurgico?: SurgicalReport }).relatorio_cirurgico;
 
   function setSection(key: keyof ConsultNote, texto: string) {
     setDraft((d) => ({ ...d, [key]: { ...(d[key] as object), texto } }));
+  }
+  function setOpme(code: string, patch: Partial<OpmeLine> | null) {
+    setDraft((d) => {
+      const rep = structuredClone((d as { relatorio_cirurgico: SurgicalReport }).relatorio_cirurgico);
+      rep.opme = patch === null ? rep.opme.filter((o) => o.codigo !== code) : rep.opme.map((o) => (o.codigo === code ? { ...o, ...patch } : o));
+      return { ...d, relatorio_cirurgico: rep };
+    });
   }
   function setField(i: number, texto: string) {
     setDraft((d) => {
@@ -102,8 +129,11 @@ export function NoteReview({
     try {
       if (!sent && !(await save())) return;
       const out = await exportOut();
-      // com pedidos propostos (relatório cirúrgico), baixa um Bundle: relatório + ServiceRequest(s)
-      const fhir = out.pedidos?.length
+      // cirurgia: Bundle de transação (relatório, pedidos, implantes, Procedure e Claim em rascunho);
+      // com pedidos propostos e sem Bundle, uma coleção: relatório + ServiceRequest(s)
+      const fhir = out.bundle
+        ? out.bundle
+        : out.pedidos?.length
         ? { resourceType: "Bundle", type: "collection", entry: [out.recurso, ...out.pedidos].map((resource) => ({ resource })) }
         : out.recurso;
       const blob = new Blob([JSON.stringify(fhir, null, 2)], { type: "application/fhir+json" });
@@ -119,19 +149,22 @@ export function NoteReview({
     }
   }
 
-  async function send() {
+  async function send(withJustification = false) {
     if (!(await save())) return;
     setBusy("send");
     setError(null);
     try {
       const out = await api<{ enviado: boolean; fhir_ref?: string; motivo?: string; consulta: Consultation }>(
         `/consultations/${c.id}/send`,
-        { method: "POST" },
+        { method: "POST", json: withJustification ? { justificativa: justification.trim() } : undefined },
       );
       onChange(out.consulta);
+      setBlocked(null);
       setMessage(out.enviado ? `Enviado ao prontuário (${out.fhir_ref}).` : (out.motivo ?? "Exportado."));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao enviar");
+      const block = blockedBy(e);
+      if (block) setBlocked(block);
+      else setError(e instanceof Error ? e.message : "Erro ao enviar");
     } finally {
       setBusy(null);
     }
@@ -201,6 +234,57 @@ export function NoteReview({
                   ))}
                 </ul>
               </div>
+            )}
+            {c.nota && "relatorio_cirurgico" in c.nota && c.nota.relatorio_cirurgico?.prontidao && (
+              <ReadinessCard readiness={c.nota.relatorio_cirurgico.prontidao} patientId={patient.id} />
+            )}
+            {report.opme.length > 0 && (
+              <fieldset className="rounded-md border p-3" disabled={sent}>
+                <legend className="px-1 text-sm font-bold">OPME e materiais (editável: o servidor mantém guia e etiquetas)</legend>
+                <ul className="space-y-2">
+                  {report.opme.map((o) => (
+                    <li key={o.codigo} className="grid gap-2 text-sm sm:grid-cols-[1fr_6rem_1fr_auto] sm:items-end">
+                      <span>
+                        <span className="font-bold">{o.descricao}</span>{" "}
+                        <Badge variant={OPME_STATUS[o.status].variant} className="text-[11px]">
+                          {OPME_STATUS[o.status].label}
+                        </Badge>
+                        <span className="block text-xs text-muted-foreground">
+                          Autorizado {o.autorizado} · lido {o.consumido}
+                          {o.lotes.length > 0 && ` · lote ${o.lotes.map((l) => l.lote ?? "—").join(", ")}`}
+                        </span>
+                      </span>
+                      <span className="space-y-1">
+                        <Label htmlFor={`opme-qtd-${o.codigo}`} className="text-xs">
+                          Citado
+                        </Label>
+                        <Input
+                          id={`opme-qtd-${o.codigo}`}
+                          type="number"
+                          min={0}
+                          max={99}
+                          value={o.citado}
+                          onChange={(e) => setOpme(o.codigo, { citado: Math.max(0, Math.min(99, Number(e.target.value) || 0)) })}
+                        />
+                      </span>
+                      <span className="space-y-1">
+                        <Label htmlFor={`opme-just-${o.codigo}`} className="text-xs">
+                          Justificativa da divergência
+                        </Label>
+                        <Input
+                          id={`opme-just-${o.codigo}`}
+                          value={o.justificativa ?? ""}
+                          maxLength={500}
+                          onChange={(e) => setOpme(o.codigo, { justificativa: e.target.value })}
+                        />
+                      </span>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Retirar ${o.descricao} do relatório`} onClick={() => setOpme(o.codigo, null)}>
+                        <Trash2 aria-hidden />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </fieldset>
             )}
             {report.campos.map((f, i) => (
               <div key={f.campo} className="space-y-1">
@@ -305,6 +389,23 @@ export function NoteReview({
         )}
 
         {error && <Alert variant="critico">{error}</Alert>}
+        {blocked && (
+          <Alert variant="critico" className="flex-col">
+            <p className="font-bold">{blocked.mensagem}</p>
+            <ul className="list-disc space-y-0.5 pl-5">
+              {blocked.pendencias.map((p) => (
+                <li key={p.regra + (p.campo ?? "")}>
+                  {p.texto} <span className="text-xs">(Fonte: {p.fonte})</span>
+                </li>
+              ))}
+            </ul>
+            <Label htmlFor="justificativa-envio">Justificativa do envio com pendência crítica (fica no registro de auditoria)</Label>
+            <Textarea id="justificativa-envio" value={justification} onChange={(e) => setJustification(e.target.value)} className="min-h-16 bg-card text-foreground" />
+            <Button onClick={() => void send(true)} disabled={busy !== null || justification.trim().length < 15} className="self-start">
+              <Send aria-hidden /> Enviar com justificativa
+            </Button>
+          </Alert>
+        )}
         {message && (
           <p role="status" className="text-sm font-bold text-ok">
             {message}

@@ -227,6 +227,15 @@ export function LiveConsult({
     return () => window.removeEventListener("keydown", onKey);
   }, [surgical]);
 
+  // guia de OPME, etiquetas e convênio mudam o relatório: o servidor devolve os insights atualizados
+  const refreshInsights = useCallback(
+    (insights: ConsultInsights | null, patch?: Partial<Consultation>) => {
+      apply([], insights);
+      if (patch) setConsultation((prev) => (prev ? { ...prev, ...patch } : prev));
+    },
+    [apply, setConsultation],
+  );
+
   // Cirurgia Segura (OMS) marcada por botão; o ditado também marca por voz
   const markChecklist = useCallback(
     async (etapa: ChecklistStep, feito: boolean) => {
@@ -487,7 +496,13 @@ export function LiveConsult({
 
         <section aria-label="Assistente">
           {c.insights?.relatorio_cirurgico ? (
-            <SurgicalPanel report={c.insights.relatorio_cirurgico} patientId={patient.id} onChecklist={markChecklist} />
+            <SurgicalPanel
+              report={c.insights.relatorio_cirurgico}
+              patientId={patient.id}
+              onChecklist={markChecklist}
+              consultation={c}
+              onInsights={refreshInsights}
+            />
           ) : c.insights ? (
             <SmartAppsPanel insights={c.insights} />
           ) : null}

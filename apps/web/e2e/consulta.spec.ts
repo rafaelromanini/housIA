@@ -73,9 +73,15 @@ test("centro cirúrgico: relatório por ditado com pendências anti-glosa e conc
   await page.getByRole("button", { name: "Iniciar", exact: true }).click();
   await simulate(page);
   await expect(page.getByText("Verificações automáticas")).toBeVisible();
-  await expect(page.getByText(/Pinça de energia ultrassônica citado no ditado sem autorização/)).toBeVisible();
+  await expect(page.getByText(/Pinça de energia ultrassônica citado no ditado sem autorização/).first()).toBeVisible();
+  // prontidão para faturamento ao vivo (regras anti-glosa em dados, com a fonte de cada pendência)
+  await expect(page.getByRole("progressbar", { name: "Prontidão para faturamento" })).toBeVisible();
+  await expect(page.getByText("Pronto para faturar").first()).toBeVisible();
   await expect(page.getByText("Não ditado — obrigatório").first()).toBeVisible();
   await expect(page.getByRole("table", { name: "Materiais citados e autorizados" })).toContainText("Conferido");
   await page.getByRole("button", { name: "Finalizar relatório" }).click();
   await expect(page.getByText("Relatório cirúrgico para revisão")).toBeVisible();
+  // pendência crítica de faturamento: o envio pede justificativa (trava suave, auditada)
+  await page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ }).click();
+  await expect(page.getByLabel(/Justificativa do envio com pendência crítica/)).toBeVisible();
 });

@@ -83,6 +83,26 @@ aprovada pelo profissional.
    janela antes da incisão, dose pelo peso do prontuário, redose pela duração). Tudo determinístico: a IA só
    reescreve o texto dos campos e não remove nem contradiz uma verificação.
 
+12. **OPME em três vias e rastreio do implante.** O que o cirurgião narra (`Fala/N`, com quantidade e tamanho
+   — "parafuso 3,5 por 40"), o que a guia autorizou e o que a etiqueta GS1 mostrou (`app/consult/gs1.py`: GTIN, lote,
+   validade e série, lidos pela câmera do tablet com `BarcodeDetector` ou por leitor USB) são conciliados linha a
+   linha, cada via com o seu status (`app/consult/opme.py`). A guia vem de entrada manual (autocomplete do catálogo
+   de demonstração), de um `ClaimResponse` FHIR ou de um XML de guia TISS (leitor tolerante, **sem** validação
+   contra o XSD da ANS), então o roteiro de demo deixou de ser a única fonte. Validade vencida é crítica. Na revisão
+   o cirurgião edita só a quantidade citada e a justificativa; guia e etiquetas continuam do servidor. Ao enviar, o
+   implante vira `Device` (UDI com o GTIN, lote, série, validade), a cirurgia vira `Procedure` com `usedReference`
+   e o cartão do implante entra nos documentos de alta; o dispositivo também é fato da passagem de plantão.
+13. **Anti-glosa em dados, com score de prontidão.** As regras não ficam no código: `data/reference/glosa_rules/*.csv`
+   (regra, tipo, condição, severidade, peso, mensagem, fonte e tipo da fonte — manual, contrato ou motivo de glosa
+   TISS) com um conjunto genérico, um convênio de demonstração e o SUS; tabelas de CID × procedimento, OPME ×
+   procedimento, auxiliares, duração e anestesia por procedimento. `app/consult/antiglosa.py` só sabe avaliar cada
+   tipo de regra sobre o relatório, a cada fala e de novo na revisão, e devolve o score 0–100 ("pronto para
+   faturar", com teto enquanto houver pendência crítica) e as pendências com a fonte. Os códigos de procedimento são
+   `DEMO-TUSS-*` e `DEMO-SIGTAP-*` e as tabelas clínicas são curadoria de demonstração, a substituir pelas tabelas
+   licenciadas. O envio da cirurgia tem trava suave: pendência crítica devolve 409 até haver justificativa, que fica
+   no audit; o audit `cirurgia.prontidao` registra as pendências antes e depois no finish e no envio (glosas
+   evitadas). O envio ainda grava um `Claim` em rascunho e o export traz um Bundle de transação.
+
 ## Consequências
 
 - Novo cenário ambulatorial (cen6) e agenda do dia (Encounter `AMB`). O construtor de cenários aceita
