@@ -13,3 +13,4 @@ Registros curtos das decisões tomadas fora do `HOUSIA_MVP_PLAN.md`.
 | [0007](0007-score-de-alta-e-trava.md) | Score de reinternação (LACE + social) e trava suave da alta |
 | [0008](0008-melhorias-do-benchmark.md) | Melhorias do benchmark com a Lya: conferência verbal, documentos de alta, feedback |
 | [0009](0009-consulta-com-ia.md) | Consulta com IA: transcrição plugável, Smart Apps em tempo real (regras + IA), envio ao prontuário |
+| [0010](0010-jornada-do-paciente.md) | Waze da jornada: lista de pacientes em risco de abandono, contato pós-alta, tarefas FHIR e métricas de reinternação |

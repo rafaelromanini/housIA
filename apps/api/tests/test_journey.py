@@ -428,9 +428,7 @@ def expected_readmission(store: LocalFhirStore, days: int = 30) -> tuple[int, in
                 continue
             complete += 1
             if any(
-                end < parse_dt(o["period"]["start"]) <= end + timedelta(days=days)
-                for o in encounters
-                if o is not e
+                end < parse_dt(o["period"]["start"]) <= end + timedelta(days=days) for o in encounters if o is not e
             ):
                 readmitted += 1
     return complete, readmitted
