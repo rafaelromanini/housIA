@@ -499,3 +499,113 @@ def test_alembic_chain_has_single_head_with_journey_tables(tmp_path, monkeypatch
     command.upgrade(cfg, "head")
     tables = inspect(create_engine(url)).get_table_names()
     assert {"journey_contacts", "journey_tasks", "consultations"} <= set(tables)
+
+
+# ======================= entradas adversariais (verificação independente) =======================
+@pytest.mark.parametrize(
+    "method,path,body",
+    [
+        ("get", "/journey/worklist?patient_id=nao-existe", None),
+        ("get", "/journey/patients/nao-existe/contact-script", None),
+        ("get", "/journey/patients/nao-existe/message-draft", None),
+        ("post", "/journey/patients/nao-existe/contacts", {"atendeu": False}),
+        ("post", "/journey/tasks", {"patient_id": "nao-existe", "regra": "falta_ao_retorno"}),
+    ],
+)
+def test_unknown_patient_is_404_not_500(client, auth, jstore, method, path, body):
+    res = getattr(client, method)(path, headers=auth(), **({"json": body} if body is not None else {}))
+    assert res.status_code == 404, res.text
+
+
+def test_all_endpoints_require_login(client, jstore):
+    for path in ("/journey/worklist", "/journey/rules", "/journey/metrics", "/journey/tasks"):
+        assert client.get(path).status_code == 401
+    assert client.post("/journey/tasks", json={"patient_id": "cen7", "regra": "x"}).status_code == 401
+    assert client.post("/journey/patients/cen7/contacts", json={"atendeu": False}).status_code == 401
+
+
+def test_task_input_validation_and_conflicts(client, auth, jstore):
+    h = auth("enfermagem")
+    ok = {"patient_id": "cen7b", "regra": "falta_ao_retorno"}
+    assert client.post("/journey/tasks", json=ok | {"papel": "faxineiro"}, headers=h).status_code == 422
+    assert client.post("/journey/tasks", json=ok | {"prazo_horas": 0}, headers=h).status_code == 422
+    assert client.post("/journey/tasks", json=ok | {"prazo_horas": 100000}, headers=h).status_code == 422
+    assert client.post("/journey/tasks", json=ok | {"regra": "inventada"}, headers=h).status_code == 422
+    # regra que não se aplica a este paciente
+    assert client.post("/journey/tasks", json=ok | {"regra": "troca_sem_reconciliacao"}, headers=h).status_code == 409
+    # paciente internado: não está na lista
+    assert (
+        client.post("/journey/tasks", json={"patient_id": "cen1", "regra": "falta_ao_retorno"}, headers=h).status_code
+        == 409
+    )
+    first = client.post("/journey/tasks", json=ok, headers=h)
+    assert first.status_code == 201
+    assert client.post("/journey/tasks", json=ok, headers=h).status_code == 409  # duplicada
+    tid = first.json()["id"]
+    assert (
+        client.patch(
+            f"/journey/tasks/{tid}", json={"status": "cancelada", "observacao": "   curta  "}, headers=h
+        ).status_code
+        == 422
+    )
+    assert client.patch(f"/journey/tasks/{tid}", json={"status": "aberta"}, headers=h).status_code == 422
+    assert client.patch("/journey/tasks/99999", json={"status": "concluida"}, headers=h).status_code == 404
+    assert client.patch(f"/journey/tasks/{tid}", json={"status": "concluida"}, headers=h).status_code == 200
+    assert client.patch(f"/journey/tasks/{tid}", json={"status": "concluida"}, headers=h).status_code == 409
+    # concluída libera nova tarefa para o mesmo item
+    assert client.post("/journey/tasks", json=ok, headers=h).status_code == 201
+
+
+def test_contact_input_validation(client, auth, jstore):
+    h = auth("enfermagem")
+    script = client.get("/journey/patients/cen7/contact-script", headers=h).json()["perguntas"]
+    url = "/journey/patients/cen7/contacts"
+    assert client.post(url, json={"atendeu": True, "canal": "pombo"}, headers=h).status_code == 422
+    assert client.post(url, json={"canal": "telefone"}, headers=h).status_code == 422  # atendeu é obrigatório
+    assert client.post(url, json={"atendeu": False, "observacoes": "x" * 1001}, headers=h).status_code == 422
+    for bad in ("SIM", "talvez", "", "true"):
+        res = client.post(url, json={"atendeu": True, "respostas": answers(script, sinal_febre=bad)}, headers=h)
+        assert res.status_code == 422, bad
+    # nada foi gravado pelas tentativas inválidas
+    assert client.get("/journey/patients/cen7/contacts", headers=h).json() == []
+    assert find(worklist(client, h), "alta_sem_contato_72h", "cen7") is not None
+    # "não se aplica" num sinal de alarme não gera alerta
+    res = client.post(url, json={"atendeu": True, "respostas": answers(script, sinal_febre="nao_se_aplica")}, headers=h)
+    assert res.status_code == 201 and res.json()["alerta"] is None
+    # tentativa sem sucesso ignora respostas enviadas (não há o que registrar)
+    res = client.post(url, json={"atendeu": False, "respostas": answers(script, sinal_febre="sim")}, headers=h)
+    assert res.status_code == 201 and res.json()["respostas"] == {} and res.json()["alerta"] is None
+
+
+def test_repeated_alarm_reuses_open_alert_and_text_is_not_executed(client, auth, jstore):
+    h = auth("enfermagem")
+    script = client.get("/journey/patients/cen7/contact-script", headers=h).json()["perguntas"]
+    body = {
+        "atendeu": True,
+        "respostas": answers(script, sinal_febre="sim"),
+        "observacoes": "<script>alert(1)</script>",
+    }
+    for _ in range(2):
+        assert client.post("/journey/patients/cen7/contacts", json=body, headers=h).status_code == 201
+    alerts = client.get("/patients/cen7/alerts?status=aberto", headers=h).json()
+    assert len([a for a in alerts if a["source"] == "jornada"]) == 1
+
+
+def test_patient_leaves_list_after_window_and_message_draft_for_discharged(client, auth, jstore, at):
+    h = auth("enfermagem")
+    at(days=3, hours=1)
+    assert find(worklist(client, h), "alta_sem_contato_72h", "cen7") is not None
+    at(days=400)
+    assert find(worklist(client, h), "alta_sem_contato_72h", "cen7") is None
+    draft = client.get("/journey/patients/cen7/message-draft", headers=h).json()
+    assert draft["envio"] is False and "192" in draft["texto"]
+
+
+def test_metrics_input_validation_and_cohorts(client, auth, jstore):
+    h = auth("gestor")
+    assert client.get("/journey/metrics?coorte=astrologia", headers=h).status_code == 422
+    assert client.get("/journey/metrics?dias=29", headers=h).status_code == 422
+    assert client.get("/journey/metrics?dias=99999", headers=h).status_code == 422
+    for coorte in ("risco", "mes", "cid"):
+        res = client.get(f"/journey/metrics?coorte={coorte}&dias=30", headers=h)
+        assert res.status_code == 200, res.text
