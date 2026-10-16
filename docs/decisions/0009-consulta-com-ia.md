@@ -16,7 +16,8 @@ aprovada pelo profissional.
      Este é o caminho para produção.
    - *Digitar* e *simular roteiro* (`data/consultations/*.json`): demonstração sem microfone, e2e e CI.
    - Quem fala: botões e atalhos (Alt+1/2/3) ou "automático" (heurística na hora; a IA corrige depois apenas as
-     falas marcadas como automáticas).
+     falas marcadas como automáticas). O modo Microfone começa em "automático" (exceto com paciente em outro
+     idioma, em que quem fala define o idioma do reconhecimento).
 
 2. **Duas velocidades: regras a cada fala, IA em ciclos.** A cada fala, a camada determinística (`app/consult/engine.py`,
    em milissegundos) atualiza queixas, emoções, perguntas (as já abordadas saem da lista), hipóteses, alertas de
@@ -55,6 +56,14 @@ aprovada pelo profissional.
 9. **Protocolos de atenção primária determinísticos.** `care_protocols.csv` checa no prontuário itens da linha de
    cuidado (HbA1c, TFG, albuminúria, pés, fundo de olho, vacina, PA no alvo, potássio, ECG) por diagnóstico ativo.
    É uma base de demonstração com recomendações usuais e não substitui a diretriz local.
+
+10. **Regras medidas por um corpus público de regressão.** Alerta falso destrói o diferencial "regras antes da IA".
+    `data/consultations/regressao_falas.json` reúne frases de consulta real (sem pontuação, com vocativo, negação,
+    passado e pergunta sem "?") com o que as regras devem e não devem extrair; `tests/test_consult_regressao.py`
+    mede falso positivo e falso negativo por categoria a cada build e falha com qualquer falso positivo. Limitações
+    conhecidas ficam no corpus como xfail estrito, à vista, até a regra ser corrigida. Para isso o texto ganhou
+    alcance de negação, status do medicamento citado (em uso, suspenso relatado, negado) e quebra de oração por
+    marcadores da fala ("só", "mas", "agora", vocativo).
 
 ## Consequências
 

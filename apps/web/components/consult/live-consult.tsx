@@ -65,7 +65,13 @@ export function LiveConsult({
   const { patient } = usePatient();
   const surgical = c.tipo === "cirurgia";
   const [mode, setMode] = useState<Mode>(() => (c.roteiro_demo ? "demo" : speechSupported() ? "microfone" : "digitar"));
-  const [speaker, setSpeaker] = useState<Speaker>("medico");
+  // no microfone a fala chega contínua: começa em "Automático" (as regras atribuem quem falou e a IA corrige). Com
+  // paciente em outro idioma, quem fala escolhe o idioma do reconhecimento, então o falante continua manual.
+  const startSpeaker = useCallback(
+    (m: Mode): Speaker => (m === "microfone" && c.idioma_paciente === "pt-BR" ? "desconhecido" : "medico"),
+    [c.idioma_paciente],
+  );
+  const [speaker, setSpeaker] = useState<Speaker>(() => startSpeaker(mode));
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [aiRunning, setAiRunning] = useState(false);
@@ -317,6 +323,7 @@ export function LiveConsult({
                       onClick={() => {
                         stopAll();
                         setMode(key);
+                        if (key === "microfone" && mode !== "microfone") setSpeaker(startSpeaker(key));
                       }}
                       className={cn(
                         "inline-flex min-h-10 items-center gap-1.5 rounded-md px-3 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -366,6 +373,12 @@ export function LiveConsult({
                     {mic.listening ? "Pausar transcrição" : "Iniciar transcrição ao vivo"}
                   </Button>
                   {mic.error && <p className="text-sm text-critico">{mic.error}</p>}
+                  {speaker === "desconhecido" && (
+                    <p className="text-xs text-muted-foreground">
+                      Falante automático: o HousIA identifica quem falou (pergunta do profissional, resposta do paciente) e a IA
+                      corrige depois. Fixe o falante nos botões acima se preferir.
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Reconhecimento de fala do navegador ({lang}). O áudio não é gravado pelo HousIA; em produção, use a transcrição no
                     servidor (on-premise) — ver ADR 0009.
