@@ -1,0 +1,31 @@
+versao: "1.0.0"
+id: colecistectomia
+rotulo: Colecistectomia
+especialidade: cirurgia_geral
+detectar: [colecistectomia]
+sitio: [vesicula]
+profilaxia: [cefazolina, cefoxitina, ceftriaxona, ampicilina_sulbactam]
+campos:
+  - campo: visao_critica
+    rotulo: Visão crítica de segurança
+    sinonimos: [visao critica, triangulo de calot, triangulo hepatocistico, calot]
+    obrigatorio: true
+    granular: true
+    motivo: Registrar a visão crítica de segurança antes de clipar documenta a prevenção de lesão da via biliar.
+    fonte: strasberg_cvs
+  - campo: clipagem
+    rotulo: Clipagem do ducto e da artéria císticos
+    sinonimos: [clipagem, clipad, ducto cistico, arteria cistica]
+    obrigatorio: false
+    granular: true
+    motivo: Como o ducto e a artéria císticos foram tratados orienta a investigação de fístula biliar.
+    fonte: cfm_1638
+  - campo: colangiografia
+    rotulo: Colangiografia intraoperatória
+    sinonimos: [colangiografia]
+    obrigatorio: false
+    granular: true
+    motivo: Colangiografia usa radioscopia e contraste; achados e exposição precisam constar.
+    fonte: rdc_611
+obrigatoriedade:
+  peca: {obrigatorio: true, motivo: "A vesícula retirada vai ao anatomopatológico (câncer incidental).", fonte: cfm_1638}

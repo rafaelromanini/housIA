@@ -63,6 +63,7 @@ class FactBuilder:
         self._prescription_changes()
         self._next_doses()
         self._medication_safety()
+        self._pending_exams()
         self.facts.sort(key=lambda f: -ORDER[f.severidade])
         return self.facts
 
@@ -428,6 +429,19 @@ class FactBuilder:
                     publico=["enfermagem", "medico"] if (first or mpp) else ["enfermagem"],
                     horario=next_dt.strftime("%H:%M"),
                     horizonte_h=max(1, int((next_dt - local_now).total_seconds() // 3600) + 1),
+                )
+            )
+
+    def _pending_exams(self) -> None:
+        """Exame pedido/proposto sem resultado (ex.: RX de controle do relatório cirúrgico): pendência do turno."""
+        for e in self.r.pending_exams:
+            origin = "proposto no relatório cirúrgico" if e.proposto else "solicitado"
+            when = f" às {hhmm(e.pedido_em)}" if e.pedido_em else ""
+            self.facts.append(
+                Fact(
+                    tipo="exame_pendente",
+                    texto=f"{e.texto} — {origin}{when}, ainda sem resultado: confirmar realização e laudo.",
+                    refs=[e.ref],
                 )
             )
 

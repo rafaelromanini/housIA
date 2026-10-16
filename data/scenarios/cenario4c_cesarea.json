@@ -1,0 +1,56 @@
+{
+  "id": "cen4c",
+  "tag": "cenario-4c",
+  "titulo": "Cenário 4c — Centro obstétrico: cesariana eletiva",
+  "esperado": "Ditado escolhe o modelo de obstetrícia (indicação, hora do nascimento, Apgar, dequitação, uterotônico e histerorrafia obrigatórios). Cirurgia segura por voz, contagem que confere e cefazolina na janela de 60 minutos antes da incisão.",
+  "paciente": {
+    "nome": "Camila Rocha Nunes",
+    "sexo": "female",
+    "nascimento": "1995-07-09",
+    "cpf": "265.913.478-02",
+    "telefone": "(11) 99318-6407",
+    "endereco": "Rua Tuiuti, 870, Tatuapé, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-5h",
+    "tipo": "eletiva",
+    "motivo": "Cesariana eletiva (cesárea anterior), gestação de 39 semanas",
+    "setores": [
+      {"id": "mat", "setor": "Maternidade", "leito": "02", "inicio": "-5h"}
+    ]
+  },
+  "diagnosticos": [
+    {"cid": "O34.2", "texto": "Cicatriz uterina de cesariana anterior", "principal": true, "inicio": "-5h"}
+  ],
+  "alergias": [],
+  "familiares": [
+    {"nome": "Diego Nunes", "parentesco": "marido", "codigo": "HUSB", "cuidador": true, "telefone": "(11) 99318-6400"}
+  ],
+  "social": {"moradores": 3},
+  "prescricoes": [
+    {"id": "cefazolina", "med": "cefazolina", "dose": "2 g", "via": "IV", "frequencia": "dose única antes da incisão (profilaxia cirúrgica)",
+     "inicio": "-1h", "administrar": false},
+    {"id": "dipirona", "med": "dipirona", "dose": "1 g", "via": "IV", "se_necessario": true, "condicao": "se dor ou febre", "inicio": "-5h"}
+  ],
+  "sinais": [
+    {"t": "-5h", "pa": [118, 76], "fc": 84, "fr": 16, "temp": 36.6, "spo2": 98, "dor": 1, "peso": 82}
+  ],
+  "exames": [
+    {"t": "-10d", "hemoglobina": 11.8, "plaquetas": 212, "leucocitos": 9.1}
+  ],
+  "escalas": [
+    {"t": "-4h", "morse": 15, "braden": 21}
+  ],
+  "cirurgias": [
+    {"id": "cesariana", "procedimento": "Cesariana", "sitio": "Útero (segmento inferior)",
+     "t": "-50m", "duracao": "1h30m", "solicitado": "-14d", "status": "active",
+     "cirurgiao": "Dra. Paula Menezes (Obstetrícia)", "especialidade": "Obstetrícia", "sala": "Centro Obstétrico — Sala 1",
+     "consentimento": {"t": "-14d", "texto": "Termo de consentimento livre e esclarecido: cesariana eletiva por cesárea anterior, a partir de 39 semanas. Riscos de hemorragia, infecção e lesão de bexiga explicados à gestante e ao marido."}}
+  ],
+  "evolucoes": [
+    {"t": "-4h30m", "tipo": "medica", "autor": "Dra. Paula Menezes (Obstetrícia)",
+     "texto": "Gestante de 39 semanas, G2P1 (cesárea anterior há 3 anos), sem trabalho de parto. Indicação: cesárea anterior com desejo de nova cesariana após orientação. Batimentos cardíacos fetais 140 bpm. Pediatra avisado."},
+    {"t": "-4h", "tipo": "enfermagem", "autor": "Enf. Juliana Prates (Maternidade)",
+     "texto": "Admitida para cesariana eletiva. Jejum de 8 horas, acesso venoso periférico, termo de consentimento conferido. Acompanhante (marido) presente."}
+  ]
+}

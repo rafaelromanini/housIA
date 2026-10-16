@@ -1,0 +1,33 @@
+versao: "1.0.0"
+id: artroplastia_joelho
+rotulo: Artroplastia total de joelho
+especialidade: ortopedia
+detectar: [artroplastia total de joelho, artroplastia de joelho, protese total de joelho, protese de joelho, "atj "]
+sitio: [joelho]
+profilaxia: [cefazolina]
+exame_controle:
+  descricao: "Radiografia do joelho {lado} (AP e perfil) — controle pós-operatório"
+campos:
+  - campo: garrote
+    rotulo: Garrote pneumático (pressão e tempo de isquemia)
+    sinonimos: [garrote, torniquete, isquemia]
+    obrigatorio: true
+    granular: true
+    motivo: Tempo de garrote acima de 2 horas aumenta o risco de lesão nervosa e muscular e precisa ser registrado.
+    fonte: aorn_garrote
+  - campo: implante
+    rotulo: Implante (componentes, tamanhos e rastreabilidade)
+    sinonimos: [componente femoral, componente tibial, polietileno, protese, implante, etiqueta]
+    obrigatorio: true
+    granular: true
+    motivo: Componentes, tamanhos e etiquetas do implante são exigidos para OPME e tecnovigilância.
+    fonte: anvisa_tecnovigilancia
+  - campo: cimentacao
+    rotulo: Cimentação
+    sinonimos: [cimentad, cimento]
+    obrigatorio: false
+    granular: true
+    motivo: Cimento ósseo muda a vigilância anestésica (síndrome de implantação do cimento) e a conta de materiais.
+    fonte: ans_tiss
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Joelho é membro par: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}

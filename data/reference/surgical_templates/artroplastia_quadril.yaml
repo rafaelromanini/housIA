@@ -1,0 +1,33 @@
+versao: "1.0.0"
+id: artroplastia_quadril
+rotulo: Artroplastia de quadril
+especialidade: ortopedia
+detectar: [artroplastia total de quadril, artroplastia de quadril, artroplastia parcial de quadril, hemiartroplastia, protese total de quadril, protese de quadril, "atq "]
+sitio: [quadril, femur proximal, colo do femur, acetabulo]
+profilaxia: [cefazolina]
+exame_controle:
+  descricao: "Radiografia de bacia (AP) e do quadril {lado} — controle pós-operatório"
+campos:
+  - campo: via_de_acesso
+    rotulo: Via de acesso
+    sinonimos: [via posterior, via lateral, via anterior, acesso posterior, acesso lateral, acesso anterior, hardinge]
+    obrigatorio: false
+    granular: true
+    motivo: A via de acesso orienta as precauções contra luxação no pós-operatório.
+    fonte: cfm_1638
+  - campo: implante
+    rotulo: Implante (componentes, tamanhos e rastreabilidade)
+    sinonimos: [componente acetabular, componente femoral, haste femoral, cabeca femoral, protese, implante, etiqueta]
+    obrigatorio: true
+    granular: true
+    motivo: Componentes, tamanhos e etiquetas do implante são exigidos para OPME e tecnovigilância.
+    fonte: anvisa_tecnovigilancia
+  - campo: cimentacao
+    rotulo: Cimentação
+    sinonimos: [cimentad, cimento]
+    obrigatorio: false
+    granular: true
+    motivo: Cimento ósseo muda a vigilância anestésica e a conta de materiais.
+    fonte: ans_tiss
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Quadril é articulação par: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}

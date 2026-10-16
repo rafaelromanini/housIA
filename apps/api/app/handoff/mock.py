@@ -17,6 +17,7 @@ RISK_PREFIX = {
     "interacao": "Interação medicamentosa",
     "omissao": "Possível omissão na transferência",
     "duplicidade": "Duplicidade terapêutica",
+    "exame_pendente": "Exame pendente",
 }
 HEADLINE_PRIORITY = ["alergia", "interacao", "omissao", "tendencia", "sinal_vital_fora_da_faixa", "diurese"]
 
@@ -76,6 +77,11 @@ def mock_handoff(audience: str, facts: list[Fact], patient: dict, situation_refs
     pendencias = [
         {"texto": f.texto.split(" — ", 1)[-1].rstrip("."), "horario": f.horario or "sem horário", "refs": f.refs}
         for f in doses
+    ]
+    pendencias += [
+        {"texto": f"Exame pendente: {f.texto}", "horario": f.horario or "sem horário", "refs": f.refs}
+        for f in rel
+        if f.tipo == "exame_pendente"
     ]
     for f in rel:
         if f.severidade == "critico" and f.tipo in ("sinal_vital_fora_da_faixa", "tendencia"):

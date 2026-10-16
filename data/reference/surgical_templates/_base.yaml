@@ -1,0 +1,211 @@
+# Modelo base do relatório (descrição) cirúrgico — HousIA
+#
+# Cada campo traz: código (`campo`), rótulo, sinônimos que o ditado usa, se é obrigatório, o MOTIVO e a FONTE.
+# O hospital pode editar estes arquivos (versão em `versao`); o teste de schema valida a estrutura.
+# Os modelos por procedimento (demais arquivos desta pasta) somam campos próprios e mudam a obrigatoriedade.
+#
+# Sinônimos: escritos como se fala; o HousIA compara sem acento e sem maiúsculas, a partir do início da palavra
+# ("direit" pega "direito" e "direita"). Espaço no fim (`"rpa "`) exige a palavra inteira.
+# `granular: true` separa por oração (vírgula) em vez de frase; `valor` é uma expressão regular que o trecho
+# precisa conter (ex.: um tempo); `somente_no_modelo: true` deixa o campo oculto até um modelo pedi-lo.
+versao: "1.0.0"
+id: base
+rotulo: Relatório cirúrgico — modelo base
+
+fontes:
+  cfm_1638: "CFM — Resolução nº 1.638/2002 (prontuário médico: registro completo e legível do ato médico)"
+  cfm_2174: "CFM — Resolução nº 2.174/2017 (prática do ato anestésico e seu registro)"
+  cfm_2144: "CFM — Resolução nº 2.144/2016 (cesariana: indicação e consentimento registrados)"
+  oms_cirurgia_segura: "OMS — Segundo Desafio Global para a Segurança do Paciente: Cirurgias Seguras Salvam Vidas (2009)"
+  ms_cirurgia_segura: "Ministério da Saúde/Anvisa/Fiocruz — Protocolo para Cirurgia Segura (Portaria MS nº 1.377/2013)"
+  ashp_2013: "ASHP/IDSA/SIS/SHEA — Bratzler DW et al. Clinical practice guidelines for antimicrobial prophylaxis in surgery. Am J Health-Syst Pharm. 2013;70:195-283"
+  anvisa_iras: "Anvisa — Medidas de Prevenção de Infecção Relacionada à Assistência à Saúde (2017), infecção de sítio cirúrgico"
+  aorn_rsi: "AORN — Guideline for Prevention of Unintentionally Retained Surgical Items (Guidelines for Perioperative Practice)"
+  aorn_garrote: "AORN — Guideline for Pneumatic Tourniquet Safety (Guidelines for Perioperative Practice)"
+  rdc_611: "Anvisa — RDC nº 611/2022 (radiologia diagnóstica ou intervencionista: proteção radiológica e registros)"
+  sir_dose: "SIR/CIRSE — Stecker MS et al. Guidelines for patient radiation dose management. J Vasc Interv Radiol. 2009;20(7 Suppl):S263-73"
+  ans_tiss: "ANS — Padrão TISS: OPME e procedimentos precisam constar no registro do atendimento para autorização e pagamento"
+  anvisa_tecnovigilancia: "Anvisa — RDC nº 67/2009 (tecnovigilância): rastreabilidade de produtos para saúde implantáveis"
+  ms_dnv: "Ministério da Saúde — Declaração de Nascido Vivo (SINASC): hora do nascimento e Apgar no 1º e no 5º minuto"
+  ms_cesariana: "Ministério da Saúde/CONITEC — Diretrizes de Atenção à Gestante: a operação cesariana (2016)"
+  oms_hpp: "OMS — Recommendations for the prevention and treatment of postpartum haemorrhage (2012)"
+  oms_clampeamento: "OMS — Guideline: delayed umbilical cord clamping for improved maternal and infant health and nutrition outcomes (2014)"
+  ajcc_8: "AJCC Cancer Staging Manual, 8ª ed. (2017) — estadiamento patológico: linfonodos e margens"
+  cap_protocolos: "College of American Pathologists — Cancer Protocol Templates (peça orientada e margens)"
+  sts_cabg: "STS Adult Cardiac Surgery Database — especificação de dados (CEC, pinçamento aórtico e enxertos)"
+  strasberg_cvs: "Strasberg SM et al. J Am Coll Surg. 1995;180:101-25 (visão crítica de segurança) e programa SAGES Safe Cholecystectomy"
+  herniasurge: "HerniaSurge Group. International guidelines for groin hernia management. Hernia. 2018;22:1-165"
+  eau_luts: "EAU Guidelines — Management of Non-neurogenic Male LUTS (ressecção transuretral da próstata)"
+  eau_litiase: "EAU Guidelines on Urolithiasis (cateter ureteral: registro e prazo de retirada)"
+  sbacv_ivc: "SBACV — Projeto Diretrizes: Insuficiência venosa crônica — diagnóstico e tratamento"
+  kdigo_aki: "KDIGO Clinical Practice Guideline for Acute Kidney Injury (2012) — lesão renal associada a contraste"
+  ao_fraturas: "AO Foundation — AO Principles of Fracture Management (redução, implante e estabilidade documentados)"
+
+grupos:
+  radioscopia:
+    sinonimos: [radioscopia, fluoroscopia, escopia, intensificador de imagem, arco em c]
+    ausente: "Radioscopia não utilizada (ditado)."
+
+campos:
+  - campo: diagnostico_pre
+    rotulo: Diagnóstico pré-operatório
+    sinonimos: [diagnostico pre]
+    obrigatorio: true
+    motivo: Justifica a indicação cirúrgica e o CID da conta; sem ele a guia é devolvida.
+    fonte: cfm_1638
+  - campo: diagnostico_pos
+    rotulo: Diagnóstico pós-operatório
+    sinonimos: [diagnostico pos]
+    obrigatorio: false
+    motivo: Registra o que foi encontrado quando difere do pré-operatório.
+    fonte: cfm_1638
+  - campo: procedimento
+    rotulo: Procedimento realizado
+    sinonimos: ["procedimento realizado", "procedimento:"]
+    obrigatorio: true
+    motivo: Nome do procedimento é a base da autorização e do faturamento.
+    fonte: ans_tiss
+  - campo: lateralidade
+    rotulo: Lateralidade e sítio
+    sinonimos: [direit, esquerd, bilateral, ambos os lados]
+    obrigatorio: false
+    somente_no_modelo: true
+    granular: true
+    motivo: Órgão ou membro par exige o lado registrado e conferido com o agendamento.
+    fonte: ms_cirurgia_segura
+  - campo: anestesia
+    rotulo: Anestesia
+    sinonimos: [anestesia geral, raquianestesia, "raqui ", peridural, sedacao, anestesia local, bloqueio]
+    obrigatorio: true
+    granular: true
+    motivo: Tipo de anestesia precisa constar no registro do ato anestésico e na conta.
+    fonte: cfm_2174
+  - campo: posicionamento
+    rotulo: Posicionamento
+    sinonimos: [decubito, litotomia, posicao de]
+    obrigatorio: false
+    granular: true
+    motivo: Posição explica lesões de pele ou de nervo no pós-operatório.
+    fonte: cfm_1638
+  - campo: antibioticoprofilaxia
+    rotulo: Antibioticoprofilaxia
+    sinonimos: [antibioticoprofilaxia, profilaxia antibiotica, profilaxia com, cefazolina, cefuroxima, cefoxitina, clindamicina, vancomicina]
+    obrigatorio: true
+    granular: true
+    motivo: Fármaco, dose e horário provam a profilaxia na janela certa (indicador de infecção de sítio cirúrgico).
+    fonte: ashp_2013
+  - campo: equipe
+    rotulo: Equipe (cirurgião, auxiliar, anestesista)
+    sinonimos: [auxiliar, anestesista, instrumentador, equipe, "cirurgiao:"]
+    obrigatorio: true
+    motivo: Cada membro da equipe é identificado para responsabilidade técnica e honorários.
+    fonte: cfm_1638
+  - campo: horario
+    rotulo: Horário de início e término
+    sinonimos: [inicio da cirurgia, termino, duracao, tempo cirurgico, minutos de cirurgia, iniciad, incisao as, inicio as, fim da cirurgia]
+    obrigatorio: true
+    motivo: Início e término definem a duração (sala e anestesia) e a necessidade de redose do antibiótico.
+    fonte: ans_tiss
+  - campo: achados
+    rotulo: Achados operatórios
+    sinonimos: [achados]
+    obrigatorio: true
+    motivo: Achados sustentam o diagnóstico pós-operatório e o seguimento.
+    fonte: cfm_1638
+  - campo: tecnica
+    rotulo: Descrição da técnica
+    sinonimos: [pneumoperitonio, trocarte, incisao, seccionad, ligad, dissec, anastomose, retirad, aspiracao]
+    obrigatorio: true
+    motivo: A técnica descrita é o que comprova o procedimento cobrado.
+    fonte: cfm_1638
+  - campo: radioscopia_tempo
+    rotulo: Radioscopia — tempo de exposição
+    sinonimos: [radioscopia, fluoroscopia, escopia, intensificador de imagem]
+    valor: '\d+(?:[,.]\d+)?\s*(?:s|seg|segundos?|min|minutos?)(?![a-z])'
+    grupo: radioscopia
+    obrigatorio: false
+    somente_no_modelo: true
+    granular: true
+    motivo: Tempo de radioscopia é registro obrigatório da exposição do paciente e da equipe (vai ao RIS).
+    fonte: rdc_611
+  - campo: radioscopia_dose
+    rotulo: Radioscopia — dose (DAP/kerma)
+    sinonimos: ["dap ", produto dose, kerma, "gy", "mgy", dose de radiacao, dose acumulada]
+    grupo: radioscopia
+    obrigatorio: false
+    somente_no_modelo: true
+    granular: true
+    motivo: Dose (produto dose-área ou kerma no ar) permite acompanhar exposição acumulada e limiares de lesão de pele.
+    fonte: sir_dose
+  - campo: radioscopia_incidencias
+    rotulo: Radioscopia — incidências
+    sinonimos: [incidencia, ap e perfil, frente e perfil, obliqua]
+    grupo: radioscopia
+    obrigatorio: false
+    somente_no_modelo: true
+    granular: true
+    motivo: Incidências registradas permitem ao RIS/PACS associar as imagens intraoperatórias.
+    fonte: rdc_611
+  - campo: intercorrencias
+    rotulo: Intercorrências
+    sinonimos: [intercorrenc]
+    obrigatorio: true
+    granular: true
+    motivo: Ausência ou presença de intercorrência precisa ser explícita (defesa e qualidade).
+    fonte: cfm_1638
+  - campo: sangramento
+    rotulo: Sangramento estimado
+    sinonimos: [sangramento, perda sanguinea]
+    obrigatorio: true
+    granular: true
+    motivo: Perda sanguínea orienta o pós-operatório e a redose do antibiótico (acima de 1.500 mL).
+    fonte: ashp_2013
+  - campo: contagem
+    rotulo: Contagem de compressas e instrumentais
+    sinonimos: [contagem, compressas, gazes]
+    obrigatorio: true
+    motivo: Contagem que confere é etapa do sign-out e evita item retido.
+    fonte: aorn_rsi
+  - campo: peca
+    rotulo: Peça para anatomopatológico
+    sinonimos: [anatomopatolog, peca enviada, peca cirurgica]
+    obrigatorio: false
+    motivo: Peça enviada precisa de registro para rastrear o laudo.
+    fonte: cfm_1638
+  - campo: drenos
+    rotulo: Drenos
+    sinonimos: [dreno]
+    obrigatorio: false
+    granular: true
+    motivo: Drenos deixados orientam a enfermagem e o plano de retirada.
+    fonte: cfm_1638
+  - campo: fechamento
+    rotulo: Fechamento
+    sinonimos: [fechamento, sutura, "fio "]
+    obrigatorio: false
+    motivo: Fios e planos de fechamento orientam a retirada de pontos.
+    fonte: cfm_1638
+  - campo: destino
+    rotulo: Destino do paciente
+    sinonimos: [encaminhad, recuperacao pos-anestesica, "rpa ", "uti "]
+    obrigatorio: false
+    motivo: Destino define quem recebe o paciente na passagem de cuidado.
+    fonte: cfm_1638
+
+# Regras por especialidade (somam-se ao modelo base e valem para todos os procedimentos da especialidade)
+especialidades:
+  ortopedia:
+    obrigatoriedade:
+      radioscopia_tempo: {obrigatorio: true, motivo: "Ortopedia usa radioscopia com frequência: registrar o tempo ou ditar 'sem radioscopia'.", fonte: rdc_611}
+      radioscopia_dose: {obrigatorio: true, motivo: "Dose da radioscopia (DAP ou kerma) registrada para controle de exposição; 'sem radioscopia' também vale.", fonte: sir_dose}
+      radioscopia_incidencias: {obrigatorio: true, motivo: "Incidências identificam as imagens intraoperatórias no RIS/PACS.", fonte: rdc_611}
+  cirurgia_vascular:
+    obrigatoriedade:
+      radioscopia_tempo: {obrigatorio: true, motivo: "Cirurgia vascular usa radioscopia com frequência: registrar o tempo ou ditar 'sem radioscopia'.", fonte: rdc_611}
+      radioscopia_dose: {obrigatorio: true, motivo: "Procedimentos endovasculares podem atingir limiar de lesão de pele: registrar DAP ou kerma.", fonte: sir_dose}
+      radioscopia_incidencias: {obrigatorio: true, motivo: "Incidências identificam as imagens intraoperatórias no RIS/PACS.", fonte: rdc_611}
+
+# Exame de imagem de controle: quando citado no ditado, vira pedido proposto (ServiceRequest) e pendência
+exame_controle:
+  sinonimos: [rx de controle, raio x de controle, raio-x de controle, radiografia de controle, rx pos-operatorio, radiografia pos-operatoria, rx na recuperacao]
+  descricao: Radiografia de controle pós-operatório

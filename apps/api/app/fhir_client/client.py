@@ -28,7 +28,19 @@ PATIENT_SCOPED: dict[str, str] = {
     "Procedure": "subject",
     "DocumentReference": "subject",
     "RelatedPerson": "patient",
+    "ServiceRequest": "subject",
+    "Appointment": "patient",
+    "Consent": "patient",
 }
+
+
+def refers_to_patient(resource: dict, param: str, target: str) -> bool:
+    """Busca local equivalente ao parâmetro FHIR (Appointment aponta o paciente em participant.actor)."""
+    if (resource.get(param) or {}).get("reference") == target:
+        return True
+    return resource.get("resourceType") == "Appointment" and any(
+        (p.get("actor") or {}).get("reference") == target for p in resource.get("participant", [])
+    )
 
 
 class FhirUnavailable(RuntimeError):
@@ -131,9 +143,7 @@ class LocalFhirStore:
     def patient_resources(self, patient_id: str) -> dict[str, list[dict]]:
         target = f"Patient/{patient_id}"
         return {
-            rtype: [
-                r for r in self.resources.get(rtype, {}).values() if (r.get(param) or {}).get("reference") == target
-            ]
+            rtype: [r for r in self.resources.get(rtype, {}).values() if refers_to_patient(r, param, target)]
             for rtype, param in PATIENT_SCOPED.items()
         }
 

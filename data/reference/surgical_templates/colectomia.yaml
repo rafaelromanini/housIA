@@ -1,0 +1,24 @@
+versao: "1.0.0"
+id: colectomia
+rotulo: Colectomia
+especialidade: cirurgia_oncologica
+detectar: [colectomia, hemicolectomia, retossigmoidectomia, sigmoidectomia, retocolectomia]
+sitio: [colon, sigmoide, reto]
+profilaxia: ["cefazolina+metronidazol", cefoxitina, ampicilina_sulbactam, "ceftriaxona+metronidazol", ertapenem]
+campos:
+  - campo: linfadenectomia
+    rotulo: Linfadenectomia
+    sinonimos: [linfadenectomia, linfonodos, mesocolon, ligadura vascular na origem, ligadura alta]
+    obrigatorio: true
+    granular: true
+    motivo: O estadiamento do câncer colorretal pede ao menos 12 linfonodos examinados.
+    fonte: ajcc_8
+  - campo: reconstrucao
+    rotulo: Reconstrução do trânsito (anastomose ou estomia)
+    sinonimos: [anastomose, colostomia, ileostomia, estomia, hartmann]
+    obrigatorio: true
+    granular: true
+    motivo: Anastomose ou estomia orienta o pós-operatório e o cuidado de estomaterapia.
+    fonte: cfm_1638
+obrigatoriedade:
+  peca: {obrigatorio: true, motivo: "A peça oncológica vai ao anatomopatológico para estadiamento e margens.", fonte: cap_protocolos}

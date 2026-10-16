@@ -24,11 +24,18 @@ FHIR R4. **Todos os horários são relativos à âncora** (o "agora" da carga): 
     "inicio", "fim", "status": "stopped", "motivo", "substitui": "anlodipino",
     "se_necessario": true, "condicao": "...", "administracoes": ["-6h"], "administrar": false
   }],
-  "sinais": [{"t": "-25m", "pa": [184, 102], "fc": 92, "fr": 18, "temp": 36.9, "spo2": 96, "glicemia": 210, "dor": 3}],
+  "sinais": [{"t": "-25m", "pa": [184, 102], "fc": 92, "fr": 18, "temp": 36.9, "spo2": 96, "glicemia": 210, "dor": 3,
+              "peso": 130}],                                      // peso em kg (doses por peso)
   "exames": [{"t": "-10h", "potassio": 4.2, "creatinina": 1.1, "leucocitos": 12.4}],
   "balanco": [{"t": "-7h", "diurese": 400, "obs": "via SVD"}],
   "escalas": [{"t": "-2h40m", "morse": 55, "braden": 16}],
   "procedimentos": [{"t": "-3d", "texto": "...", "categoria": "acesso vascular"}],
+  "cirurgias": [{                       // cirurgia agendada → ServiceRequest (bodySite) + Appointment + Consent
+    "id": "atj", "procedimento": "Artroplastia total de joelho", "sitio": "Joelho direito",
+    "t": "-1h30m", "duracao": "3h", "status": "active|completed", "cirurgiao": "...", "especialidade": "...",
+    "sala": "Centro Cirúrgico — Sala 3",           // opcional: gera o Appointment da sala
+    "consentimento": {"t": "-1d", "texto": "..."}  // opcional: gera o Consent (termo assinado)
+  }],
   "evolucoes": [{"t": "-4h", "tipo": "medica|enfermagem", "autor": "...", "texto": "..."}]
 }
 ```
@@ -41,5 +48,7 @@ aprazados são geradas automaticamente a partir de `horarios`.
 | `cenario1_uti_enfermaria.json` | UTI → Enfermaria, PA instável, anti-hipertensivo trocado, ATB às 20h |
 | `cenario2_omissao_transferencia.json` | Betabloqueador omitido na transferência; taquicardia 12h depois |
 | `cenario3_alta_alto_risco.json` | Idoso que mora sozinho, 3 idas ao PS em 6 meses, insulina nova |
-| `cenario4_alta_baixo_risco.json` | Jovem, apendicectomia sem intercorrências |
+| `cenario4_alta_baixo_risco.json` | Jovem, apendicectomia sem intercorrências (pedido cirúrgico concluído e termo de consentimento) |
+| `cenario4b_artroplastia_joelho.json` | Centro cirúrgico: artroplastia total de joelho direito agendada, 130 kg (dose de cefazolina) |
+| `cenario4c_cesarea.json` | Centro obstétrico: cesariana eletiva por cesárea anterior |
 | `cenario5_interacao_alergia.json` | Opioide + benzodiazepínico em idosa; dipirona prescrita em alérgica |

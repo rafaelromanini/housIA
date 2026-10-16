@@ -1,0 +1,65 @@
+versao: "1.0.0"
+id: cesarea
+rotulo: Cesariana
+especialidade: ginecologia_obstetricia
+detectar: [cesariana, cesarea segmentar, operacao cesariana, parto cesareo, cesarea]
+sitio: [utero]
+profilaxia: [cefazolina]
+campos:
+  - campo: indicacao
+    rotulo: Indicação da cesariana
+    sinonimos: [indicacao, cesarea anterior, cesareas anteriores, iterativa, apresentacao pelvica, sofrimento fetal, desproporcao, falha de inducao]
+    obrigatorio: true
+    granular: true
+    depois_de: procedimento
+    motivo: A indicação da cesariana precisa constar para auditoria e para a Classificação de Robson.
+    fonte: cfm_2144
+  - campo: extracao_fetal
+    rotulo: Extração fetal e hora do nascimento
+    sinonimos: [extracao fetal, extraido, nascimento as, recem-nascido vivo, "rn vivo", nasceu]
+    obrigatorio: true
+    granular: true
+    motivo: Hora do nascimento e condições do recém-nascido vão para a Declaração de Nascido Vivo.
+    fonte: ms_dnv
+  - campo: apgar
+    rotulo: Apgar (1º e 5º minuto)
+    sinonimos: [apgar]
+    obrigatorio: true
+    granular: true
+    motivo: O Apgar no 1º e no 5º minuto é campo obrigatório da Declaração de Nascido Vivo.
+    fonte: ms_dnv
+  - campo: clampeamento
+    rotulo: Clampeamento do cordão
+    sinonimos: [clampeamento, cordao]
+    obrigatorio: false
+    granular: true
+    motivo: O clampeamento oportuno (após 1 minuto) é recomendado para o recém-nascido que não precisa de reanimação.
+    fonte: oms_clampeamento
+  - campo: dequitacao
+    rotulo: Dequitação (placenta)
+    sinonimos: [dequitacao, placenta, secundamento]
+    obrigatorio: true
+    granular: true
+    motivo: Forma da dequitação e integridade da placenta afastam restos placentários e hemorragia.
+    fonte: ms_cesariana
+  - campo: uterotonico
+    rotulo: Uterotônico
+    sinonimos: [ocitocina, uterotonico, carbetocina]
+    obrigatorio: true
+    granular: true
+    motivo: O uterotônico logo após o nascimento é a principal prevenção da hemorragia pós-parto.
+    fonte: oms_hpp
+  - campo: histerorrafia
+    rotulo: Histerorrafia
+    sinonimos: [histerorrafia]
+    obrigatorio: true
+    granular: true
+    motivo: O número de planos da histerorrafia orienta a decisão sobre o parto numa gestação futura.
+    fonte: ms_cesariana
+  - campo: pediatra
+    rotulo: Recepção do recém-nascido
+    sinonimos: [pediatra, neonatologista]
+    obrigatorio: false
+    granular: true
+    motivo: Identifica quem recebeu o recém-nascido na sala.
+    fonte: cfm_1638

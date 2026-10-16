@@ -39,6 +39,7 @@ from app.timeline.events import ClinicalEvent
 from app.timeline.record import PatientRecord
 
 PATIENT_SIDE = ("paciente", "acompanhante")
+TEAM_SIDE = ("medico", "anestesista", "circulante", "instrumentador")
 OPEN_MARKERS = ("como ", "o que", "me conta", "me fala", "qual ", "quais ", "por que", "de que forma", "o senhor sente")
 DOCTOR_MARKERS = ("o senhor", "a senhora", "vamos ", "me conta", "voce tem", "voce sente", "doutor", "sou a medica")
 FAMILY_RE = re.compile(r"(minha|meu) (mae|pai|irma|irmao|avo|avô|tia|tio|filha|filho)")
@@ -167,7 +168,7 @@ class Engine:
         open_q = closed_q = 0
         for s in self.segments:
             n_words = len(s.texto.split())
-            if s.falante == "medico":
+            if s.falante in TEAM_SIDE:
                 words["pro"] += n_words
                 for q in re.findall(r"[^.?!]*\?", s.texto):
                     if any(m in norm(q) for m in OPEN_MARKERS):
@@ -570,7 +571,13 @@ class Engine:
     # ---------- tudo junto ----------
     def run(self) -> Insights:
         if self.kind == "cirurgia":
-            report = surgical_report(self.segments, self.chart, self.extra.get("opme_autorizado", []))
+            report = surgical_report(
+                self.segments,
+                self.chart,
+                self.extra.get("opme_autorizado", []),
+                specialty=self.specialty,
+                marks=self.extra.get("checklist"),
+            )
             return Insights(
                 tipo="cirurgia",
                 especialidade=self.specialty,

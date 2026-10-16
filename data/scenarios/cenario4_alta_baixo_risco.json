@@ -53,6 +53,12 @@
   "procedimentos": [
     {"t": "-1d2h", "texto": "Apendicectomia videolaparoscópica", "categoria": "cirurgia"}
   ],
+  "cirurgias": [
+    {"id": "apendicectomia", "procedimento": "Apendicectomia videolaparoscópica", "sitio": "Apêndice cecal",
+     "t": "-1d3h", "duracao": "1h", "solicitado": "-1d5h", "status": "completed",
+     "cirurgiao": "Dr. Gustavo Prado (Cirurgia Geral)", "especialidade": "Cirurgia geral",
+     "consentimento": {"t": "-1d4h", "texto": "Termo de consentimento livre e esclarecido: apendicectomia videolaparoscópica, com possibilidade de conversão para cirurgia aberta. Riscos de infecção, sangramento e lesão de alças explicados ao paciente e à mãe."}}
+  ],
   "evolucoes": [
     {"t": "-1d1h", "tipo": "medica", "autor": "Dr. Gustavo Prado (Cirurgia Geral)",
      "texto": "Apendicectomia videolaparoscópica sem intercorrências. Apêndice não perfurado. Antibiótico apenas profilático."},

@@ -116,6 +116,15 @@ def med_info(mr: dict) -> MedInfo:
     )
 
 
+@dataclass(frozen=True)
+class PendingExam:
+    ref: str
+    texto: str
+    proposto: bool  # intent=proposal (sugerido pelo relatório cirúrgico), ainda não é pedido formal
+    pedido_em: datetime | None
+    imagem: bool
+
+
 def note_text(doc: dict) -> str:
     for content in doc.get("content", []):
         att = content.get("attachment", {})
@@ -333,6 +342,30 @@ class PatientRecord:
             if (coding(o.get("code"), codes.LOINC) or {}).get("code") == codes.LIVES_ALONE_LOINC:
                 return o.get("valueInteger")
         return None
+
+    @property
+    def pending_exams(self) -> list[PendingExam]:
+        """Exames pedidos ou propostos (ServiceRequest de imagem/laboratório) ainda sem resultado.
+
+        Vale para a passagem de plantão e o Waze da alta: ex.: o RX de controle proposto no relatório cirúrgico.
+        """
+        wanted = {codes.SR_IMAGING[0], codes.SR_LAB[0]}
+        out = []
+        for sr in self.resources.get("ServiceRequest", []):
+            cats = {c.get("code") for cat in sr.get("category", []) for c in cat.get("coding", [])}
+            if sr.get("status") not in ("draft", "active", "on-hold") or not cats & wanted:
+                continue
+            out.append(
+                PendingExam(
+                    ref=f"ServiceRequest/{sr['id']}",
+                    texto=(sr.get("code") or {}).get("text", "Exame"),
+                    proposto=sr.get("intent") == "proposal",
+                    pedido_em=parse_dt(sr.get("authoredOn")),
+                    imagem=codes.SR_IMAGING[0] in cats,
+                )
+            )
+        out.sort(key=lambda e: e.pedido_em or datetime.min.replace(tzinfo=UTC))
+        return out
 
     @property
     def caregiver(self) -> dict | None:

@@ -90,6 +90,11 @@ class ChartView:
         items = [e for e in self.vitals.get(key, []) if self.now - e.timestamp <= timedelta(hours=max_hours)]
         return items[-1] if items else None
 
+    def weight(self) -> tuple[float, str] | None:
+        """Último peso registrado (kg) e a fonte, para conferir doses por peso."""
+        items = [e for e in self.vitals.get("peso", []) if (self.now - e.timestamp).days <= 365]
+        return (float(items[-1].value["valor"]), items[-1].source_ref) if items else None
+
     @property
     def conditions(self) -> list[tuple[str, str, dict]]:
         """(cid, texto, recurso) dos diagnósticos ativos."""

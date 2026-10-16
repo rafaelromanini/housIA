@@ -188,6 +188,7 @@ class ScenarioBuilder:
         self._io()
         self._scales()
         self._procedures()
+        self._surgeries()
         self._notes()
         return self.out
 
@@ -807,6 +808,91 @@ class ScenarioBuilder:
             if proc.get("obs"):
                 resource["note"] = [{"text": proc["obs"]}]
             self.out.append(resource)
+
+    def _surgeries(self) -> None:
+        """Cirurgia agendada: ServiceRequest (com bodySite), Appointment da sala e Consent (termo assinado)."""
+        for cx in self.s.get("cirurgias", []):
+            when = self.t(cx["t"])
+            end = when + parse_offset(cx.get("duracao", "2h"))
+            sr_id = f"{self.sid}-sr-{cx['id']}"
+            sr_ref = ref("ServiceRequest", sr_id, cx["procedimento"])
+            dx = self.s.get("diagnosticos", [])
+            sr: dict = {
+                "resourceType": "ServiceRequest",
+                "id": sr_id,
+                "status": cx.get("status", "active"),
+                "intent": "order",
+                "category": [
+                    {
+                        "coding": [
+                            {"system": codes.SNOMED, "code": codes.SR_SURGICAL[0], "display": codes.SR_SURGICAL[1]}
+                        ],
+                        "text": "Procedimento cirúrgico",
+                    }
+                ],
+                "code": {"text": cx["procedimento"]},
+                "subject": self.patient_ref,
+                "encounter": ref("Encounter", self.main_enc_id),
+                "occurrencePeriod": {"start": iso(when), "end": iso(end)},
+                "authoredOn": iso(self.t(cx.get("solicitado", cx["t"]))),
+                "requester": {"display": cx["cirurgiao"]},
+                "bodySite": [{"text": cx["sitio"]}],
+            }
+            if dx:
+                sr["reasonReference"] = [ref("Condition", f"{self.sid}-dx-0", dx[0]["texto"])]
+            self.out.append(sr)
+            if cx.get("sala"):
+                in_room = when <= self.anchor < end
+                status = "arrived" if in_room else ("booked" if self.anchor < when else "fulfilled")
+                self.out.append(
+                    {
+                        "resourceType": "Appointment",
+                        "id": f"{self.sid}-ag-{cx['id']}",
+                        "status": status,
+                        "serviceType": [{"text": cx.get("especialidade", "Centro cirúrgico")}],
+                        "description": f"{cx['procedimento']} — {cx['sitio']}",
+                        "start": iso(when),
+                        "end": iso(end),
+                        "basedOn": [sr_ref],
+                        "participant": [
+                            {"actor": self.patient_ref, "status": "accepted"},
+                            {"actor": {"display": cx["cirurgiao"]}, "status": "accepted"},
+                            {"actor": {"display": cx["sala"]}, "status": "accepted"},
+                        ],
+                    }
+                )
+            consent = cx.get("consentimento")
+            if consent:
+                self.out.append(
+                    {
+                        "resourceType": "Consent",
+                        "id": f"{self.sid}-tcle-{cx['id']}",
+                        "status": "active",
+                        "scope": {"coding": [{"system": codes.CONSENT_SCOPE, "code": "treatment"}]},
+                        "category": [
+                            {
+                                "coding": [
+                                    {
+                                        "system": codes.LOINC,
+                                        "code": codes.CONSENT_LOINC[0],
+                                        "display": codes.CONSENT_LOINC[1],
+                                    }
+                                ],
+                                "text": "Termo de consentimento livre e esclarecido",
+                            }
+                        ],
+                        "patient": self.patient_ref,
+                        "dateTime": iso(self.t(consent["t"])),
+                        "performer": [self.patient_ref],
+                        "policyRule": {"text": "Termo de consentimento cirúrgico institucional"},
+                        "sourceAttachment": {
+                            "contentType": "text/plain; charset=utf-8",
+                            "title": f"TCLE — {cx['procedimento']}",
+                            "data": base64.b64encode(consent["texto"].encode("utf-8")).decode("ascii"),
+                        },
+                        "provision": {"type": "permit", "data": [{"meaning": "related", "reference": sr_ref}]},
+                    }
+                )
 
     def _notes(self) -> None:
         for i, ev in enumerate(self.s.get("evolucoes", [])):

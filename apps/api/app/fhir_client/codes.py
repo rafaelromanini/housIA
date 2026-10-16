@@ -24,6 +24,13 @@ LIVES_ALONE_LOINC = "63512-8"  # Quantas pessoas moram neste endereço?
 NOTE_MEDICAL = "11506-3"  # Progress note
 NOTE_NURSING = "34746-8"  # Nurse note
 
+# ServiceRequest.category (value set de exemplo do FHIR R4, SNOMED CT)
+SR_SURGICAL = ("387713003", "Surgical procedure")
+SR_IMAGING = ("363679005", "Imaging")
+SR_LAB = ("108252007", "Laboratory procedure")
+CONSENT_SCOPE = "http://terminology.hl7.org/CodeSystem/consentscope"
+CONSENT_LOINC = ("59284-0", "Patient Consent")
+
 
 @dataclass(frozen=True)
 class Measure:
@@ -50,6 +57,7 @@ VITALS: dict[str, Measure] = {
         Measure("spo2", LOINC, "59408-5", "SpO2", "%", 94, None, 90, None),
         Measure("glicemia", LOINC, "41653-7", "Glicemia capilar", "mg/dL", 70, 250, 60, 400),
         Measure("dor", LOINC, "72514-3", "Dor (escala 0–10)", "pontos", None, 4, None, 7),
+        Measure("peso", LOINC, "29463-7", "Peso", "kg", decimals=1),
     ]
 }
 BP_PANEL = ("85354-9", "Pressão arterial")
