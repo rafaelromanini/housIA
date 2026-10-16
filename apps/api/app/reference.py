@@ -35,6 +35,16 @@ def drugs() -> dict[str, Drug]:
 
 
 @lru_cache
+def class_labels() -> dict[str, str]:
+    return {r["classe"]: r["rotulo"] for r in _read_csv("drug_classes.csv")}
+
+
+def class_label(drug_class: str) -> str:
+    """Nome legível da classe terapêutica (o código fica para as regras)."""
+    return class_labels().get(drug_class, drug_class.replace("_", " "))
+
+
+@lru_cache
 def drugs_by_atc() -> dict[str, Drug]:
     return {d.atc: d for d in drugs().values()}
 

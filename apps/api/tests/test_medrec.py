@@ -203,3 +203,11 @@ def test_handoff_facts_include_medication_safety(record):
     rec = record("cen5")
     facts = compute_facts(rec, build_timeline(rec), rec.now, 12)
     assert {"alergia", "interacao"} <= {f.tipo for f in facts if f.severidade == "critico"}
+
+
+def test_every_drug_class_has_a_readable_label():
+    from app.reference import class_label, class_labels, drugs
+
+    missing = {d.drug_class for d in drugs().values()} - set(class_labels())
+    assert not missing
+    assert class_label("diuretico_alca") == "diurético de alça"

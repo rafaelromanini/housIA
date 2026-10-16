@@ -8,10 +8,10 @@ from datetime import UTC, datetime, timedelta
 from itertools import combinations
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.fhir_client import codes
-from app.reference import high_alert_reason, interactions, matches
+from app.reference import class_label, high_alert_reason, interactions, matches
 from app.timeline.record import MedInfo, PatientRecord, Sector, coding, normalize
 
 RowStatus = Literal["mantida", "alterada", "suspensa", "omitida", "nova"]
@@ -50,11 +50,17 @@ class RecRow(BaseModel):
     principio_ativo: str
     nome: str
     classe: str
+    classe_rotulo: str = ""
     origem: MedSummary | None
     destino: MedSummary | None
     status: RowStatus
     observacao: str | None = None
     refs: list[str]
+
+    @model_validator(mode="after")
+    def _fill_label(self) -> "RecRow":
+        self.classe_rotulo = self.classe_rotulo or class_label(self.classe)
+        return self
 
 
 class Finding(BaseModel):
@@ -253,8 +259,7 @@ def duplicity_findings(meds: list[MedInfo]) -> list[Finding]:
             Finding(
                 tipo="duplicidade",
                 severidade="atencao",
-                titulo=f"Duplicidade terapêutica ({cls.replace('_', ' ')}): "
-                + " + ".join(sorted({m.name for m in group})),
+                titulo=f"Duplicidade terapêutica ({class_label(cls)}): " + " + ".join(sorted({m.name for m in group})),
                 detalhe="; ".join(m.text for m in group),
                 recomendacao="Confirmar se a associação de dois fármacos da mesma classe é intencional.",
                 refs=[m.ref for m in group],

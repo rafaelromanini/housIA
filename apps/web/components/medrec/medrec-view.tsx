@@ -294,7 +294,7 @@ export function MedrecView() {
                         >
                           <th scope="row" className="py-2 pr-3 text-left font-bold">
                             {r.nome}
-                            <span className="block text-xs font-normal text-muted-foreground">{r.classe.replaceAll("_", " ")}</span>
+                            <span className="block text-xs font-normal text-muted-foreground">{r.classe_rotulo || r.classe.replaceAll("_", " ")}</span>
                           </th>
                           <td className="py-2 pr-3">{r.origem?.texto ?? <span className="text-muted-foreground">—</span>}</td>
                           <td className="py-2 pr-3">

@@ -255,6 +255,7 @@ export interface RecRow {
   principio_ativo: string;
   nome: string;
   classe: string;
+  classe_rotulo: string;
   origem: MedSummary | null;
   destino: MedSummary | null;
   status: "mantida" | "alterada" | "suspensa" | "omitida" | "nova";

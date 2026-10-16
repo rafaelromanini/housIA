@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ClipboardCopy, FileText, Languages, Loader2, Pill, Printer, ShieldAlert, TriangleAlert } from "lucide-react";
+import { ClipboardCopy, Clock, FileText, Languages, Loader2, Pill, Printer, ShieldAlert, TriangleAlert } from "lucide-react";
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { FeedbackButtons } from "@/components/ai/feedback";
@@ -24,6 +24,40 @@ const LANGS = [
 ] as const;
 
 const SOAP_LABEL = { subjetivo: "S — Subjetivo", objetivo: "O — Objetivo", avaliacao: "A — Avaliação", plano: "P — Plano" } as const;
+
+// Textos fixos da folha do paciente no mesmo idioma do conteúdo (sem tradução, o conteúdo fica em português).
+const HANDOUT_LABELS = {
+  "pt-BR": {
+    meds: "Remédios",
+    how: "Como usar",
+    why: "Para que serve",
+    alert: "Procure atendimento se tiver",
+    care: "Cuidados em casa",
+    followup: "Retorno",
+    footer: "Documento gerado com apoio de IA e revisado pela equipe. Em caso de dúvida, ligue para a unidade ou procure a UBS mais próxima.",
+    demo: "AMBIENTE DE DEMONSTRAÇÃO — DADOS SINTÉTICOS.",
+  },
+  es: {
+    meds: "Medicamentos",
+    how: "Cómo usarlo",
+    why: "Para qué sirve",
+    alert: "Busque atención médica si tiene",
+    care: "Cuidados en casa",
+    followup: "Control",
+    footer: "Documento elaborado con apoyo de IA y revisado por el equipo. Si tiene dudas, llame a la unidad o acuda a la UBS (unidad básica de salud) más cercana.",
+    demo: "ENTORNO DE DEMOSTRACIÓN — DATOS SINTÉTICOS.",
+  },
+  en: {
+    meds: "Medicines",
+    how: "How to take",
+    why: "What it is for",
+    alert: "Get medical help if you have",
+    care: "Care at home",
+    followup: "Follow-up",
+    footer: "Prepared with AI support and reviewed by the care team. If you have questions, call the unit or go to the nearest primary care clinic (UBS).",
+    demo: "DEMO ENVIRONMENT — SYNTHETIC DATA.",
+  },
+} as const;
 
 export function DischargeDocumentsCard() {
   const { patient } = usePatient();
@@ -54,6 +88,7 @@ export function DischargeDocumentsCard() {
 
   const name = patient.nome;
   const r = (t: string) => reidentify(t, name);
+  const L = HANDOUT_LABELS[doc?.meta.traducao_disponivel ? doc.idioma : "pt-BR"];
 
   async function copySoap() {
     if (!doc) return;
@@ -163,43 +198,38 @@ export function DischargeDocumentsCard() {
                     <p className="mt-1">{r(doc.orientacoes.resumo_internacao.texto)}</p>
                   </div>
                   {doc.orientacoes.medicamentos.length > 0 && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[520px] text-sm">
-                        <caption className="mb-1 text-left text-base font-bold">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Pill aria-hidden className="size-4" /> Remédios
-                          </span>
-                        </caption>
-                        <thead>
-                          <tr className="border-b text-left">
-                            <th scope="col" className="py-1.5 pr-2">Remédio</th>
-                            <th scope="col" className="py-1.5 pr-2">Como usar</th>
-                            <th scope="col" className="py-1.5 pr-2">Horários</th>
-                            <th scope="col" className="py-1.5">Para que serve</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {doc.orientacoes.medicamentos.map((m, i) => (
-                            <tr key={i} className="border-b align-top">
-                              <th scope="row" className="py-1.5 pr-2 text-left font-bold">{m.medicamento}</th>
-                              <td className="py-1.5 pr-2">{r(m.como_usar)}</td>
-                              <td className="py-1.5 pr-2 font-bold">{m.horarios.join(" · ")}</td>
-                              <td className="py-1.5">{r(m.para_que)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <section aria-labelledby="handout-meds">
+                      <h4 id="handout-meds" className="mb-1.5 flex items-center gap-1.5 font-bold">
+                        <Pill aria-hidden className="size-4" /> {L.meds}
+                      </h4>
+                      <ul className="divide-y rounded-md border">
+                        {doc.orientacoes.medicamentos.map((m, i) => (
+                          <li key={i} className="space-y-0.5 p-3">
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+                              <p className="text-lg font-bold">{m.medicamento}</p>
+                              <p className="inline-flex items-center gap-1 font-bold text-primary">
+                                <Clock aria-hidden className="size-4 self-center" /> {m.horarios.join(" · ")}
+                              </p>
+                            </div>
+                            <p>
+                              <span className="font-bold">{L.how}:</span> {r(m.como_usar)}
+                            </p>
+                            <p>
+                              <span className="font-bold">{L.why}:</span> {r(m.para_que)}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
                   )}
-                  <HandoutList title="Procure atendimento se tiver" items={doc.orientacoes.sinais_de_alerta} r={r} alert />
-                  <HandoutList title="Cuidados em casa" items={doc.orientacoes.cuidados_em_casa} r={r} />
+                  <HandoutList title={L.alert} items={doc.orientacoes.sinais_de_alerta} r={r} alert />
+                  <HandoutList title={L.care} items={doc.orientacoes.cuidados_em_casa} r={r} />
                   <div>
-                    <p className="font-bold">Retorno</p>
+                    <p className="font-bold">{L.followup}</p>
                     <p>{r(doc.orientacoes.retorno.texto)}</p>
                   </div>
                   <p className="border-t pt-2 text-xs text-muted-foreground">
-                    Documento gerado com apoio de IA e revisado pela equipe. Em caso de dúvida, ligue para a unidade ou procure a
-                    UBS mais próxima. AMBIENTE DE DEMONSTRAÇÃO — DADOS SINTÉTICOS.
+                    {L.footer} {L.demo}
                   </p>
                 </div>
                 <details className="text-xs">
