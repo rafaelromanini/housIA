@@ -85,6 +85,19 @@ aprovada pelo profissional.
    Só a equipe registra etapa, dose, horário, lado e procedimento: fala de paciente ou acompanhante identificada à mão
    fica fora (o termo de consentimento e a alergia valem ditos por qualquer pessoa); o falante automático conta como equipe.
 
+12. **Perguntas sugeridas e anamnese por queixa em dados, com fonte.** `consult_symptoms.csv` (66 sintomas, com os
+   pediátricos e faixa de idade e sexo) e `consult_questions.csv` (id estável, fonte, `idade_min`/`idade_max`/`sexo`
+   e as hipóteses que a resposta ajuda a separar) dão pelo menos 2 perguntas por sintoma, 7 de clínica médica e 14 de
+   pediatria (sinais gerais de perigo e hidratação da AIDPI). A pergunta só sai da lista como "abordada" quando o
+   **profissional** a faz, inclusive parafraseada (`asked_words`, `@sintoma` e, na IA, `perguntas_abordadas` com ids
+   validados pelo `RefValidator`); a resposta do paciente na fala seguinte fica guardada com a pergunta e alimenta a
+   anamnese. Paciente dizer a palavra não responde pergunta que ninguém fez. As perguntas que ajudam a decidir entre as
+   2 hipóteses de maior confiança vêm primeiro dentro da mesma prioridade. A semiologia (`app/consult/semiology.py`,
+   `consult_semiology.yaml`) lê início/duração, localização, intensidade, piora, melhora, frequência e sintomas
+   associados da fala da queixa e das 2 falas seguintes do paciente, cada campo como `{valor, refs}`; o que falta vira
+   pergunta `semiologia:<campo>`, a HDA do modo regras é redigida por queixa, sem aspas, e o médico pode fixar a
+   queixa principal. No merge com a IA vale o campo da regra que tem fonte.
+
 ## Consequências
 
 - Novo cenário ambulatorial (cen6) e agenda do dia (Encounter `AMB`). O construtor de cenários aceita

@@ -242,6 +242,20 @@ export function LiveConsult({
     [apply, c.id],
   );
 
+  // o profissional fixa (ou solta) a queixa principal da anamnese
+  const setMainComplaint = useCallback(
+    async (chave: string | null) => {
+      await queue.current;
+      try {
+        const res = await api<{ insights: ConsultInsights }>(`/consultations/${c.id}/queixa-principal`, { method: "PUT", json: { chave } });
+        apply([], res.insights);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Erro ao fixar a queixa principal");
+      }
+    },
+    [apply, c.id],
+  );
+
   async function finish() {
     stopAll();
     setFinishing(true);
@@ -490,7 +504,7 @@ export function LiveConsult({
           {c.insights?.relatorio_cirurgico ? (
             <SurgicalPanel report={c.insights.relatorio_cirurgico} patientId={patient.id} onChecklist={markChecklist} />
           ) : c.insights ? (
-            <SmartAppsPanel insights={c.insights} />
+            <SmartAppsPanel insights={c.insights} onMainComplaint={setMainComplaint} />
           ) : null}
         </section>
       </div>

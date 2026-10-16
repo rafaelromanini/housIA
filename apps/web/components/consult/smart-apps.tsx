@@ -31,7 +31,8 @@ import { SourceRefs } from "@/components/source-ref";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { ConsultInsights, Origin, ProtocolItem } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import type { Anamnese, ConsultInsights, Origin, ProtocolItem, QueixaDetalhada, SemioField } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type AppKey =
@@ -122,8 +123,124 @@ const PRIORITY = { alta: "critico", media: "atencao", baixa: "info" } as const;
 const PRIORITY_LABEL = { alta: "Prioridade alta", media: "Prioridade média", baixa: "Prioridade baixa" };
 const CONFIDENCE = { alta: "critico", media: "atencao", baixa: "info" } as const;
 const NEGATIVE = new Set(["ansiedade", "preocupacao", "tristeza", "frustracao", "confusao", "dor"]);
+const SEMIO_LABEL: Record<SemioField, string> = {
+  inicio_duracao: "Início e duração",
+  localizacao: "Localização",
+  intensidade: "Intensidade",
+  piora: "Piora",
+  melhora: "Melhora",
+  frequencia: "Frequência",
+  associados: "Sintomas associados",
+};
+const SEMIO_ORDER: SemioField[] = ["inicio_duracao", "localizacao", "intensidade", "piora", "melhora", "frequencia", "associados"];
 
-export function SmartAppsPanel({ insights: ins }: { insights: ConsultInsights }) {
+/** Semiologia de cada queixa: o que já foi dito (com a fala de origem) e o que falta perguntar. */
+function Semiologia({
+  anamnese,
+  pid,
+  r,
+  onMainComplaint,
+}: {
+  anamnese: Anamnese;
+  pid: string;
+  r: (t: string) => string;
+  onMainComplaint?: (chave: string | null) => void;
+}) {
+  const queixas: QueixaDetalhada[] = anamnese.queixas_detalhadas ?? [];
+  const extras = anamnese.campos_especialidade ?? [];
+  if (queixas.length === 0 && extras.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3">
+      <h4 className="text-sm font-bold">Semiologia por queixa</h4>
+      <ul className="space-y-2">
+        {queixas.map((q) => {
+          const principal = anamnese.qp_principal === q.chave;
+          return (
+            <li key={q.chave} className="rounded-md border bg-background p-2.5 text-sm">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-bold">{r(q.rotulo)}</span>
+                {principal && <Badge variant="outline" className="text-[11px]">{anamnese.qp_fixada ? "Principal (fixada)" : "Principal"}</Badge>}
+                {onMainComplaint && !principal && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="min-h-9 px-1 text-xs"
+                    onClick={() => onMainComplaint(q.chave)}
+                    aria-label={`Fixar ${q.rotulo} como queixa principal`}
+                  >
+                    Fixar como principal
+                  </Button>
+                )}
+                {onMainComplaint && principal && anamnese.qp_fixada && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="min-h-9 px-1 text-xs"
+                    onClick={() => onMainComplaint(null)}
+                    aria-label="Soltar a queixa principal fixada"
+                  >
+                    Soltar
+                  </Button>
+                )}
+              </div>
+              <dl className="mt-1 grid gap-x-3 gap-y-0.5 sm:grid-cols-[max-content_1fr]">
+                {SEMIO_ORDER.filter((f) => q[f].valor).map((f) => (
+                  <div key={f} className="contents">
+                    <dt className="text-muted-foreground">{SEMIO_LABEL[f]}</dt>
+                    <dd>
+                      {r(q[f].valor)} <SourceRefs patientId={pid} refs={q[f].refs} />
+                    </dd>
+                  </div>
+                ))}
+                {q.nega.valor && (
+                  <div className="contents">
+                    <dt className="text-muted-foreground">Nega</dt>
+                    <dd>
+                      {r(q.nega.valor)} <SourceRefs patientId={pid} refs={q.nega.refs} />
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              {q.faltam.length > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  <span className="font-bold">Falta perguntar: </span>
+                  {q.faltam.map((f) => SEMIO_LABEL[f].toLowerCase()).join(", ")}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {extras.length > 0 && (
+        <dl className="grid gap-x-3 gap-y-0.5 text-sm sm:grid-cols-[max-content_1fr]">
+          {extras.map((c) => (
+            <div key={c.campo} className="contents">
+              <dt className="text-muted-foreground">{c.rotulo}</dt>
+              <dd>
+                {c.valor ? (
+                  <>
+                    {r(c.valor)} <SourceRefs patientId={pid} refs={c.refs} />
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Falta perguntar</span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+export function SmartAppsPanel({
+  insights: ins,
+  onMainComplaint,
+}: {
+  insights: ConsultInsights;
+  /** fixa (ou solta, com null) a queixa principal da anamnese; sem ela, a anamnese é só leitura */
+  onMainComplaint?: (chave: string | null) => void;
+}) {
   const { patient } = usePatient();
   const r = (t: string) => reidentify(t, patient.nome);
   const [tab, setTab] = useState<TabKey>("vivo");
@@ -213,6 +330,10 @@ export function SmartAppsPanel({ insights: ins }: { insights: ConsultInsights })
                 <li key={q.pergunta} className="rounded-md border bg-background p-2.5">
                   <p className="text-base font-bold leading-snug">“{r(q.pergunta)}”</p>
                   <p className="mt-0.5 text-sm text-muted-foreground">{r(q.motivo)}</p>
+                  {q.discrimina && q.discrimina.length > 0 && (
+                    <p className="mt-0.5 text-xs font-bold text-primary">Ajuda a decidir entre: {q.discrimina.map(r).join(" × ")}</p>
+                  )}
+                  {q.fonte && <p className="mt-0.5 text-xs text-muted-foreground">Fonte: {q.fonte}</p>}
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <Badge variant={PRIORITY[q.prioridade]} className="text-[11px]">
                       {PRIORITY_LABEL[q.prioridade]}
@@ -232,9 +353,23 @@ export function SmartAppsPanel({ insights: ins }: { insights: ConsultInsights })
               </summary>
               <ul className="mt-1 space-y-1">
                 {ins.perguntas_abordadas.map((q) => (
-                  <li key={q.pergunta} className="flex flex-wrap items-center gap-1 text-muted-foreground">
-                    <CircleCheck aria-hidden className="size-3.5 text-ok" /> {r(q.pergunta)}
-                    <SourceRefs patientId={pid} refs={q.refs} />
+                  <li key={q.id ?? q.pergunta} className="text-muted-foreground">
+                    <span className="flex flex-wrap items-center gap-1">
+                      <CircleCheck aria-hidden className="size-3.5 text-ok" /> {r(q.pergunta)}
+                      <SourceRefs patientId={pid} refs={q.refs} label="pergunta feita" />
+                      {q.origem === "ia" && <OriginBadge origem="ia" />}
+                    </span>
+                    {q.fonte && <span className="ml-5 block text-xs">Fonte: {q.fonte}</span>}
+                    <span className="ml-5 flex flex-wrap items-center gap-1 text-foreground">
+                      {q.resposta ? (
+                        <>
+                          <span className="font-bold">Resposta:</span> “{r(q.resposta)}”
+                          <SourceRefs patientId={pid} refs={q.resposta_refs ?? []} />
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Ainda sem resposta do paciente.</span>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -277,7 +412,14 @@ export function SmartAppsPanel({ insights: ins }: { insights: ConsultInsights })
                     title={t.status === "negado" ? "Negado pelo paciente" : "Relatado"}
                   >
                     {t.status === "negado" && <span className="sr-only">Nega: </span>}
-                    {r(t.rotulo)}
+                    <span>{r(t.rotulo)}</span>
+                    {t.detalhe && t.status === "presente" && (
+                      <span className="text-xs font-normal">
+                        <span aria-hidden> · </span>
+                        <span className="sr-only">, </span>
+                        {r(t.detalhe)}
+                      </span>
+                    )}
                     {t.origem === "ia" && <Bot aria-label="sugerido pela IA" className="size-3.5" />}
                   </span>
                   <SourceRefs patientId={pid} refs={t.refs} />
@@ -486,6 +628,7 @@ export function SmartAppsPanel({ insights: ins }: { insights: ConsultInsights })
               ) : null,
             )}
           </dl>
+          <Semiologia anamnese={ins.anamnese} pid={pid} r={r} onMainComplaint={onMainComplaint} />
           <SourceRefs patientId={pid} refs={ins.anamnese.refs} />
         </AppCard>
       )}

@@ -29,12 +29,12 @@ você cuida do RACIOCÍNIO CLÍNICO. Regras obrigatórias:
   medicações em uso, alergias, hábitos/contexto, revisão de sistemas). Use "sem registro" quando faltar. A HDA é
   redigida por queixa, em frases curtas ("Tontura há 3 semanas, piora ao levantar, sem perda de consciência"), sem
   aspas e sem copiar a fala. `queixas_detalhadas`: uma entrada por queixa presente (`chave` e `rotulo` iguais aos
-  das queixas recebidas) com os campos `inicio_duracao`, `localizacao`, `intensidade`, `piora`, `melhora`,
-  `frequencia`, `associados` e `nega`; cada campo é `{valor, refs}` com `refs` em falas (`Fala/N`) e só vale se o
-  paciente ou o acompanhante disse; campo não dito = `valor` vazio e `refs` vazias. Não invente nada. Onde as regras
-  já têm o campo com fonte, o das regras prevalece. `qp_principal`: a chave da queixa principal; deixe `qp_fixada`
-  como recebido. `campos_especialidade`: repita os campos recebidos, preenchendo só os ditos (gestação e parto,
-  vacinas, desenvolvimento na pediatria), com `refs`; `faltam` e os campos vazios podem ficar vazios.
+  das queixas recebidas em `anamnese_por_regra`), com `campos`: uma lista de `{campo, valor, refs}` em que `campo` é
+  um destes: `inicio_duracao`, `localizacao`, `intensidade`, `piora`, `melhora`, `frequencia`, `associados` ou
+  `nega` (sintomas negados). Só entra campo que o paciente ou o acompanhante disse, com `refs` em falas
+  (`Fala/N`); campo não dito fica de fora. Não invente nada. Onde as regras já têm o campo com fonte, o das regras
+  prevalece. `campos_especialidade`: `{campo, valor, refs}` só do que foi dito (gestação e parto, vacinas,
+  desenvolvimento na pediatria).
 - Português do Brasil, frases curtas, sem texto fora do JSON. O paciente é [PACIENTE]; familiares são [FAMILIAR].
 
 # user

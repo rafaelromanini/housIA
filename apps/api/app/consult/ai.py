@@ -25,6 +25,7 @@ from app.consult.knowledge import (
 from app.consult.schemas import (
     LANGUAGE_LABELS,
     Anamnese,
+    CampoEspecialidade,
     CampoSemio,
     CidSuggestion,
     Confidence,
@@ -127,6 +128,44 @@ class ConversaOutput(BaseModel):
     perguntas_abordadas: list[AiAbordada] = []
 
 
+class AiCampo(BaseModel):
+    """Um campo semiológico dito: só entra o que tem valor e fonte (o vazio é omitido)."""
+
+    campo: Literal[
+        "inicio_duracao", "localizacao", "intensidade", "piora", "melhora", "frequencia", "associados", "nega"
+    ]
+    valor: str
+    refs: list[str]
+
+
+class AiQueixa(BaseModel):
+    chave: str
+    rotulo: str
+    campos: list[AiCampo]
+
+
+class AiCampoEspecialidade(BaseModel):
+    campo: str
+    valor: str
+    refs: list[str]
+
+
+class AiAnamnese(BaseModel):
+    """A `Anamnese` como a IA a devolve: a semiologia vai em lista de campos, e não em um objeto por campo, para a
+    gramática da saída estruturada continuar pequena. `anamnese_from_ai` a converte na `Anamnese` das regras."""
+
+    queixa_principal: str
+    hda: str
+    antecedentes: list[str]
+    medicacoes_em_uso: list[str]
+    alergias: list[str]
+    habitos_e_contexto: list[str]
+    revisao_de_sistemas: list[str]
+    refs: list[str]
+    queixas_detalhadas: list[AiQueixa] = []
+    campos_especialidade: list[AiCampoEspecialidade] = []
+
+
 class ClinicaOutput(BaseModel):
     """Smart Apps clínicos (2ª chamada, em paralelo)."""
 
@@ -134,7 +173,7 @@ class ClinicaOutput(BaseModel):
     sugestoes_medicamentos: list[AiMedSuggestion]
     cirurgia: list[AiText]
     historico_relatado: list[AiText]
-    anamnese: Anamnese
+    anamnese: AiAnamnese
 
 
 class ConsultLiveOutput(BaseModel):
@@ -172,6 +211,49 @@ class AiField(BaseModel):
 class SurgicalOutput(BaseModel):
     campos: list[AiField]
     cids: list[CidSuggestion]
+
+
+def _ref_order(ref: str) -> int:
+    tail = ref.rsplit("/", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+
+def anamnese_from_ai(a: AiAnamnese) -> Anamnese:
+    labels = {f.key: f.label for fields in semiology().specialty_fields.values() for f in fields}
+    detailed = []
+    for q in a.queixas_detalhadas:
+        fields: dict[str, CampoSemio] = {}
+        for c in q.campos:
+            if c.valor.strip():
+                fields.setdefault(c.campo, CampoSemio(valor=c.valor, refs=c.refs))
+        refs = sorted({r for f in fields.values() for r in f.refs}, key=_ref_order)
+        detailed.append(QueixaDetalhada(chave=q.chave, rotulo=q.rotulo, refs=refs, **fields))
+    extras = [
+        CampoEspecialidade(campo=c.campo, rotulo=labels.get(c.campo, c.campo), valor=c.valor, refs=c.refs)
+        for c in a.campos_especialidade
+    ]
+    base = a.model_dump(exclude={"queixas_detalhadas", "campos_especialidade"})
+    return Anamnese(**base, queixas_detalhadas=detailed, campos_especialidade=extras)
+
+
+def anamnese_to_ai(a: Anamnese) -> dict:
+    """A anamnese das regras no formato que a IA devolve (e que o modo mock devolve no lugar dela)."""
+    base = a.model_dump(include=set(AiAnamnese.model_fields) - {"queixas_detalhadas", "campos_especialidade"})
+    return base | {
+        "queixas_detalhadas": [
+            {
+                "chave": q.chave,
+                "rotulo": q.rotulo,
+                "campos": [
+                    {"campo": f, "valor": getattr(q, f).valor, "refs": getattr(q, f).refs}
+                    for f in (*SEMIO_FIELDS, "nega")
+                    if getattr(q, f).valor
+                ],
+            }
+            for q in a.queixas_detalhadas
+        ],
+        "campos_especialidade": [{"campo": c.campo, "valor": c.valor, "refs": c.refs} for c in a.campos_especialidade],
+    }
 
 
 # ---------- entrada pseudonimizada ----------
@@ -227,10 +309,18 @@ def deterministic_payload(ins: Insights) -> dict:
             if any(r.startswith("Fala/") for r in m.refs)
         ],
         "protocolo_pendente": [f"{p.protocolo}: {p.item}" for p in ins.protocolos if p.status != "em_dia"],
-        # semiologia que as regras já leram da conversa (cada campo com as falas de onde veio)
-        "anamnese_por_regra": ins.anamnese.model_dump(
-            include={"qp_principal", "qp_fixada", "queixas_detalhadas", "campos_especialidade"}
-        )
+        # semiologia que as regras já leram da conversa (cada campo com as falas de onde veio) e o que ainda falta
+        "anamnese_por_regra": {
+            "queixa_principal": ins.anamnese.qp_principal,
+            "queixa_principal_fixada": ins.anamnese.qp_fixada,
+            "queixas_detalhadas": [
+                q | {"faltam": d.faltam}
+                for q, d in zip(
+                    anamnese_to_ai(ins.anamnese)["queixas_detalhadas"], ins.anamnese.queixas_detalhadas, strict=True
+                )
+            ],
+            "campos_especialidade": anamnese_to_ai(ins.anamnese)["campos_especialidade"],
+        }
         if ins.anamnese
         else {},
     }
@@ -343,9 +433,7 @@ def _merge_anamnese(
                 for f in (*SEMIO_FIELDS, "nega"):
                     if not getattr(q, f).valor and usable(getattr(a, f)):
                         setattr(q, f, getattr(a, f))
-        q.refs = sorted(
-            {*q.refs, *(x for f in SEMIO_FIELDS for x in getattr(q, f).refs)}, key=lambda x: int(x.split("/")[1])
-        )
+        q.refs = sorted({*q.refs, *(x for f in SEMIO_FIELDS for x in getattr(q, f).refs)}, key=_ref_order)
         merged.append(sync(q))
     for i, a in enumerate(ai.queixas_detalhadas):  # queixa que só a IA viu: entra com os campos que têm fonte válida
         if i in taken:
@@ -354,9 +442,7 @@ def _merge_anamnese(
         for f in (*SEMIO_FIELDS, "nega"):
             if usable(getattr(a, f)):
                 setattr(q, f, getattr(a, f))
-        q.refs = sorted(
-            {x for f in (*SEMIO_FIELDS, "nega") for x in getattr(q, f).refs}, key=lambda x: int(x.split("/")[1])
-        )
+        q.refs = sorted({x for f in (*SEMIO_FIELDS, "nega") for x in getattr(q, f).refs}, key=_ref_order)
         if q.refs:
             merged.append(sync(q))
         else:
@@ -488,9 +574,9 @@ def mock_live(base: Insights) -> dict:
         "sugestoes_medicamentos": [],
         "cirurgia": [],
         "historico_relatado": [],
-        "anamnese": base.anamnese.model_dump()
+        "anamnese": anamnese_to_ai(base.anamnese)
         if base.anamnese
-        else Anamnese(
+        else AiAnamnese(
             queixa_principal="",
             hda="",
             antecedentes=[],
@@ -524,8 +610,9 @@ def run_live(engine: Engine, base: Insights, pseudo: Pseudonymizer, valid: set[s
             generate_structured, "consult_live_clinica", variables, ClinicaOutput, lambda _v: mock, "low"
         )
         conv, clin = f_conv.result(), f_clin.result()
+    clinical = clin.output.model_dump() | {"anamnese": anamnese_from_ai(clin.output.anamnese).model_dump()}
     result = LLMResult(
-        output=ConsultLiveOutput(**conv.output.model_dump(), **clin.output.model_dump()),
+        output=ConsultLiveOutput(**conv.output.model_dump(), **clinical),
         model=conv.model,
         prompt_version=f"{conv.prompt_version}+{clin.prompt_version}",
         mode=conv.mode,

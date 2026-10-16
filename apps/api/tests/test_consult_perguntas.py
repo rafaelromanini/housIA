@@ -12,10 +12,10 @@ from copy import deepcopy
 import pytest
 
 from app import clock
-from app.consult import knowledge, semiology
+from app.consult import knowledge
 from app.consult import service as consult_service
 from app.consult.engine import Engine
-from app.consult.schemas import Insights, Segment
+from app.consult.schemas import CampoSemio, Insights, Segment
 from app.llm import client as llm_client
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
@@ -373,7 +373,6 @@ def test_hda_da_nota_mock_nao_tem_aspas_de_citacao(client, auth):
         texto = nota[secao]["texto"]
         assert not re.search(r"[“”\"«»]", texto), texto
     assert "há 3 semanas" in nota["hda"]["texto"] and nota["hda"]["refs"]
-    assert "Joana" not in nota["hda"]["texto"] or True  # a nota é reidentificada na exibição; aqui só confere o formato
 
 
 # ---------- #9 critério 4: teste unitário do extrator com 10 frases ----------
@@ -441,7 +440,7 @@ def test_resposta_ao_profissional_alimenta_o_campo_no_lugar_certo(record):
     q = child_engine(record, "clinica_medica", falas, birth="1966-03-12", gender="female").run()
     peito = next(x for x in q.anamnese.queixas_detalhadas if x.chave == "dor_toracica")
     assert peito.melhora.valor == "com repouso" and peito.melhora.refs == ["Fala/3"]
-    assert peito.frequencia == semiology.CampoSemio(valor="2 vezes por dia", refs=["Fala/5"])
+    assert peito.frequencia == CampoSemio(valor="2 vezes por dia", refs=["Fala/5"])
     done = {x.id.split(":")[0]: x for x in q.perguntas_abordadas}
     assert {"q081", "q082"} <= set(done)  # melhora e frequência
     assert done["q081"].resposta == "Quando eu sento e descanso"
@@ -503,8 +502,6 @@ def _payload(**over) -> dict:
         "habitos_e_contexto": [],
         "revisao_de_sistemas": [],
         "refs": ["Fala/2"],
-        "qp_principal": "",
-        "qp_fixada": False,
         "queixas_detalhadas": [],
         "campos_especialidade": [],
     }
@@ -530,20 +527,12 @@ def _campo(valor: str = "", refs: list[str] | None = None) -> dict:
 
 
 def _detalhada(**campos) -> dict:
-    empty = {
-        f: _campo()
-        for f in (
-            "inicio_duracao",
-            "localizacao",
-            "intensidade",
-            "piora",
-            "melhora",
-            "frequencia",
-            "associados",
-            "nega",
-        )
+    """Queixa detalhada como a IA a devolve: lista de campos {campo, valor, refs}; o que não foi dito fica de fora."""
+    return {
+        "chave": "tontura",
+        "rotulo": "Tontura",
+        "campos": [{"campo": nome, "valor": c["valor"], "refs": c["refs"]} for nome, c in campos.items()],
     }
-    return {"chave": "tontura", "rotulo": "Tontura", "refs": ["Fala/2"], "faltam": []} | empty | campos
 
 
 def _live(client, h, cid, monkeypatch, payload) -> dict:

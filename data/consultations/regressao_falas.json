@@ -1767,6 +1767,117 @@
    }
   },
   {
+   "id": "negacao-diarreia",
+   "categoria": "negacao",
+   "frase": "não tenho diarreia",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Diarreia": "negado"
+    }
+   }
+  },
+  {
+   "id": "controle-diarreia-passada",
+   "categoria": "controle",
+   "frase": "tive diarreia ontem",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Diarreia": "presente"
+    }
+   }
+  },
+  {
+   "id": "falso-positivo-quase-desmaiei",
+   "categoria": "falso_positivo",
+   "frase": "quase desmaiei no banheiro",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "controle-desmaiei",
+   "categoria": "controle",
+   "frase": "desmaiei no banheiro",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Desmaio": "presente"
+    }
+   }
+  },
+  {
+   "id": "pergunta-tem-tido-diarreia",
+   "categoria": "pergunta",
+   "frase": "a senhora tem tido diarreia",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "negacao-vomitei-sangue",
+   "categoria": "negacao",
+   "frase": "não vomitei sangue",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Vômito com sangue": "negado"
+    }
+   }
+  },
+  {
+   "id": "falso-positivo-chiado-no-ouvido",
+   "categoria": "falso_positivo",
+   "frase": "o chiado no ouvido não passa",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "negacao-convulsao",
+   "categoria": "negacao",
+   "frase": "nunca tive convulsão",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Convulsão": "negado"
+    }
+   }
+  },
+  {
+   "id": "controle-sem-fome",
+   "categoria": "controle",
+   "frase": "não tenho fome",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Falta de apetite": "presente"
+    }
+   }
+  },
+  {
+   "id": "controle-sono-depois-do-almoco",
+   "categoria": "controle",
+   "frase": "estou com muito sono depois do almoço",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Sonolência": "presente"
+    }
+   }
+  },
+  {
    "id": "sintoma-no-passado-resolvido",
    "categoria": "negacao",
    "frase": "antes eu tinha falta de ar agora não tenho mais",

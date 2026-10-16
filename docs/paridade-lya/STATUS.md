@@ -37,12 +37,18 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
     - profilaxia por peso, com janela e redose (`surgical_prophylaxis.csv`).
 
     A equipe de sala (anestesista, circulante, instrumentador) usa Alt+4/5/6.
+- Onda 1, parte entregue (continuação):
+  - **#4** Perguntas sugeridas que acompanham qualquer diálogo: 66 sintomas, 198 perguntas com fonte, idade e sexo;
+    "já abordada" só com fala do profissional (inclusive parafraseada), com a resposta do paciente; perguntas que
+    separam as 2 hipóteses de maior confiança sobem na ordem.
+  - **#9** Anamnese por queixa (`app/consult/semiology.py`, `data/reference/consult_semiology.yaml`): campos
+    semiológicos com fonte, HDA redigida no modo regras, tags com os atributos e queixa principal que o médico fixa.
 - Testes: todos os testes do pytest passam (2 xfail estritos, que são limitações documentadas do corpus); ruff,
   typecheck e lint limpos. **O e2e (Playwright) ainda não foi rodado depois da Onda 1.**
 
 ### Limitações conhecidas que ficaram da Onda 1
 
-- Pergunta curta do médico, sem pronome e sem "?" ("e a febre", "tem febre"), ainda é atribuída ao paciente.
+- Pergunta curta do médico sem pronome e sem "?" ("tem febre") ainda é atribuída ao paciente. As que retomam o assunto ("e a febre", "e dor no peito") e as em 3ª pessoa ("o ar tem faltado quando caminha") já são reconhecidas.
 - Acompanhante sem vocativo ("meu filho tá com febre") é inferido como paciente: o lado está certo, o papel não.
 - Falso positivo gerado pela própria IA, por exemplo um alerta sobre medicamento negado, só é contido pelo prompt.
   O `merge_live` descarta apenas refs inválidas.
@@ -54,7 +60,7 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 1. **Conferir o que já foi entregue:** reconstruir as imagens, recarregar o seed e rodar os e2e (veja abaixo).
    Corrigir o que quebrar.
 2. **Resto da Onda 1.**
-   - Frente A, repositório principal, em sequência: #4+#9 (perguntas para qualquer diálogo e semiologia), #5+#6
+   - Frente A, repositório principal, em sequência: #5+#6
      (CID-10 oficial validado e medicamentos e alergias de qualquer falante), #7+#8 (histórico e exames ditos e
      resumo com fonte por frase e lembretes), #10 (relevância de cada fala e o painel "fora da nota").
    - Frente B, worktree: #25+#26 (OPME em três vias e anti-glosa), #30 (Waze da jornada).

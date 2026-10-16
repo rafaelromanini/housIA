@@ -468,6 +468,8 @@ export interface ConsultTag {
   status: "presente" | "negado";
   refs: string[];
   origem: Origin;
+  /** o que já se sabe da queixa pela semiologia ("3 sem · ao levantar") */
+  detalhe?: string;
 }
 export interface ConsultEmotion {
   emocao: string;
@@ -483,8 +485,17 @@ export interface ConsultQuestion {
   pergunta: string;
   motivo: string;
   prioridade: Priority;
+  /** sugerida: o que motiva a pergunta; abordada: a fala do profissional que a fez */
   refs: string[];
   origem: Origin;
+  id?: string;
+  /** diretriz de origem da pergunta */
+  fonte?: string;
+  /** abordada: o que o paciente respondeu e a fala da resposta */
+  resposta?: string;
+  resposta_refs?: string[];
+  /** hipóteses de maior confiança que a resposta ajuda a separar */
+  discrimina?: string[];
 }
 export interface Evidence {
   texto: string;
@@ -565,6 +576,24 @@ export interface Highlight {
   severidade: Severity;
   refs: string[];
 }
+export type SemioField = "inicio_duracao" | "localizacao" | "intensidade" | "piora" | "melhora" | "frequencia" | "associados";
+export interface CampoSemio {
+  valor: string;
+  refs: string[];
+}
+export interface QueixaDetalhada extends Record<SemioField | "nega", CampoSemio> {
+  chave: string;
+  rotulo: string;
+  refs: string[];
+  /** campos que ainda não foram ditos nem perguntados */
+  faltam: SemioField[];
+}
+export interface CampoEspecialidade {
+  campo: string;
+  rotulo: string;
+  valor: string;
+  refs: string[];
+}
 export interface Anamnese {
   queixa_principal: string;
   hda: string;
@@ -574,6 +603,11 @@ export interface Anamnese {
   habitos_e_contexto: string[];
   revisao_de_sistemas: string[];
   refs: string[];
+  /** chave da queixa principal: a primeira dita ou a que o profissional fixou */
+  qp_principal?: string;
+  qp_fixada?: boolean;
+  queixas_detalhadas?: QueixaDetalhada[];
+  campos_especialidade?: CampoEspecialidade[];
 }
 export interface ReportField {
   campo: string;
