@@ -1,6 +1,6 @@
 {
  "descricao": "Corpus de regressão das regras da Consulta com IA: frases de consulta real (sem pontuação, com vocativo, negação, passado e pergunta sem '?'), com o que as regras devem e NÃO devem extrair. Mede falso positivo e falso negativo a cada build (apps/api/tests/test_consult_regressao.py). Dados sintéticos.",
- "versao": "1.0.0",
+ "versao": "1.1.0",
  "paciente_padrao": "cen6",
  "campos": {
   "frase": "texto como chega da captura (microfone, digitado ou servidor)",
@@ -12,6 +12,7 @@
   "esperado.alertas": "alertas de medicamento NOVOS em relação ao prontuário: tipo da sugestão (suspender, ajuste_dose, alternativa, interacao, registrar, adesao, alergia) ou 'triplice' (tríplice ameaça renal)",
   "esperado.cirurgia": "itens de cirurgia vindos da conversa: planejada | historico",
   "esperado.antecedente_familiar": "true se deve gerar antecedente familiar relatado",
+  "esperado.alergias": "alergias relatadas na conversa (rótulo do catálogo); ausente = nenhuma",
   "paciente": "opcional: outro paciente do cenário (padrão cen6, com BRA + tiazídico e TFG ~40)",
   "limitacao": "opcional: limitação conhecida (teste xfail estrito); ao corrigir, remova o campo"
  },
@@ -1279,6 +1280,430 @@
    "falante": "desconhecido",
    "esperado": {
     "falante": "medico"
+   }
+  },
+  {
+   "id": "evite-ibuprofeno-e-do-medico",
+   "categoria": "falante",
+   "frase": "evite ibuprofeno por causa do rim",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "se-tiver-febre-procure",
+   "categoria": "falante",
+   "frase": "se tiver febre procure o pronto socorro",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "nao-entendi-o-que-o-senhor-falou",
+   "categoria": "falante",
+   "frase": "não entendi o que o senhor falou",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "confusao"
+    ]
+   }
+  },
+  {
+   "id": "ainda-bem-que-a-senhora-explicou",
+   "categoria": "falante",
+   "frase": "ainda bem que a senhora explicou",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "alivio"
+    ]
+   }
+  },
+  {
+   "id": "sente-tontura-sem-interrogacao",
+   "categoria": "falante",
+   "frase": "sente tontura",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "nao-precisa-ficar-preocupada",
+   "categoria": "falante",
+   "frase": "não precisa ficar preocupada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "tem-alergia-a-dipirona",
+   "categoria": "pergunta",
+   "frase": "tem alergia a dipirona",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "dipirona": "negado"
+    }
+   }
+  },
+  {
+   "id": "nao-vai-ser-necessario-operar",
+   "categoria": "cirurgia",
+   "frase": "não vai ser necessário operar",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nao-ha-necessidade-de-operar",
+   "categoria": "cirurgia",
+   "frase": "não há necessidade de operar agora",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "operar-nao-vai-precisar",
+   "categoria": "cirurgia",
+   "frase": "operar não vai precisar",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nao-tem-indicacao-de-operar",
+   "categoria": "cirurgia",
+   "frase": "não tem indicação de operar",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "operaram-minha-mae",
+   "categoria": "cirurgia",
+   "frase": "operaram minha mãe ano passado",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "cirurgia-ta-marcada",
+   "categoria": "controle",
+   "frase": "a cirurgia tá marcada pra dezembro",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "cirurgia": [
+     "planejada"
+    ]
+   }
+  },
+  {
+   "id": "fiz-cirurgia-de-hernia",
+   "categoria": "controle",
+   "frase": "fiz cirurgia de hérnia",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "cirurgia": [
+     "historico"
+    ]
+   }
+  },
+  {
+   "id": "nervosa-eu-nao-to",
+   "categoria": "emocao",
+   "frase": "nervosa eu não tô",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "estou-com-muito-medo",
+   "categoria": "controle",
+   "frase": "estou com muito medo",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "ansiedade"
+    ]
+   }
+  },
+  {
+   "id": "entendi-mais-ou-menos",
+   "categoria": "emocao",
+   "frase": "entendi mais ou menos",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "confusao"
+    ]
+   }
+  },
+  {
+   "id": "mandou-parar-mas-continuo-tomando",
+   "categoria": "medicamento",
+   "frase": "o médico mandou eu parar o ibuprofeno mas eu continuo tomando",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "parei-mas-voltei-a-tomar",
+   "categoria": "medicamento",
+   "frase": "parei o ibuprofeno mas voltei a tomar semana passada",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "alergia-a-dipirona-nao-e-uso",
+   "categoria": "medicamento",
+   "frase": "tenho alergia a dipirona",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "dipirona": "negado"
+    },
+    "alergias": [
+     "Dipirona"
+    ]
+   }
+  },
+  {
+   "id": "lista-de-alergias",
+   "categoria": "medicamento",
+   "frase": "sou alérgica a dipirona, ibuprofeno e AAS",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "dipirona": "negado",
+     "ibuprofeno": "negado"
+    },
+    "alergias": [
+     "Anti-inflamatórios (AINE)",
+     "Dipirona"
+    ]
+   }
+  },
+  {
+   "id": "evito-anti-inflamatorio",
+   "categoria": "medicamento",
+   "frase": "eu evito anti-inflamatório por causa do rim",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "@aine": "negado"
+    }
+   }
+  },
+  {
+   "id": "nao-tomo-direito",
+   "categoria": "medicamento",
+   "frase": "não tomo o ibuprofeno direito",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "parei-os-dois",
+   "categoria": "medicamento",
+   "frase": "parei o ibuprofeno e a dipirona",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado",
+     "dipirona": "suspenso_relatado"
+    }
+   }
+  },
+  {
+   "id": "nunca-anti-inflamatorio-ibuprofeno-sim",
+   "categoria": "medicamento",
+   "frase": "Nunca tomei anti-inflamatório. Ibuprofeno sim, toda semana.",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "@aine": "negado",
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "nada-de-dor-no-peito",
+   "categoria": "negacao",
+   "frase": "nada de dor no peito",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dor no peito": "negado"
+    }
+   }
+  },
+  {
+   "id": "nao-tenho-alergia-a-dipirona",
+   "categoria": "negacao",
+   "frase": "não tenho alergia a dipirona",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "dipirona": "negado"
+    }
+   }
+  },
+  {
+   "id": "alergia-a-dipirona-eu-nao-tenho",
+   "categoria": "negacao",
+   "frase": "alergia a dipirona eu não tenho",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "dipirona": "negado"
+    }
+   }
+  },
+  {
+   "id": "irma-nao-tem-pressao-alta",
+   "categoria": "negacao",
+   "frase": "minha irmã não tem pressão alta",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "e-se-eu-tiver-febre",
+   "categoria": "negacao",
+   "frase": "e se eu tiver febre eu volto",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "confusao"
+    ]
+   }
+  },
+  {
+   "id": "mae-caiu-duas-vezes",
+   "categoria": "controle",
+   "frase": "minha mãe caiu duas vezes esse mês",
+   "falante": "acompanhante",
+   "esperado": {
+    "falante": "acompanhante",
+    "queixas": {
+     "Queda ou quase queda": "presente"
+    }
+   }
+  },
+  {
+   "id": "ela-tem-caido-muito",
+   "categoria": "controle",
+   "frase": "ela tem caído muito",
+   "falante": "acompanhante",
+   "esperado": {
+    "falante": "acompanhante",
+    "queixas": {
+     "Queda ou quase queda": "presente"
+    }
+   }
+  },
+  {
+   "id": "ela-so-sente-tontura",
+   "categoria": "controle",
+   "frase": "ela só sente tontura quando levanta",
+   "falante": "acompanhante",
+   "esperado": {
+    "falante": "acompanhante",
+    "queixas": {
+     "Tontura": "presente"
+    }
+   }
+  },
+  {
+   "id": "ainda-nao-tomei-hoje",
+   "categoria": "medicamento",
+   "frase": "ainda não tomei o ibuprofeno hoje",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "entendi-virgula-mais-ou-menos",
+   "categoria": "emocao",
+   "frase": "Entendi, mais ou menos.",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
    }
   },
   {

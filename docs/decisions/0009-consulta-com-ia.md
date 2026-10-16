@@ -63,7 +63,10 @@ aprovada pelo profissional.
     mede falso positivo e falso negativo por categoria a cada build e falha com qualquer falso positivo. Limitações
     conhecidas ficam no corpus como xfail estrito, à vista, até a regra ser corrigida. Para isso o texto ganhou
     alcance de negação, status do medicamento citado (em uso, suspenso relatado, negado) e quebra de oração por
-    marcadores da fala ("só", "mas", "agora", vocativo).
+    marcadores da fala ("só", "mas", "agora", vocativo). A negação vale também para cirurgia ("não há necessidade
+    de operar"), antecedente familiar e alergia ("não tenho alergia a dipirona"); hipótese não é queixa ("se tiver
+    febre, procure o pronto-socorro"); alergia citada não é uso do medicamento; e o suspenso que voltou ("mandou
+    parar, mas eu continuo tomando") segue em uso, para não apagar um alerta verdadeiro.
 
 ## Consequências
 

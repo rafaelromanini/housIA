@@ -33,11 +33,10 @@ from app.consult.schemas import (
 )
 from app.consult.surgical import surgical_report
 from app.consult.text import (
-    clauses,
     contains,
     has_vocative,
     keyword_status,
-    listener_question,
+    listener_questions,
     mentioned_drugs,
     norm,
 )
@@ -51,13 +50,17 @@ OPEN_MARKERS = ("como ", "o que", "me conta", "me fala", "qual ", "quais ", "por
 # quem falou (modo automático): pistas lexicais, porque a fala do microfone chega sem "?" e sem vírgula
 DOCTOR_MARKERS = tuple(
     (
-        "me conta|me fala|me diga|me mostra|vamos |vou examinar|vou pedir|vou passar|vou trocar|"
+        "me conta|me fala|me diga|me diz|me mostra|vamos |vou examinar|vou pedir|vou passar|vou trocar|"
         "vou prescrever|vou ajustar|vou suspender|vou receitar|vou solicitar|sou a medica|sou o medico|"
         "sou a enfermeira|sou o enfermeiro|sou a doutora|sou o doutor|respira fundo|pode deitar|pode sentar|"
         "abre a boca|seus exames|sua pressao|sua glicemia|seu exame|o exame mostrou|o resultado|recomendo|"
         "a gente vai|a gente precisa|precisa tomar|vai precisar|dona |que bom ver|entendo o medo|"
         "fique tranquila|fique tranquilo|isso explica|quero que a senhora|quero que o senhor|como ta|como esta|"
-        "como vai|como anda|como tem passado|pra eu examinar|deixa eu examinar|deixa eu ver|vou medir|vou te examinar"
+        "como vai|como anda|como tem passado|pra eu examinar|deixa eu examinar|deixa eu ver|vou medir|vou te examinar|"
+        # orientação/conduta no imperativo: "evite ibuprofeno", "se tiver febre procure o pronto-socorro"
+        "evite|evitar o|evitar a|nao tome|nao use|pode tomar|pode usar|tome |continue|mantenha|suspenda|procure|"
+        "volte|volta em|retorne|retorno em|o retorno|fica tranquila|fica tranquilo|pode ficar tranquila|"
+        "pode ficar tranquilo|nao precisa ficar|nao precisa se preocupar|nao precisa ter medo"
     ).split("|")
 )
 PATIENT_MARKERS = tuple(
@@ -66,7 +69,10 @@ PATIENT_MARKERS = tuple(
         "tenho |eu tive|tive |me da |me deu|me doi|eu fico|fico |fiquei|eu ando|ando |minha cabeca|meu peito|"
         "minha barriga|minha perna|meu joelho|minha pressao|eu tomo|tomo |tomei|eu uso|comprei|comecei|parei|"
         "esqueco|esqueci|posso |eu queria|eu acho|sei la|eu nao sei|eu moro|moro |eu trabalho|eu levanto|"
-        "levanto|eu nunca|comigo|eu estou|estou |to |o que significa|e grave|sera que|vou precisar|tem cura|nao sei"
+        "levanto|eu nunca|comigo|eu estou|estou |to |o que significa|e grave|sera que|vou precisar|tem cura|nao sei|"
+        # paciente que se dirige ao profissional sem vocativo: "não entendi o que o senhor falou"
+        "nao entendi|a senhora me |o senhor me |a senhora vai me|o senhor vai me|a senhora explicou|o senhor explicou|"
+        "a senhora receitou|o senhor receitou|a senhora pediu|o senhor pediu|a senhora mandou|o senhor mandou"
     ).split("|")
 )
 # 1ª pessoa com sintoma: quem fala é o próprio paciente (decide entre paciente e acompanhante)
@@ -97,15 +103,17 @@ FAMILY_DISEASE = (
 )
 # cirurgia a fazer (não a que já aconteceu na internação); "não vai precisar operar" é negativa
 SURGERY_PLAN_WORDS = (
-    "operar",
+    "operar ",  # infinitivo: "operaram minha mãe" não é cirurgia planejada da paciente
     "vou ser operad",
     "cirurgia marcada",
+    "cirurgia ta marcada",
+    "cirurgia esta marcada",
     "cirurgia programada",
     "marcar a cirurgia",
     "fazer a cirurgia",
     "fazer cirurgia",
 )
-SURGERY_PAST_WORDS = ("operei", "fui operad", "ja fiz cirurgia", "fiz uma cirurgia")
+SURGERY_PAST_WORDS = ("operei", "fui operad", "ja fiz cirurgia", "fiz uma cirurgia", "fiz cirurgia")
 FORGET_WORDS = (
     "esqueco",
     "esqueci",
@@ -135,7 +143,7 @@ def infer_speaker(text: str) -> str:
     t = norm(text)
     question = text.strip().endswith("?")
     vocative = has_vocative(text)
-    doctor = 3 * sum(listener_question(c) for c in clauses(text)) + 2 * _cues(t, DOCTOR_MARKERS)
+    doctor = 3 * sum(listener_questions(text)) + 2 * _cues(t, DOCTOR_MARKERS)
     doctor += 2 * bool(MEASUREMENT.search(t)) + bool(re.search(r"(?<!\w)(a senhora|o senhor|voce)(?!\w)", t))
     patient = 3 * vocative + 2 * _cues(t, PATIENT_MARKERS)
     if not question and any(keyword_status(text, d.words, skip_questions=True) for d in knowledge.symptoms()):
@@ -550,11 +558,12 @@ class Engine:
         reported = [(ing, term) for ing, term, _ in self.reported_meds()]
         for s in self.patient_segments:
             for clause in self.norm[s.n].split("."):
-                if "alergi" not in clause:
+                # "não tenho alergia a dipirona", "alergia a dipirona não", "tem alergia a algum remédio" (pergunta)
+                if keyword_status(clause, ("alergi",), skip_questions=True) != "presente":
                     continue
                 for d in knowledge.allergy_defs():
                     hit = contains(clause, d.words)
-                    if not hit:
+                    if not hit or keyword_status(clause, d.words) != "presente":
                         continue
                     if norm(d.label) in known or any(hit in k or k.split(" ")[0] in hit for k in known):
                         continue
@@ -580,7 +589,8 @@ class Engine:
         for s in self.patient_segments:
             t = self.norm[s.n]
             m = FAMILY_RE.search(t)
-            if m and contains(t, FAMILY_DISEASE):  # palavra inteira: "rim" não casa com "primeiro"
+            # palavra inteira ("rim" não casa com "primeiro") e com negação ("minha mãe não tem diabetes")
+            if m and keyword_status(s.texto, FAMILY_DISEASE) == "presente":
                 out.append(
                     HistoryItem(
                         texto=f"Antecedente familiar relatado: {self.quote(s, 90)}",

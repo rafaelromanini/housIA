@@ -25,7 +25,7 @@ from tests.test_consult import FakeClient
 
 CORPUS = regression_corpus()
 FRASES = CORPUS["frases"]
-CATEGORIAS = ("queixas", "emocoes", "medicamentos", "alertas", "cirurgia", "antecedente_familiar")
+CATEGORIAS = ("queixas", "emocoes", "medicamentos", "alertas", "cirurgia", "antecedente_familiar", "alergias")
 SPEAKERS = {"medico", "paciente", "acompanhante", "desconhecido"}
 
 
@@ -72,6 +72,7 @@ def avaliar(frase: dict, charts) -> dict:
         },
         "cirurgia": {i.tipo for i in ins.cirurgia if any(r.startswith("Fala/") for r in i.refs)},
         "antecedente_familiar": {True} if any(h.tipo == "familiar" for h in ins.historico) else set(),
+        "alergias": {a.alergeno for a in ins.alergias if a.fonte == "relatado"},
     }
 
 
@@ -85,6 +86,7 @@ def esperado(frase: dict) -> dict:
         "alertas": set(e.get("alertas", [])),
         "cirurgia": set(e.get("cirurgia", [])),
         "antecedente_familiar": {True} if e.get("antecedente_familiar") else set(),
+        "alergias": set(e.get("alergias", [])),
     }
 
 
@@ -242,6 +244,27 @@ def test_ibuprofeno_em_uso_continua_gerando_triplice_ameaca(client, consult):
     cid, h = consult()
     ins = _say(client, h, cid, ("paciente", "Tomo ibuprofeno todo dia, mas não tá adiantando"))["insights"]
     assert any("Tríplice" in m["texto"] for m in ins["sugestoes_medicamentos"])
+
+
+def test_retomada_mantem_alerta_e_alergia_negada_nao_vira_alergia(client, consult):
+    """Suspenso que voltou ("mas eu continuo tomando") segue em uso; "não tenho alergia a X" não registra alergia nem
+    transforma X em uso; orientação do profissional ("evite ibuprofeno") em Automático não vira relato do paciente."""
+    cid, h = consult()
+    out = _say(client, h, cid, (None, "evite ibuprofeno por causa do rim"))
+    assert out["novos"][0]["falante"] == "medico"
+    assert not any("Ibuprofeno" in m["texto"] for m in out["insights"]["sugestoes_medicamentos"])
+    ins = _say(
+        client,
+        h,
+        cid,
+        ("paciente", "não tenho alergia a dipirona"),
+        ("paciente", "o médico mandou eu parar o ibuprofeno mas eu continuo tomando"),
+    )["insights"]
+    assert not any(a["alergeno"] == "Dipirona" for a in ins["alergias"])
+    assert not any("Dipirona" in m["texto"] for m in ins["sugestoes_medicamentos"])
+    triplice = [m for m in ins["sugestoes_medicamentos"] if "Tríplice" in m["texto"]]
+    assert triplice and "Fala/3" in triplice[0]["refs"]
+    assert {m["medicamento"]: m["status"] for m in ins["medicamentos"]}["Ibuprofeno"] == "relatado"
 
 
 def test_negacao_de_emocao_e_duvida(client, consult):

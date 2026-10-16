@@ -27,13 +27,23 @@ LIGHT_WORDS = set(
         "senhor doutora doutor nenhum nenhuma tenho tive tem teve tinha tido sinto senti sente sentiu sentia "
         "sentindo sentido estou to tou ta estava estive ando andei anda fico fiquei sou foi era e apresento "
         "apresentei notei percebi vai vou vamos precisa precisar preciso precisou quer quero pode posso deve "
-        "crise crises sintoma sintomas sinal problema problemas episodio queixa vez vezes"
+        "crise crises sintoma sintomas sinal problema problemas episodio queixa vez vezes ser ter ficar fazer "
+        "ha necessario necessaria necessidade indicacao"
     ).split()
 )
+# "não vai ter que operar": o "que" de "ter que" não interrompe o alcance; "nada de dor no peito" é negativa
+HAVE_TO = re.compile(r"(?<!\w)(ter|tem|tenho|teria|tinha|vai ter) que(?!\w)")
+NOTHING_OF = re.compile(r"(?<!\w)nada (de|do|da)(?!\w)")
 # depois do termo, a negação só vale como negativa se fecha a oração ou vem com ter/sentir: "dor no peito eu não
 # tenho", "falta de ar também não" — mas "a tontura não passa" e "dor que não melhora" continuam presentes
 DENIAL_AFTER = {"tenho", "tive", "tem", "teve", "sinto", "senti", "sente", "sentiu", "sentia", "tinha", "mais", "nunca"}
 DENIAL_AFTER |= {"apresento", "apresentei", "senhora", "senhor", "doutora", "doutor"}
+# "nervosa eu não tô", "preocupada não fiquei": estar/ficar em 1ª pessoa nega quando fecha a oração (com, no máximo,
+# "não"/vocativo depois); "a tontura não tô aguentando" continua presente
+COPULA_AFTER = {"to", "tou", "estou", "fico", "fiquei", "sou", "ando"}
+CLOSERS = NEG_WORDS | {"doutora", "doutor", "senhora", "senhor", "mais", "nada", "hoje", "agora"}
+# "operar não vai precisar", "cirurgia não é necessária"
+NEED_AFTER = re.compile(r"^((vai|vou) )?(precisar|precisa|ser necessari[oa]|e necessari[oa]|e preciso|tem indicacao)")
 
 # pergunta dirigida a quem escuta (2ª pessoa): "a senhora tem sentido dor no peito" não é queixa de quem fala
 SECOND_PERSON = r"(a senhora|o senhor|senhora|senhor|voce|vc|a sra|o sr)"
@@ -41,9 +51,16 @@ EXPERIENCE = r"(tem|teve|tinha|sente|sentiu|sentia|esta|ta|anda|andou|apresenta|
 LISTENER_QUESTION = re.compile(
     rf"(?<!\w){SECOND_PERSON}( (ainda|ja|nao|tambem|nunca|alguma vez))? {EXPERIENCE}(?!\w)"
     r"|^(e )?(tem sentido|tem tido|tem notado|tem percebido|anda sentindo|esta sentindo|ta sentindo"
-    r"|sente algum|sente alguma|sentiu algum|sentiu alguma|teve algum|teve alguma|quando comecou|desde quando"
+    r"|sente|sentiu|teve algum|teve alguma|tem alergia|alguma dor|algum sintoma|algum desconforto|quando comecou"
+    r"|desde quando"
     r"|ha quanto tempo|faz quanto tempo)(?!\w)"
 )
+# hipótese, não relato: "se tiver febre procure o pronto-socorro", "caso sinta falta de ar"
+HYPOTHETICAL = re.compile(
+    r"(?<!\w)(se|caso) ((eu|ela|ele|a senhora|o senhor|voce) )?(tiver|tenha|sentir|sinta|aparecer|apareca|der|vier"
+    r"|voltar|volte|piorar|piore|comecar|comece|houver|notar|perceber)(?!\w)"
+)
+SUBJECT_END = re.compile(r"(?<!\w)(eu|ela|ele|elas|eles|nos|a gente)$")
 VOCATIVE = re.compile(r"(?<!\w)(doutora|doutor|dra|dr)(?!\w)")
 # "a doutora falou", "o doutor Paulo": referência a outro profissional, não vocativo
 NOT_VOCATIVE_BEFORE = {"o", "a", "do", "da", "no", "na", "pelo", "pela", "com", "pro", "pra", "ao", "outro", "outra"}
@@ -73,15 +90,24 @@ TAKE = r"(tomo|tomei|toma|tomou|tomando|tomar|tomava|tomado|uso|usei|usa|usou|us
 STOPPED_BEFORE = re.compile(
     r"(?<!\w)(parei|paramos)(?! de (?!tomar|usar))(?!\w)"
     r"|(?<!\w)(deixei|deixou|deixamos) de (tomar|usar)(?!\w)"
-    r"|(?<!\w)(suspendi|suspendeu|suspenderam|suspenso|suspensa|tirei|tiraram|tirou|cortaram)(?!\w)"
+    r"|(?<!\w)(suspendi|suspendeu|suspenderam|suspenso|suspensa|tirei|tiraram|tirou|cortaram|cortou|cortei)(?!\w)"
     r"|(?<!\w)(tomava|usava|tomei por um tempo|usei por um tempo)(?!\w)"
     rf"|(?<!\w)(nao|nem) (\w+ ){{0,2}}?{TAKE} mais(?!\w)(?! (que|de|do que)(?!\w))"
     r"|(?<!\w)(nao|nem) (\w+ )?(preciso|precisa) mais(?!\w)"
     r"|(?<!\w)(nunca mais|ja nao)(?!\w)|(?<!\w)(faz|ha) (\w+ ){1,3}que (nao|nem)(?!\w)"
     r"|(?<!\w)(mandou|mandaram|pediu|pediram|falou|disse) (eu |pra |para |que )?(parar|suspender|tirar)(?!\w)"
 )
-# "não tomo ibuprofeno todo dia" nega a frequência, não o uso
-FREQUENCY = re.compile(r"^(o |a |os |as )?(todo dia|todos os dias|sempre|direto|toda hora|muito|tanto|com frequencia)")
+# voltou a usar: "parei o ibuprofeno mas voltei a tomar", "mandou parar mas eu continuo tomando" — segue em uso
+RESUMED = re.compile(
+    r"(?<!\w)(voltei a|voltou a|continuo|continua|ainda) (tomar|usar|tomando|usando|tomo|uso|toma|usa)(?!\w)"
+    rf"|(?<!nao )(?<!\w){TAKE} (ainda|de novo|escondido)(?!\w)|(?<!\w)comecei a (tomar|usar) de novo(?!\w)"
+)
+# "não tomo ibuprofeno todo dia" nega a frequência, não o uso ("não tomo a metformina direito", "ainda não tomei o
+# ibuprofeno hoje" também são uso)
+FREQUENCY = re.compile(
+    r"^(o |a |os |as )?(todo dia|todos os dias|sempre|direto|toda hora|muito|tanto|com frequencia|direito|certinho"
+    r"|certo|regularmente|na hora certa|hoje)"
+)
 # depois do medicamento (só 1ª pessoa: "a dor parou" não é suspensão): "ibuprofeno eu parei faz um mês"
 STOPPED_AFTER = re.compile(
     r"^((eu|ja|tambem|esse|essa|isso|ai|faz|tempo) )*"
@@ -90,11 +116,21 @@ STOPPED_AFTER = re.compile(
 # negação que governa o tomar/usar e chega ao medicamento só com artigo/"remédio" no meio
 NEG_TAKE = re.compile(
     r"(?<!\w)(nao|nunca|nem|jamais)"
-    r"( (eu|ja|mais|estou|to|tou|tenho|ando|costumo|posso|consigo|quero|vou|cheguei a|gosto de|na vida|sequer))*"
+    r"( (eu|ja|mais|estou|to|tou|tenho|ando|costumo|posso|pode|podia|devo|deve|deveria|consigo|quero|vou|cheguei a"
+    r"|gosto de|na vida|sequer))*"
     rf" {TAKE}"
     r"( (o|a|os|as|um|uma|nenhum|nenhuma|de|do|da|esse|essa|isso|remedio|remedios|comprimido|comprimidos))*$"
 )
 NEG_DIRECT = re.compile(r"(?<!\w)(nem|sem|nenhum|nenhuma|nada de|nao)( (o|a|um|uma|de))?$")
+# "eu evito anti-inflamatório", "o médico proibiu o ibuprofeno", "tenho alergia a dipirona": não é uso atual
+AVOIDED = re.compile(
+    r"(?<!\w)(evito|evita|evite|evitar|evitando|proibiu|proibido|proibida|alergia|alergias|alergica|alergico)"
+    r"( (de )?(tomar|usar))?( (a|ao|aos|o|os|as|um|uma|de|da|do|com|qualquer|esse|essa|remedio|tipo de))*$"
+)
+# continuação de lista: "parei o ibuprofeno e a dipirona", "sou alérgica a dipirona, ibuprofeno e AAS"
+LIST_JOIN = re.compile(r"((e|ou|nem|tambem|ao|aos|a|o|as|os|da|do|de)( |$))*")
+# o que encerra a lista e diz uso: "nunca tomei anti-inflamatório. Ibuprofeno sim, toda semana"
+IN_USE = re.compile(rf"(?<!\w)({TAKE}|sim|claro|direto|todo dia|toda semana|sempre|as vezes|de vez em quando)(?!\w)")
 NEG_AFTER = re.compile(
     rf"^((eu|tambem|ja|isso|esse|essa|nunca) )*(nao|nunca|nem)( ((eu|ja|nunca|tambem) )*{TAKE}(?!\w).*)?$"
 )
@@ -105,6 +141,10 @@ BARE_STOPPED = re.compile(
     r"^((eu|ja|e|a) )*(parei|deixei de tomar|deixei de usar|suspendi|nao tomo mais|nao uso mais|nao estou mais tomando"
     r"|nao to mais tomando|nunca mais tomei|nunca mais usei|tomava|usava)( de tomar| de usar| com ele| com ela)?"
     + BARE_TAIL
+)
+BARE_RESUMED = re.compile(
+    r"^((eu|e|ai|so que|mesmo assim) )*(continuo (tomando|usando)|ainda (tomo|uso)|voltei a (tomar|usar)"
+    r"|(to|tou|estou) tomando de novo|comecei a tomar de novo|tomo escondido)(?!\w)"
 )
 BARE_NEGATED = re.compile(
     r"^((eu|ja|e) )*(nao|nunca|nem)( ((eu|ja|nunca|tambem) )*(tomo|tomei|uso|usei))?"
@@ -169,7 +209,7 @@ def _negated(before: str, after: str, trailing: bool = True) -> bool:
 
     `trailing`: um "não" solto no fim da oração também nega ("falta de ar também não").
     """
-    words = before.split()
+    words = NOTHING_OF.sub("sem", HAVE_TO.sub(r"\1", before)).split()
     for i, w in enumerate(reversed(words)):
         if w in NEG_WORDS:
             return True
@@ -178,12 +218,17 @@ def _negated(before: str, after: str, trailing: bool = True) -> bool:
     tail = after.split()
     for i, w in enumerate(tail):
         if w in NEG_WORDS:
-            return (trailing and i + 1 == len(tail)) or (i + 1 < len(tail) and tail[i + 1] in DENIAL_AFTER)
+            rest = tail[i + 1 :]
+            if not rest:
+                return trailing
+            closes = rest[0] in COPULA_AFTER and all(x in CLOSERS for x in rest[1:])
+            return rest[0] in DENIAL_AFTER or closes or bool(NEED_AFTER.match(" ".join(rest)))
         if w not in LIGHT_WORDS or i >= NEG_WINDOW:
             break
     return False
 
 
+@lru_cache(maxsize=4096)
 def has_vocative(text: str) -> bool:
     """Fala dirigida ao profissional ("bom dia, doutora"): sinal de paciente/acompanhante."""
     t = norm(text)
@@ -197,6 +242,14 @@ def has_vocative(text: str) -> bool:
 def listener_question(clause: str) -> bool:
     """Oração que pergunta da experiência de quem escuta ("a senhora tem sentido...", "tem tido febre")."""
     return bool(LISTENER_QUESTION.search(clause))
+
+
+@lru_cache(maxsize=4096)  # chamada para cada sintoma de cada fala
+def listener_questions(text: str) -> tuple[bool, ...]:
+    """`listener_question` para cada oração de `clauses(text)`. A oração que continua um sujeito deixado na anterior
+    pelo marcador ("ela | só sente tontura quando levanta") não é pergunta."""
+    parts = clauses(text)
+    return tuple(listener_question(c) and not (i and SUBJECT_END.search(parts[i - 1])) for i, c in enumerate(parts))
 
 
 def keyword_status(
@@ -213,16 +266,20 @@ def keyword_status(
     `excludes`: termos que, na mesma oração, anulam a palavra-chave ("a pressão caiu" não é queda).
     `trailing_negation=False`: o "não" solto no fim responde à pergunta e não nega o termo ("graças a Deus, não"
     é alívio); "medo eu não tenho" continua negativa.
+    Com `skip_questions`, a hipótese também não é relato ("se tiver febre, procure o pronto-socorro").
     """
     found = None
     skip = skip_questions and not has_vocative(text)
-    for clause in clauses(text):
+    questions = listener_questions(text) if skip else ()
+    for i, clause in enumerate(clauses(text)):
         hit = find(clause, words)
         if not hit or (excludes and find(clause, excludes)):
             continue
-        if skip and listener_question(clause):
+        if skip and questions[i]:
             continue
         word, start, end = hit
+        if skip_questions and HYPOTHETICAL.search(clause[:start]):
+            continue
         # a própria palavra-chave pode ter negação ("nao consigo urinar"): ela não conta como negativa; na composta,
         # vale a negação entre as partes ("o joelho não dói")
         inner = "+" in word and any(w in NEG_WORDS for w in clause[start:end].split())
@@ -263,11 +320,13 @@ def _drug_hits(clause: str) -> list[tuple[int, int, str, str]]:
 
 def _drug_status(before: str, after: str) -> DrugStatus:
     before, after = before.strip(), after.strip()
+    if RESUMED.search(before) or RESUMED.search(after):
+        return "em_uso"
     if STOPPED_BEFORE.search(before) or STOPPED_AFTER.search(after):
         return "suspenso_relatado"
     if FREQUENCY.search(after):
         return "em_uso"
-    if NEG_TAKE.search(before) or NEG_DIRECT.search(before) or NEG_AFTER.search(after):
+    if NEG_TAKE.search(before) or NEG_DIRECT.search(before) or AVOIDED.search(before) or NEG_AFTER.search(after):
         return "negado"
     return "em_uso"
 
@@ -286,6 +345,10 @@ def mentioned_drugs(text: str) -> tuple[DrugMention, ...]:
         t = f" {clause} "
         hits = _drug_hits(clause)
         if not hits:
+            if BARE_RESUMED.search(clause):  # "mandou parar o ibuprofeno, mas eu continuo tomando"
+                for ing in last:
+                    found[ing] = found[ing]._replace(status="em_uso")
+                continue
             bare = "suspenso_relatado" if BARE_STOPPED.search(clause) else None
             bare = bare or ("negado" if BARE_NEGATED.search(clause) else None)
             if bare:
@@ -295,11 +358,20 @@ def mentioned_drugs(text: str) -> tuple[DrugMention, ...]:
             elif not VOCATIVE.fullmatch(clause):
                 last = []
             continue
+        # oração só com nomes e "e"/"a" continua a lista da anterior ("sou alérgica a dipirona, ibuprofeno e AAS")
+        gaps = [t[hits[i - 1][1] if i else 0 : h[0]] for i, h in enumerate(hits)] + [t[hits[-1][1] :]]
+        listing = all(LIST_JOIN.fullmatch(g.strip()) for g in gaps[:-1]) and not IN_USE.search(gaps[-1])
+        previous = found[last[-1]].status if last and listing else None
         last = []
         for i, (start, end, ing, term) in enumerate(hits):
             lo = hits[i - 1][1] if i else 0
             after = t[end:] if i + 1 == len(hits) else ""
             status = _drug_status(t[lo:start], after)
+            # "parei o ibuprofeno e a dipirona": sem sinal próprio, o item da lista herda o status do anterior
+            joined = LIST_JOIN.fullmatch(t[lo:start].strip()) and not IN_USE.search(after)
+            if status == "em_uso" and previous and joined:
+                status = previous
+            previous = status
             prev = found.get(ing)
             if prev is None or _STATUS_RANK[status] < _STATUS_RANK[prev.status]:
                 found[ing] = DrugMention(ing, prev.term if prev else term, status)
