@@ -412,3 +412,14 @@ def test_schedule_from_appointment_only():
     rec = PatientRecord({"resourceType": "Patient", "id": "p1"}, {"Appointment": [appointment]}, {})
     sch = scheduled_surgery(rec)
     assert sch and sch.refs == ["Appointment/ag1"] and sch.lado == "esquerdo" and sch.template_id == "herniorrafia"
+
+
+def test_negation_needs_to_be_close_to_the_keyword():
+    from app.consult.surgical_checks import negated
+
+    words = ("radioscopia",)
+    assert negated("procedimento realizado sem radioscopia", words)
+    assert negated("radioscopia nao utilizada", words)
+    assert not negated("radioscopia sem intercorrencias", words)
+    assert not negated("nao houve intercorrencias e a radioscopia mostrou boa reducao", words)
+    assert negated("nao foi realizado o time-out", ("time-out",))

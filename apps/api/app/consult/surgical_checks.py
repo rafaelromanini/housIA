@@ -44,8 +44,9 @@ WORD_NUMBERS = {
 }
 NUM = r"(\d+(?:[,.]\d+)?|" + "|".join(WORD_NUMBERS) + ")"
 CLAUSE_SPLIT = re.compile(r"(?<!\d)[.;!?](?!\d)|,\s+|\n| mas ")
-NEG_BEFORE = re.compile(r"(?<![a-z])(?:nao|sem|nunca|nenhum|nenhuma)(?![a-z])[^.;]{0,40}$")
-NEG_AFTER = re.compile(r"^\W*(?:nao|sem)(?![a-z])")
+NEG_WORD = re.compile(r"(?<![a-z])(?:nao|sem|nunca|nenhum|nenhuma)(?![a-z])")
+NEG_AFTER = re.compile(r"^\W*nao(?![a-z])")  # "time-out não realizado", "radioscopia não utilizada"
+CONJUNCTION = re.compile(r"(?<![a-z])(?:e|mas|porem)(?![a-z])")
 SIDE_RE = re.compile(r"(?<![a-z])(direit[oa]s?|esquerd[oa]s?|bilateral|bilaterais|ambos os lados)(?![a-z])")
 CLOCK_AS = re.compile(
     r"(?<![a-z])(?:as|a partir das|desde as)\s+(\d{1,2}|" + "|".join(WORD_NUMBERS) + r")"
@@ -131,12 +132,21 @@ def _num(token: str) -> float:
 
 
 def negated(clause: str, words: tuple[str, ...]) -> bool:
-    """Negação junto da palavra-chave na mesma oração ("sem radioscopia", "time-out não realizado")."""
+    """Negação junto da palavra-chave na mesma oração ("sem radioscopia", "time-out não realizado").
+
+    "Não houve intercorrências e a radioscopia..." não nega a radioscopia: a negação precisa estar perto (até 25
+    caracteres) e sem conjunção no meio.
+    """
     hit = first_hit(clause, words)
     if hit is None:
         return False
     idx = clause.find(hit)
-    return bool(NEG_BEFORE.search(clause[:idx]) or NEG_AFTER.match(clause[idx + len(hit) :]))
+    before = clause[:idx]
+    found = list(NEG_WORD.finditer(before))
+    last = found[-1] if found else None
+    if last and len(before) - last.end() <= 25 and not CONJUNCTION.search(before[last.end() :]):
+        return True
+    return bool(NEG_AFTER.match(clause[idx + len(hit) :]))
 
 
 def side_of(text: str) -> str | None:
