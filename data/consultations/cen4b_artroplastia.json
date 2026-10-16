@@ -1,0 +1,29 @@
+{
+ "patient_id": "cen4b",
+ "tipo": "cirurgia",
+ "especialidade": "ortopedia",
+ "titulo": "Ditado do relatório cirúrgico: artroplastia total de joelho direito (ortopedia, com a equipe de sala)",
+ "opme_autorizado": [
+  {"codigo": "DEMO-OPME-012", "quantidade": 1},
+  {"codigo": "DEMO-OPME-013", "quantidade": 1},
+  {"codigo": "DEMO-OPME-014", "quantidade": 1},
+  {"codigo": "DEMO-OPME-015", "quantidade": 2}
+ ],
+ "falas": [
+  {"t": 0.0, "falante": "circulante", "texto": "Sign-in realizado: paciente confirmou nome, procedimento e lado, termo de consentimento assinado."},
+  {"t": 6.2, "falante": "anestesista", "texto": "Raquianestesia com bupivacaína pesada e sedação leve. Cefazolina 2 gramas às 8h05."},
+  {"t": 13.0, "falante": "medico", "texto": "Time-out realizado: paciente, procedimento e joelho direito confirmados."},
+  {"t": 19.4, "falante": "medico", "texto": "Diagnóstico pré-operatório: gonartrose primária do joelho direito. Procedimento realizado: artroplastia total de joelho direito cimentada."},
+  {"t": 28.7, "falante": "medico", "texto": "Paciente em decúbito dorsal, garrote pneumático na raiz da coxa insuflado a 300 mmHg. Incisão às 8h40."},
+  {"t": 36.1, "falante": "medico", "texto": "Via parapatelar medial e artrotomia. Achados: desgaste tricompartimental com predomínio medial e osteófitos marginais. Cortes femoral e tibial com guias e balanço ligamentar."},
+  {"t": 46.3, "falante": "medico", "texto": "Implantados o componente femoral tamanho 5, o componente tibial tamanho 4 e o polietileno de 10 milímetros, fixados com duas doses de cimento ósseo. Etiquetas dos implantes coladas na folha de sala."},
+  {"t": 56.0, "falante": "medico", "texto": "Radioscopia 45 segundos, DAP 1,8 Gy·cm², incidências AP e perfil."},
+  {"t": 61.5, "falante": "medico", "texto": "Garrote desinsuflado após 90 minutos e revisão da hemostasia."},
+  {"t": 67.2, "falante": "instrumentador", "texto": "Contagem de compressas e instrumentais confere."},
+  {"t": 71.0, "falante": "medico", "texto": "Sem intercorrências. Sangramento estimado de 200 mL. Dreno de sucção no joelho."},
+  {"t": 77.4, "falante": "medico", "texto": "Fechamento por planos e curativo compressivo. Término da cirurgia às 10h20."},
+  {"t": 83.0, "falante": "medico", "texto": "Equipe: cirurgião Dr. Henrique Sato, auxiliar Dr. Caio Lima, anestesista Dra. Marina Coutinho e instrumentador Felipe Rocha."},
+  {"t": 91.6, "falante": "medico", "texto": "Solicito RX de controle do joelho direito na recuperação. Paciente encaminhado à RPA em boas condições."},
+  {"t": 98.0, "falante": "circulante", "texto": "Sign-out realizado: procedimento registrado e contagem conferida."}
+ ]
+}

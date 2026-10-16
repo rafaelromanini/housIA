@@ -1,0 +1,31 @@
+versao: "1.0.0"
+id: rtu_prostata
+rotulo: Ressecção transuretral de próstata (RTU)
+especialidade: urologia
+detectar: [resseccao transuretral de prostata, rtu de prostata, "rtup ", rtu-p, resseccao endoscopica da prostata]
+sitio: [prostata]
+profilaxia: [ciprofloxacino, levofloxacino, cefazolina]
+campos:
+  - campo: irrigacao
+    rotulo: Solução de irrigação
+    sinonimos: [irrigacao, glicina, soro fisiologico, manitol, solucao de]
+    obrigatorio: true
+    granular: true
+    motivo: A solução de irrigação e o tempo de ressecção indicam o risco de síndrome pós-RTU (hiponatremia).
+    fonte: eau_luts
+  - campo: tempo_ressecao
+    rotulo: Tempo de ressecção
+    sinonimos: [tempo de resseccao, minutos de resseccao]
+    obrigatorio: false
+    granular: true
+    motivo: Ressecções longas aumentam a absorção de líquido de irrigação.
+    fonte: eau_luts
+  - campo: sonda
+    rotulo: Sonda vesical e irrigação contínua
+    sinonimos: [sonda, tres vias, 3 vias, irrigacao continua]
+    obrigatorio: true
+    granular: true
+    motivo: Sonda de 3 vias e irrigação contínua orientam a enfermagem no pós-operatório.
+    fonte: cfm_1638
+obrigatoriedade:
+  peca: {obrigatorio: true, motivo: "Os fragmentos vão ao anatomopatológico (câncer de próstata incidental).", fonte: cap_protocolos}

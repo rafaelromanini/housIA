@@ -1,10 +1,14 @@
+from typing import Literal
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
 from app.consult import knowledge, service, stt
 from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, SegmentsIn, Speaker
+from app.consult.templates import surgical_specialties
 from app.db.models import User
 from app.db.session import get_db
 from app.fhir_client.client import FhirSource, get_fhir
@@ -17,13 +21,14 @@ clinician = require_roles("medico", "enfermagem")
 def config(_: User = Depends(get_current_user)) -> dict:
     """O que está disponível neste ambiente (para a tela montar os controles)."""
     s = get_settings()
+    surgical = set(surgical_specialties())
     return {
         "llm_mode": s.llm_mode,
         "stt_servidor": stt.enabled(),
         "envio_prontuario": s.ehr_writeback,
         "idiomas": [{"value": k, "label": v} for k, v in LANGUAGE_LABELS.items()],
         "especialidades": [
-            {"value": k, "label": v, "foco": knowledge.SPECIALTY_FOCUS.get(k, "")}
+            {"value": k, "label": v, "foco": knowledge.SPECIALTY_FOCUS.get(k, ""), "cirurgica": k in surgical}
             for k, v in knowledge.SPECIALTIES.items()
         ],
     }
@@ -35,6 +40,22 @@ def appointments(
 ) -> list[dict]:
     """Agenda ambulatorial do dia (Encounter class AMB no FHIR) com o status da consulta no HousIA."""
     return service.appointments(db, fhir)
+
+
+@router.get("/consult/demo-scripts")
+def demo_scripts(_: User = Depends(clinician)) -> list[dict]:
+    """Roteiros sintéticos disponíveis (consulta, visita e centro cirúrgico), sem as falas."""
+    return [
+        {
+            "id": s["id"],
+            "patient_id": s.get("patient_id"),
+            "tipo": s.get("tipo"),
+            "especialidade": s.get("especialidade"),
+            "titulo": s.get("titulo"),
+            "falas": len(s.get("falas", [])),
+        }
+        for s in knowledge.demo_scripts().values()
+    ]
 
 
 @router.get("/consult/demo-scripts/{script_id}")
@@ -77,6 +98,23 @@ def add_segments(
 ) -> dict:
     """Recebe falas transcritas e devolve os Smart Apps atualizados na hora (camada de regras)."""
     return service.append_segments(db, fhir, user, cid, body.segmentos)
+
+
+class ChecklistIn(BaseModel):
+    etapa: Literal["sign_in", "time_out", "sign_out"]
+    feito: bool = True
+
+
+@router.post("/consultations/{cid}/checklist")
+def checklist(
+    cid: int,
+    body: ChecklistIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Cirurgia Segura (OMS) por botão: sign-in, time-out ou sign-out (o ditado também marca, por voz)."""
+    return service.mark_checklist(db, fhir, user, cid, body.etapa, body.feito)
 
 
 @router.post("/consultations/{cid}/audio")

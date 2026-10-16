@@ -1,0 +1,29 @@
+versao: "1.0.0"
+id: nefrolitotripsia
+rotulo: Nefrolitotripsia / ureterolitotripsia
+especialidade: urologia
+detectar: [nefrolitotripsia, nefrolitotomia percutanea, ureterolitotripsia, ureteroscopia, litotripsia percutanea, "nlpc "]
+sitio: ["rim ", renal, ureter, calice, pelve renal]
+profilaxia: [cefazolina, ampicilina_sulbactam, ciprofloxacino, levofloxacino, "gentamicina+metronidazol", "gentamicina+clindamicina"]
+exame_controle:
+  descricao: "Radiografia simples de abdome — controle de fragmentos e do cateter ({lado})"
+campos:
+  - campo: calculo
+    rotulo: Cálculo (local, tamanho e fragmentação)
+    sinonimos: [calculo, fragmentos, fragmentad, litotripsia]
+    obrigatorio: true
+    granular: true
+    motivo: Localização, tamanho e fragmentação do cálculo definem se há cálculo residual a seguir.
+    fonte: eau_litiase
+  - campo: duplo_j
+    rotulo: Cateter ureteral (duplo J) ou nefrostomia
+    sinonimos: [duplo j, cateter ureteral, sem cateter, nefrostomia]
+    obrigatorio: true
+    granular: true
+    motivo: Cateter duplo J deixado precisa de registro e prazo de retirada (cateter esquecido é evento adverso grave).
+    fonte: eau_litiase
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Rim e ureter são pares: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}
+  radioscopia_tempo: {obrigatorio: false, motivo: "O acesso percutâneo usa radioscopia: registrar o tempo quando houver.", fonte: rdc_611}
+  radioscopia_dose: {obrigatorio: false, motivo: "Registrar a dose quando houver radioscopia.", fonte: sir_dose}
+  radioscopia_incidencias: {obrigatorio: false, motivo: "Incidências identificam as imagens no RIS/PACS.", fonte: rdc_611}

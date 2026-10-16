@@ -25,6 +25,7 @@ from app.consult.schemas import (
     SurgicalReport,
     fala_ref,
 )
+from app.consult.surgical import ORDER_SYSTEM
 from app.db.models import Consultation, User
 from app.fhir_client.client import FhirSource
 from app.llm.client import LLMError
@@ -142,14 +143,10 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
         if e.get("class", {}).get("code") == "AMB" and e.get("status") in ACTIVE_VISIT
     ]
     encounter_id = visits[0]["id"] if visits else (record.hospitalization or {}).get("id")
-    script = next(
-        (
-            s
-            for s in knowledge.demo_scripts().values()
-            if s.get("patient_id") == patient_id and s.get("tipo") == body.tipo
-        ),
-        None,
-    )
+    scripts = [
+        s for s in knowledge.demo_scripts().values() if s.get("patient_id") == patient_id and s.get("tipo") == body.tipo
+    ]
+    script = next((s for s in scripts if s.get("especialidade") == body.especialidade), scripts[0] if scripts else None)
     extra = {"roteiro": script["id"], "opme_autorizado": script.get("opme_autorizado", [])} if script else {}
     c = Consultation(
         patient_id=patient_id,
@@ -255,6 +252,34 @@ def transcribe_audio(
         cid,
         [SegmentIn(falante=speaker, texto=text, origem="servidor")],  # type: ignore[arg-type]
     )
+
+
+CHECKLIST_LABEL = {"sign_in": "sign-in", "time_out": "time-out", "sign_out": "sign-out"}
+
+
+def mark_checklist(db: Session, fhir: FhirSource, user: User, cid: int, step: str, done: bool) -> dict:
+    """Cirurgia Segura (OMS) marcada por botão: quem marcou e quando ficam na verificação."""
+    c = _get(db, cid)
+    if c.kind != "cirurgia":
+        raise HTTPException(409, "A lista de verificação de cirurgia segura vale só para o modo cirúrgico.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Relatório finalizado: não aceita novas marcações.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    extra = dict(c.extra_json or {})
+    checklist = dict(extra.get("checklist") or {})
+    checklist[step] = {"feito": done, "por": user.name, "em": clock.now().isoformat()}
+    c.extra_json = extra | {"checklist": checklist}
+    segments = _segments(c)
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    log_action(
+        db,
+        user,
+        "consulta.cirurgia_segura",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "etapa": CHECKLIST_LABEL[step], "feito": done},
+    )
+    return {"insights": c.insights_json, "total": len(segments)}
 
 
 # ---------- IA (ciclos) ----------
@@ -404,6 +429,7 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
     try:
         if c.kind == "cirurgia":
             SurgicalReport.model_validate(note.get("relatorio_cirurgico"))
+            note = note | {"relatorio_cirurgico": _kept_orders(c, note["relatorio_cirurgico"])}
         else:
             ConsultNote.model_validate(note)
     except ValidationError as exc:
@@ -412,6 +438,18 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
     c.note_meta_json = (c.note_meta_json or {}) | {"revisada_por": user.name, "revisada_em": clock.now().isoformat()}
     log_action(db, user, "consulta.nota_revisada", "consultation", c.id, {"patient_id": c.patient_id})
     return out(c)
+
+
+def _order_id(order: dict) -> str | None:
+    ids = (order.get("recurso") or {}).get("identifier") or [{}]
+    return ids[0].get("value")
+
+
+def _kept_orders(c: Consultation, report: dict) -> dict:
+    """Na revisão, o cirurgião só retira pedidos propostos pelo HousIA: não cria nem altera o que vai ao FHIR."""
+    proposed = {_order_id(p): p for p in ((c.note_json or {}).get("relatorio_cirurgico") or {}).get("pedidos", [])}
+    kept = [proposed[_order_id(p)] for p in report.get("pedidos", []) if _order_id(p) in proposed]
+    return report | {"pedidos": list({_order_id(p): p for p in kept}.values())}
 
 
 def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:
@@ -436,12 +474,19 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     return text, doc
 
 
+def _orders(c: Consultation) -> list[dict]:
+    """Pedidos propostos no relatório cirúrgico revisado (o cirurgião pode retirar antes de aprovar)."""
+    if c.kind != "cirurgia" or not c.note_json:
+        return []
+    return [p["recurso"] for p in (c.note_json.get("relatorio_cirurgico") or {}).get("pedidos", [])]
+
+
 def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
-    """Texto para colar no prontuário + recurso FHIR, sem enviar nada."""
+    """Texto para colar no prontuário + recurso FHIR (e os pedidos propostos), sem enviar nada."""
     c = _get(db, cid)
     text, doc = _document(db, fhir, user, c)
     log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
-    return {"texto": text, "recurso": doc}
+    return {"texto": text, "recurso": doc, "pedidos": _orders(c)}
 
 
 def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
@@ -454,17 +499,45 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
             "motivo": "Envio automático desligado (EHR_WRITEBACK=false): copie o texto ou baixe o FHIR.",
             "texto": text,
             "recurso": doc,
+            "pedidos": _orders(c),
             "consulta": out(c),
         }
     if c.status == "enviada" and c.fhir_ref:
         raise HTTPException(409, f"Nota já enviada ({c.fhir_ref}).")
     created = fhir.create(doc)
     c.fhir_ref = f"DocumentReference/{created['id']}"
+    # pedidos propostos aprovados com o relatório: vão como proposta (intent=proposal), ligados ao documento
+    author = (doc.get("author") or [{}])[0].get("display")
+    orders = []
+    for i, order in enumerate(_orders(c)):
+        resource = order | {
+            "status": "active",
+            "authoredOn": clock.now().isoformat(),
+            "requester": {"display": author},
+            "supportingInfo": [{"reference": c.fhir_ref}],
+            "identifier": [{"system": ORDER_SYSTEM, "value": f"{c.id}-{i + 1}"}],
+        }
+        orders.append(f"ServiceRequest/{fhir.create(resource)['id']}")
+    c.extra_json = (c.extra_json or {}) | ({"pedidos_fhir": orders} if orders else {})
     c.status = "enviada"
     c.sent_at = clock.now()
     clear_chart_cache()
-    log_action(db, user, "consulta.enviada", "consultation", c.id, {"patient_id": c.patient_id, "fhir_ref": c.fhir_ref})
-    return {"enviado": True, "fhir_ref": c.fhir_ref, "texto": text, "recurso": created, "consulta": out(c)}
+    log_action(
+        db,
+        user,
+        "consulta.enviada",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "fhir_ref": c.fhir_ref, "pedidos": orders},
+    )
+    return {
+        "enviado": True,
+        "fhir_ref": c.fhir_ref,
+        "pedidos": orders,
+        "texto": text,
+        "recurso": created,
+        "consulta": out(c),
+    }
 
 
 def _local(dt: datetime) -> datetime:

@@ -1,0 +1,10 @@
+versao: "1.0.0"
+id: apendicectomia
+rotulo: Apendicectomia
+especialidade: cirurgia_geral
+detectar: [apendicectomia]
+sitio: [apendice]
+profilaxia: [cefoxitina, "cefazolina+metronidazol"]
+campos: []
+obrigatoriedade:
+  peca: {obrigatorio: true, motivo: "O apêndice retirado vai ao anatomopatológico (tumor incidental).", fonte: cfm_1638}

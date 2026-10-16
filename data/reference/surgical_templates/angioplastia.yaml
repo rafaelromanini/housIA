@@ -1,0 +1,41 @@
+versao: "1.0.0"
+id: angioplastia
+rotulo: Angioplastia periférica
+especialidade: cirurgia_vascular
+detectar: [angioplastia]
+sitio: [arteria, femoral, poplitea, iliaca, tibial, carotida, membro inferior]
+profilaxia: []
+exame_controle:
+  descricao: "Ultrassonografia com Doppler arterial de controle ({lado})"
+  sinonimos: [doppler de controle, eco doppler de controle, ultrassom de controle]
+campos:
+  - campo: via_de_acesso
+    rotulo: Acesso vascular (punção)
+    sinonimos: [puncao, acesso femoral, acesso braquial, acesso radial, introdutor, bainha]
+    obrigatorio: true
+    granular: true
+    motivo: O local de punção orienta a vigilância de hematoma e pseudoaneurisma.
+    fonte: cfm_1638
+  - campo: contraste
+    rotulo: Contraste (tipo e volume)
+    sinonimos: [contraste]
+    obrigatorio: true
+    granular: true
+    motivo: O volume de contraste orienta a prevenção de lesão renal aguda.
+    fonte: kdigo_aki
+  - campo: dispositivos
+    rotulo: Balões e stents (tipo, diâmetro e comprimento)
+    sinonimos: [stent, balao, cateter balao]
+    obrigatorio: true
+    granular: true
+    motivo: Balões e stents são OPME com rastreabilidade obrigatória.
+    fonte: anvisa_tecnovigilancia
+  - campo: hemostasia_puncao
+    rotulo: Hemostasia da punção
+    sinonimos: [hemostasia, compressao, dispositivo de oclusao, oclusor]
+    obrigatorio: true
+    granular: true
+    motivo: O método de hemostasia da punção define repouso e vigilância do sítio.
+    fonte: cfm_1638
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Membros e artérias periféricas são pares: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}

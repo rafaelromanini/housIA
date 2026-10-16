@@ -9,7 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Speaker = Literal["medico", "paciente", "acompanhante", "desconhecido"]
+# falas gravadas antes da equipe cirúrgica (só médico/paciente/acompanhante) continuam válidas
+Speaker = Literal["medico", "paciente", "acompanhante", "anestesista", "circulante", "instrumentador", "desconhecido"]
 Severity = Literal["info", "atencao", "critico"]
 Origin = Literal["regra", "ia"]
 Confidence = Literal["baixa", "media", "alta"]
@@ -218,6 +219,8 @@ class ReportField(BaseModel):
     texto: str
     refs: list[str]
     obrigatorio: bool = False
+    motivo: str | None = None
+    fonte: str | None = None
 
 
 class OpmeLine(BaseModel):
@@ -229,11 +232,60 @@ class OpmeLine(BaseModel):
     refs: list[str]
 
 
+class TemplateInfo(BaseModel):
+    """Modelo do relatório em uso (data/reference/surgical_templates) e como foi escolhido."""
+
+    id: str
+    rotulo: str
+    especialidade: str
+    especialidade_rotulo: str
+    versao: str
+    versao_base: str
+    origem: Literal["ditado", "agendamento", "especialidade", "base"]
+    refs: list[str]
+
+
+class ScheduledInfo(BaseModel):
+    procedimento: str
+    sitio: str | None = None
+    lado: str | None = None
+    refs: list[str]
+
+
+class SafetyCheck(BaseModel):
+    """Verificação perioperatória (Cirurgia Segura, sítio, contagem, profilaxia), sempre com a fonte."""
+
+    chave: str
+    grupo: Literal["cirurgia_segura", "sitio", "contagem", "intraoperatorio", "profilaxia"]
+    rotulo: str
+    status: Literal["ok", "pendente", "info", "atencao", "critico"]
+    texto: str
+    fonte: str
+    refs: list[str]
+    marcado_por: str | None = None
+    em: str | None = None
+
+
+class ProposedOrder(BaseModel):
+    """Exame citado no ditado que vira pedido proposto (FHIR ServiceRequest, intent=proposal) para o RIS."""
+
+    tipo: Literal["imagem"] = "imagem"
+    descricao: str
+    motivo: str
+    refs: list[str]
+    recurso: dict
+
+
 class SurgicalReport(BaseModel):
     campos: list[ReportField]
     opme: list[OpmeLine]
     pendencias: list[Highlight]
     cids: list["CidSuggestion"]
+    modelo: TemplateInfo | None = None
+    agendado: ScheduledInfo | None = None
+    verificacoes: list[SafetyCheck] = []
+    pedidos: list[ProposedOrder] = []
+    perioperatorio: list["SurgeryItem"] = []
 
 
 class Insights(BaseModel):

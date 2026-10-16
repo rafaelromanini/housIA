@@ -1,0 +1,36 @@
+versao: "1.0.0"
+id: revascularizacao_miocardio
+rotulo: Revascularização do miocárdio
+especialidade: cirurgia_cardiovascular
+detectar: [revascularizacao do miocardio, revascularizacao miocardica, ponte de safena, pontes de safena, ponte de mamaria, cirurgia de revascularizacao]
+sitio: [coracao, coronaria]
+profilaxia: [cefazolina, cefuroxima]
+campos:
+  - campo: cec
+    rotulo: Circulação extracorpórea (tempo)
+    sinonimos: [circulacao extracorporea, "cec ", sem cec, off-pump, sem circulacao]
+    obrigatorio: true
+    granular: true
+    motivo: O tempo de circulação extracorpórea é indicador de risco e item obrigatório dos registros de cirurgia cardíaca.
+    fonte: sts_cabg
+  - campo: pincamento_aortico
+    rotulo: Pinçamento aórtico (tempo)
+    sinonimos: [pincamento, clampeamento aortico, clampeamento da aorta]
+    obrigatorio: true
+    granular: true
+    motivo: O tempo de isquemia miocárdica (pinçamento) explica disfunção ventricular no pós-operatório.
+    fonte: sts_cabg
+  - campo: enxertos
+    rotulo: Enxertos e anastomoses
+    sinonimos: [enxerto, mamaria, safena, arteria radial, anastomose distal]
+    obrigatorio: true
+    granular: true
+    motivo: Quais enxertos foram feitos e para quais artérias orienta o seguimento e um novo cateterismo.
+    fonte: sts_cabg
+  - campo: cardioplegia
+    rotulo: Cardioplegia
+    sinonimos: [cardioplegia]
+    obrigatorio: false
+    granular: true
+    motivo: Tipo e via da cardioplegia completam o registro da proteção miocárdica.
+    fonte: sts_cabg

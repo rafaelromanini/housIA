@@ -90,6 +90,24 @@ class OpmeDef:
     words: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ProphylaxisDef:
+    """Antibioticoprofilaxia cirúrgica (ASHP/IDSA/SIS/SHEA 2013): dose de adulto e pediátrica, janela e redose."""
+
+    key: str
+    name: str
+    words: tuple[str, ...]
+    dose_g: float | None
+    dose_g_heavy: float | None  # dose a partir de `heavy_kg` (ex.: cefazolina 3 g se peso >= 120 kg)
+    heavy_kg: float | None
+    dose_mg_kg: float | None
+    dose_mg_kg_ped: float | None  # pediatria (mg/kg), sem passar da dose de adulto
+    window_min: int  # antes da incisão
+    redose_h: float | None
+    note: str
+    source: str
+
+
 @lru_cache
 def symptoms() -> tuple[SymptomDef, ...]:
     return tuple(
@@ -173,6 +191,31 @@ def opme_catalog() -> tuple[OpmeDef, ...]:
     return tuple(OpmeDef(r["codigo"], r["descricao"], _words(r["palavras"])) for r in _read_csv("opme_demo.csv"))
 
 
+def _num(cell: str) -> float | None:
+    return float(cell) if cell else None
+
+
+@lru_cache
+def prophylaxis() -> dict[str, ProphylaxisDef]:
+    return {
+        r["principio_ativo"]: ProphylaxisDef(
+            r["principio_ativo"],
+            r["farmaco"],
+            _words(r["sinonimos"]),
+            _num(r["dose_g"]),
+            _num(r["dose_g_peso_alto"]),
+            _num(r["peso_alto_kg"]),
+            _num(r["dose_mg_kg"]),
+            _num(r["dose_mg_kg_pediatrica"]),
+            int(r["janela_min"]),
+            _num(r["redose_h"]),
+            r["observacao"],
+            r["fonte"],
+        )
+        for r in _read_csv("surgical_prophylaxis.csv")
+    }
+
+
 @lru_cache
 def demo_scripts() -> dict[str, dict]:
     """Roteiros de demonstração (data/consultations/*.json), por id do arquivo.
@@ -205,6 +248,11 @@ SPECIALTIES: dict[str, str] = {
     "pediatria": "Pediatria",
     "enfermagem": "Consulta de enfermagem",
     "cirurgia_geral": "Cirurgia geral",
+    "ortopedia": "Ortopedia e traumatologia",
+    "cirurgia_cardiovascular": "Cirurgia cardiovascular",
+    "cirurgia_oncologica": "Cirurgia oncológica",
+    "ginecologia_obstetricia": "Ginecologia e obstetrícia",
+    "cirurgia_vascular": "Cirurgia vascular",
 }
 
 SPECIALTY_FOCUS: dict[str, str] = {
@@ -216,4 +264,9 @@ SPECIALTY_FOCUS: dict[str, str] = {
     "pediatria": "hidratação, alimentação, febre, vacinação e desenvolvimento; doses por peso",
     "enfermagem": "autocuidado, técnica de uso de medicamentos, pele, eliminações, sono, alimentação e educação",
     "cirurgia_geral": "indicação, achados, técnica, materiais (OPME), intercorrências e documentação para faturamento",
+    "ortopedia": "lateralidade, garrote, implantes e rastreabilidade, radioscopia (tempo, dose) e RX de controle",
+    "cirurgia_cardiovascular": "circulação extracorpórea, pinçamento aórtico, enxertos, cardioplegia e profilaxia",
+    "cirurgia_oncologica": "lateralidade, peça orientada, margens, linfonodos para estadiamento e reconstrução",
+    "ginecologia_obstetricia": "indicação da cesariana, nascimento e Apgar, dequitação, uterotônico e histerorrafia",
+    "cirurgia_vascular": "lateralidade, acesso e hemostasia da punção, contraste, stents e radioscopia",
 }

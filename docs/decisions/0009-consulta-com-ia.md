@@ -17,7 +17,9 @@ aprovada pelo profissional.
    - *Digitar* e *simular roteiro* (`data/consultations/*.json`): demonstração sem microfone, e2e e CI.
    - Quem fala: botões e atalhos (Alt+1/2/3) ou "automático" (heurística na hora; a IA corrige depois apenas as
      falas marcadas como automáticas). O modo Microfone começa em "automático" (exceto com paciente em outro
-     idioma, em que quem fala define o idioma do reconhecimento).
+     idioma, em que quem fala define o idioma do reconhecimento). No centro cirúrgico a equipe de sala também dita:
+     anestesista, circulante e instrumentador (Alt+4/5/6). Falas gravadas antes continuam válidas (os valores antigos
+     não mudaram).
 
 2. **Duas velocidades: regras a cada fala, IA em ciclos.** A cada fala, a camada determinística (`app/consult/engine.py`,
    em milissegundos) atualiza queixas, emoções, perguntas (as já abordadas saem da lista), hipóteses, alertas de
@@ -41,7 +43,10 @@ aprovada pelo profissional.
 6. **Escrita no prontuário restrita e explícita.** `POST /consultations/{id}/send` cria um `DocumentReference`
    (LOINC 11488-4 nota de consulta; 11504-8 relatório cirúrgico) com a nota **revisada** pelo profissional. Fica atrás
    de `EHR_WRITEBACK` (padrão `false`; `true` no compose porque o HAPI é sintético). Sem a flag, o botão vira
-   "Aprovar e exportar": copiar o texto ou baixar o FHIR. Nada é escrito automaticamente.
+   "Aprovar e exportar": copiar o texto ou baixar o FHIR. Nada é escrito automaticamente. No relatório cirúrgico, o
+   exame de imagem de controle citado no ditado vai junto, como `ServiceRequest` **proposto** (`intent=proposal`,
+   ligado ao documento), e só se o cirurgião não o retirar na revisão; a passagem de plantão e o Waze da alta o
+   mostram como exame pendente enquanto não houver resultado.
 
 7. **Centro cirúrgico sem códigos inventados.** O relatório por ditado aponta os campos obrigatórios que faltam
    (horário, equipe, contagem de compressas: o que costuma gerar glosa), concilia materiais citados com os da guia
@@ -68,10 +73,23 @@ aprovada pelo profissional.
     febre, procure o pronto-socorro"); alergia citada não é uso do medicamento; e o suspenso que voltou ("mandou
     parar, mas eu continuo tomando") segue em uso, para não apagar um alerta verdadeiro.
 
+11. **Centro cirúrgico por modelos em dados, com verificações explícitas.** Os campos do relatório saem de
+   `data/reference/surgical_templates/*.yaml` (modelo base + regras por especialidade + 15 procedimentos em 7
+   especialidades), versionados e editáveis pelo hospital; cada campo traz sinônimos, obrigatoriedade e o motivo com a
+   fonte. O modelo é escolhido pelo procedimento ditado, depois pelo agendado (`ServiceRequest`/`Appointment`) e, por
+   fim, pela especialidade. `app/consult/surgical_checks.py` confere a Cirurgia Segura da OMS (voz ou botão), o termo
+   de consentimento (`Consent`), a lateralidade ditada contra o `bodySite` agendado, a contagem ("não confere" é
+   crítico), o tempo de garrote e a antibioticoprofilaxia (`surgical_prophylaxis.csv`, ASHP/IDSA 2013: agente,
+   janela antes da incisão, dose pelo peso do prontuário, redose pela duração). Tudo determinístico: a IA só
+   reescreve o texto dos campos e não remove nem contradiz uma verificação.
+
 ## Consequências
 
 - Novo cenário ambulatorial (cen6) e agenda do dia (Encounter `AMB`). O construtor de cenários aceita
   `ambulatorio` no lugar de `internacao`.
+- Cenários cirúrgicos cen4b (artroplastia de joelho direito, 130 kg) e cen4c (cesariana), com roteiros de ditado. O
+  construtor aceita `cirurgias` (gera `ServiceRequest` com `bodySite`, `Appointment` da sala e `Consent`) e `peso`
+  nos sinais; o HousIA passa a ler `ServiceRequest`, `Appointment` e `Consent` do paciente.
 - Tabelas curadas novas em `data/reference/` (sintomas, emoções, perguntas, hipóteses, exames em linguagem simples,
   alergias cruzadas, alertas de dose renal/Beers, protocolos, OPME de demonstração).
 - Para uso real, valem as exigências da [ADR 0004](0004-regulatorio-e-lgpd.md), mais: consentimento do paciente para

@@ -446,7 +446,7 @@ export interface DischargeDocuments {
 }
 
 // ---------- Consulta com IA ----------
-export type Speaker = "medico" | "paciente" | "acompanhante" | "desconhecido";
+export type Speaker = "medico" | "paciente" | "acompanhante" | "anestesista" | "circulante" | "instrumentador" | "desconhecido";
 export type ConsultKind = "consulta" | "visita" | "cirurgia";
 export type Origin = "regra" | "ia";
 export type Priority = "alta" | "media" | "baixa";
@@ -581,6 +581,8 @@ export interface ReportField {
   texto: string;
   refs: string[];
   obrigatorio: boolean;
+  motivo?: string | null;
+  fonte?: string | null;
 }
 export interface OpmeLine {
   codigo: string;
@@ -596,11 +598,45 @@ export interface CidSuggestion {
   tipo: "principal" | "secundario" | "hipotese";
   refs: string[];
 }
+export interface SurgicalTemplateInfo {
+  id: string;
+  rotulo: string;
+  especialidade: string;
+  especialidade_rotulo: string;
+  versao: string;
+  versao_base: string;
+  origem: "ditado" | "agendamento" | "especialidade" | "base";
+  refs: string[];
+}
+export type ChecklistStep = "sign_in" | "time_out" | "sign_out";
+export interface SafetyCheck {
+  chave: string;
+  grupo: "cirurgia_segura" | "sitio" | "contagem" | "intraoperatorio" | "profilaxia";
+  rotulo: string;
+  status: "ok" | "pendente" | "info" | "atencao" | "critico";
+  texto: string;
+  fonte: string;
+  refs: string[];
+  marcado_por?: string | null;
+  em?: string | null;
+}
+export interface ProposedOrder {
+  tipo: "imagem";
+  descricao: string;
+  motivo: string;
+  refs: string[];
+  recurso: Record<string, unknown>;
+}
 export interface SurgicalReport {
   campos: ReportField[];
   opme: OpmeLine[];
   pendencias: Highlight[];
   cids: CidSuggestion[];
+  modelo?: SurgicalTemplateInfo | null;
+  agendado?: { procedimento: string; sitio: string | null; lado: string | null; refs: string[] } | null;
+  verificacoes?: SafetyCheck[];
+  pedidos?: ProposedOrder[];
+  perioperatorio?: SurgeryItem[];
 }
 export interface ConsultInsights {
   tipo: ConsultKind;
@@ -694,7 +730,7 @@ export interface ConsultConfig {
   stt_servidor: boolean;
   envio_prontuario: boolean;
   idiomas: { value: string; label: string }[];
-  especialidades: { value: string; label: string; foco: string }[];
+  especialidades: { value: string; label: string; foco: string; cirurgica: boolean }[];
 }
 export interface Appointment {
   encounter_id: string;
@@ -714,6 +750,7 @@ export interface DemoScript {
   id: string;
   patient_id: string;
   tipo: ConsultKind;
+  especialidade?: string;
   titulo: string;
   falas: { t: number; falante: Speaker; texto: string }[];
 }

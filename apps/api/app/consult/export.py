@@ -21,6 +21,7 @@ NOTE_SECTIONS = [
 ]
 LOINC_CONSULT_NOTE = ("11488-4", "Consult note")
 LOINC_OPERATIVE_NOTE = ("11504-8", "Surgical operation note")
+CHECK_STATUS = {"ok": "ok", "info": "informação", "atencao": "atenção", "critico": "crítico"}
 KIND_TITLE = {"consulta": "Nota de consulta", "visita": "Nota de visita médica", "cirurgia": "Relatório cirúrgico"}
 
 
@@ -35,6 +36,12 @@ def note_as_text(kind: str, patient_name: str, author: str, when: datetime, note
             lines.append("CID-10: " + "; ".join(f"{c['codigo']} {c['descricao']}" for c in report["cids"]))
         if report.get("opme"):
             lines.append("Materiais/OPME: " + "; ".join(f"{o['descricao']} ×{o['citado']}" for o in report["opme"]))
+        checks = [v for v in report.get("verificacoes", []) if v.get("status") != "pendente"]
+        if checks:
+            lines += ["", "Verificações perioperatórias:"]
+            lines += [f"- {v['rotulo']}: {CHECK_STATUS.get(v['status'], v['status'])} — {v['texto']}" for v in checks]
+        if report.get("pedidos"):
+            lines.append("Pedidos propostos: " + "; ".join(p["descricao"] for p in report["pedidos"]))
     else:
         for key, label in NOTE_SECTIONS:
             lines.append(f"{label}: {note.get(key, {}).get('texto', '')}")

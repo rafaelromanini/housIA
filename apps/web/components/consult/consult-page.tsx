@@ -41,6 +41,14 @@ export function ConsultPage() {
   const [especialidade, setEspecialidade] = useState(user?.role === "enfermagem" ? "enfermagem" : "clinica_medica");
   const [idioma, setIdioma] = useState("pt-BR");
   const proLabel = user?.role === "enfermagem" ? "Enfermagem" : "Médico(a)";
+  // no modo cirúrgico o seletor mostra só as especialidades com modelo de relatório (ortopedia, obstetrícia…)
+  const surgicalMode = tipo === "cirurgia";
+  const specialtyOptions = (config.data?.especialidades ?? []).filter((s) => !surgicalMode || s.cirurgica);
+  const chosenSpecialty = specialtyOptions.some((s) => s.value === especialidade)
+    ? especialidade
+    : surgicalMode
+      ? "cirurgia_geral"
+      : (specialtyOptions[0]?.value ?? "clinica_medica");
 
   const open = useCallback(async (id: number) => {
     setOpening(true);
@@ -68,7 +76,7 @@ export function ConsultPage() {
     try {
       const c = await api<Consultation>(`/patients/${patient.id}/consultations`, {
         method: "POST",
-        json: { tipo, especialidade: tipo === "cirurgia" ? "cirurgia_geral" : especialidade, idioma_paciente: idioma },
+        json: { tipo, especialidade: chosenSpecialty, idioma_paciente: surgicalMode ? "pt-BR" : idioma },
       });
       setCurrent(c);
       void history.reload();
@@ -150,13 +158,8 @@ export function ConsultPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="especialidade">Especialidade</Label>
-              <NativeSelect
-                id="especialidade"
-                value={tipo === "cirurgia" ? "cirurgia_geral" : especialidade}
-                disabled={tipo === "cirurgia"}
-                onChange={(e) => setEspecialidade(e.target.value)}
-              >
-                {config.data.especialidades.map((s) => (
+              <NativeSelect id="especialidade" value={chosenSpecialty} onChange={(e) => setEspecialidade(e.target.value)}>
+                {specialtyOptions.map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label}
                   </option>
@@ -175,7 +178,9 @@ export function ConsultPage() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            Foco do assistente: {config.data.especialidades.find((s) => s.value === (tipo === "cirurgia" ? "cirurgia_geral" : especialidade))?.foco}.
+            Foco do assistente: {config.data.especialidades.find((s) => s.value === chosenSpecialty)?.foco}.
+            {surgicalMode &&
+              " O modelo do relatório segue o procedimento ditado ou agendado (ex.: artroplastia de joelho, cesariana); a especialidade vale quando nenhum dos dois é reconhecido."}
           </p>
           {idioma !== "pt-BR" && (
             <p className="text-sm text-muted-foreground">

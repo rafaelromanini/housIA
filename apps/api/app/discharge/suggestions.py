@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.timeline.record import MedInfo
+from app.timeline.record import MedInfo, PendingExam
 
 
 class Suggestion(BaseModel):
@@ -20,7 +20,12 @@ class DischargeLLMOutput(BaseModel):
 
 
 def mock_suggestions(
-    checklist: dict, lace_components: dict, social_items: list[dict], meds: list[MedInfo], new_meds: list[MedInfo]
+    checklist: dict,
+    lace_components: dict,
+    social_items: list[dict],
+    meds: list[MedInfo],
+    new_meds: list[MedInfo],
+    pending_exams: list[PendingExam] | tuple = (),
 ) -> dict:
     flagged = {i["campo"] for i in social_items}
     out: list[dict] = []
@@ -99,6 +104,16 @@ def mock_suggestions(
             refs,
         )
 
+    for e in pending_exams:
+        origin = "proposto no relatório cirúrgico" if e.proposto else "solicitado"
+        add(
+            f"Exame pendente antes da alta: {e.texto} — confirmar a realização e o laudo, ou registrar no plano de"
+            " alta quando e onde será feito.",
+            f"Exame {origin} ainda sem resultado.",
+            "alta",
+            "medico",
+            [e.ref],
+        )
     insulin = [m for m in new_meds if m.drug_class.startswith("insulina") and not m.prn]
     if insulin:
         add(

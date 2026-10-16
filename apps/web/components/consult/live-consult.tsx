@@ -20,7 +20,7 @@ import {
 import { useDemoPlayer, useServerRecorder, useSpeechCapture, speechSupported } from "@/components/consult/capture";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
-import { Transcript, clock, speakerLabel, SPEAKER_STYLE } from "@/components/consult/transcript";
+import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS } from "@/components/consult/transcript";
 import { usePatient } from "@/components/patient/patient-context";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +28,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { api, type ConsultConfig, type ConsultInsights, type Consultation, type DemoScript, type Segment, type Speaker } from "@/lib/api";
+import {
+  api,
+  type ChecklistStep,
+  type ConsultConfig,
+  type ConsultInsights,
+  type Consultation,
+  type DemoScript,
+  type Segment,
+  type Speaker,
+} from "@/lib/api";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +47,9 @@ type SegmentIn = { falante: Speaker; texto: string; t?: number; origem: Segment[
 const AI_EVERY_MS = 12000;
 const RECOGNITION_LANG: Record<string, string> = { "pt-BR": "pt-BR", es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT", de: "de-DE", zh: "zh-CN", ar: "ar-SA", ht: "fr-HT" };
 const KIND_LABEL = { consulta: "Consulta", visita: "Visita à beira do leito", cirurgia: "Ditado cirúrgico" };
+const CONSULT_SPEAKERS: Speaker[] = ["medico", "paciente", "acompanhante", "desconhecido"];
+// modo cirúrgico: a equipe de sala também dita (Alt+4 anestesista, Alt+5 circulante, Alt+6 instrumentador)
+const SURGICAL_SPEAKERS: Speaker[] = ["medico", "paciente", "acompanhante", ...TEAM_SPEAKERS, "desconhecido"];
 
 function mergeSegments(prev: Segment[], incoming: Segment[]) {
   const byN = new Map(prev.map((s) => [s.n, s]));
@@ -55,7 +67,7 @@ export function LiveConsult({
   consultation: c,
   setConsultation,
   config,
-  proLabel,
+  proLabel: consultLabel,
 }: {
   consultation: Consultation;
   setConsultation: React.Dispatch<React.SetStateAction<Consultation | null>>;
@@ -64,6 +76,8 @@ export function LiveConsult({
 }) {
   const { patient } = usePatient();
   const surgical = c.tipo === "cirurgia";
+  const proLabel = surgical ? "Cirurgião(ã)" : consultLabel;
+  const speakers = surgical ? SURGICAL_SPEAKERS : CONSULT_SPEAKERS;
   const [mode, setMode] = useState<Mode>(() => (c.roteiro_demo ? "demo" : speechSupported() ? "microfone" : "digitar"));
   // no microfone a fala chega contínua: começa em "Automático" (as regras atribuem quem falou e a IA corrige). Com
   // paciente em outro idioma, quem fala escolhe o idioma do reconhecimento, então o falante continua manual.
@@ -197,11 +211,13 @@ export function LiveConsult({
     demo.pause();
   }
 
-  // atalhos: Alt+1 profissional, Alt+2 paciente, Alt+3 acompanhante, Alt+0 detectar automaticamente
+  // atalhos: Alt+1 profissional, Alt+2 paciente, Alt+3 acompanhante, Alt+0 detectar automaticamente;
+  // no centro cirúrgico também Alt+4 anestesista, Alt+5 circulante e Alt+6 instrumentador
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey) return;
       const map: Record<string, Speaker> = { "1": "medico", "2": "paciente", "3": "acompanhante", "0": "desconhecido" };
+      if (surgical) Object.assign(map, { "4": "anestesista", "5": "circulante", "6": "instrumentador" });
       if (map[e.key]) {
         e.preventDefault();
         setSpeaker(map[e.key]);
@@ -209,7 +225,21 @@ export function LiveConsult({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [surgical]);
+
+  // Cirurgia Segura (OMS) marcada por botão; o ditado também marca por voz
+  const markChecklist = useCallback(
+    async (etapa: ChecklistStep, feito: boolean) => {
+      await queue.current;
+      try {
+        const res = await api<{ insights: ConsultInsights }>(`/consultations/${c.id}/checklist`, { method: "POST", json: { etapa, feito } });
+        apply([], res.insights);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Erro ao marcar a etapa");
+      }
+    },
+    [apply, c.id],
+  );
 
   async function finish() {
     stopAll();
@@ -337,13 +367,16 @@ export function LiveConsult({
 
               {mode !== "demo" && (
                 <fieldset>
-                  <legend className="mb-1 text-xs font-bold text-muted-foreground">Quem está falando (Alt+1, 2, 3 · Alt+0 automático)</legend>
+                  <legend className="mb-1 text-xs font-bold text-muted-foreground">
+                    Quem está falando ({surgical ? "Alt+1 a 6" : "Alt+1, 2, 3"} · Alt+0 automático)
+                  </legend>
                   <div className="flex flex-wrap gap-1.5">
-                    {(["medico", "paciente", "acompanhante", "desconhecido"] as Speaker[]).map((s) => (
+                    {speakers.map((s, i) => (
                       <button
                         key={s}
                         type="button"
                         aria-pressed={speaker === s}
+                        aria-keyshortcuts={`Alt+${s === "desconhecido" ? 0 : i + 1}`}
                         onClick={() => setSpeaker(s)}
                         className={cn(
                           "min-h-10 rounded-md border px-3 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -454,7 +487,7 @@ export function LiveConsult({
 
         <section aria-label="Assistente">
           {c.insights?.relatorio_cirurgico ? (
-            <SurgicalPanel report={c.insights.relatorio_cirurgico} patientId={patient.id} />
+            <SurgicalPanel report={c.insights.relatorio_cirurgico} patientId={patient.id} onChecklist={markChecklist} />
           ) : c.insights ? (
             <SmartAppsPanel insights={c.insights} />
           ) : null}

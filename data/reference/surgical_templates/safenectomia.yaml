@@ -1,0 +1,24 @@
+versao: "1.0.0"
+id: safenectomia
+rotulo: Safenectomia (tratamento cirúrgico de varizes)
+especialidade: cirurgia_vascular
+detectar: [safenectomia, fleboextracao, cirurgia de varizes, tratamento cirurgico de varizes, termoablacao de safena, crossectomia]
+sitio: [membro inferior, perna, coxa, safena]
+profilaxia: []
+campos:
+  - campo: tecnica_venosa
+    rotulo: Técnica venosa
+    sinonimos: [fleboextracao, termoablacao, laser endovenoso, radiofrequencia, crossectomia, ligadura da crossa, microincis]
+    obrigatorio: true
+    granular: true
+    motivo: A técnica (fleboextração, ablação térmica, crossectomia) define o procedimento cobrado e o seguimento.
+    fonte: sbacv_ivc
+  - campo: enfaixamento
+    rotulo: Enfaixamento compressivo
+    sinonimos: [enfaixamento, enfaixad, meia elastica, meia de compressao]
+    obrigatorio: false
+    granular: true
+    motivo: A compressão no pós-operatório reduz hematoma e orienta a enfermagem.
+    fonte: sbacv_ivc
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Membro inferior é par: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}

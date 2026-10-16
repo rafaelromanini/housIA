@@ -114,6 +114,7 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
     meds = record.active_meds
     new_meds = _new_meds(record)
     ctx = build_context(record)
+    pending = record.pending_exams
 
     pseudo = Pseudonymizer(**record.identifiers_for_pseudonymization())
     variables = pseudo.apply(
@@ -134,6 +135,9 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
                 "diagnosticos": [{"ref": d.source_ref, "texto": d.summary} for d in ctx.diagnosticos],
                 "medicamentos_ativos": [{"ref": m.ref, "texto": m.text} for m in meds],
                 "iniciados_nesta_internacao": [{"ref": m.ref, "texto": m.text} for m in new_meds],
+                "exames_pendentes": [
+                    {"ref": e.ref, "texto": e.texto, "proposto_no_relatorio_cirurgico": e.proposto} for e in pending
+                ],
             },
         }
     )
@@ -141,9 +145,10 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
         PROMPT,
         variables,
         DischargeLLMOutput,
-        mock=lambda _v: mock_suggestions(checklist.model_dump(), components, social_items, meds, new_meds),
+        mock=lambda _v: mock_suggestions(checklist.model_dump(), components, social_items, meds, new_meds, pending),
     )
     valid = {f"Checklist/{k}" for k in checklist.model_dump()} | {m.ref for m in record.medications} | ctx.refs()
+    valid |= {e.ref for e in pending}
     valid |= {r for comp in components.values() for r in comp.get("refs", [])}
     suggestions, dropped = [], []
     for s in result.output.sugestoes:

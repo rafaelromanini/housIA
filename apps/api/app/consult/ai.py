@@ -559,6 +559,9 @@ def run_surgical(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: se
         "surgical_report",
         {
             "prontuario": pseudo.apply(chart_payload(engine)),
+            "modelo": report.modelo.model_dump(include={"rotulo", "especialidade_rotulo", "versao"})
+            if report.modelo
+            else {},
             "campos": pseudo.apply(fields),
             "transcricao": transcript_text(engine.segments, pseudo),
         },

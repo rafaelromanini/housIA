@@ -1,0 +1,24 @@
+{
+ "patient_id": "cen4c",
+ "tipo": "cirurgia",
+ "especialidade": "ginecologia_obstetricia",
+ "titulo": "Ditado do relatório cirúrgico: cesariana eletiva (obstetrícia, com a equipe de sala)",
+ "opme_autorizado": [],
+ "falas": [
+  {"t": 0.0, "falante": "circulante", "texto": "Sign-in realizado: gestante confirmou identidade e procedimento, termo de consentimento assinado."},
+  {"t": 6.4, "falante": "anestesista", "texto": "Raquianestesia com bupivacaína e morfina. Cefazolina 2 gramas às 14h05."},
+  {"t": 12.1, "falante": "medico", "texto": "Time-out realizado com a pediatra em sala."},
+  {"t": 17.8, "falante": "medico", "texto": "Diagnóstico pré-operatório: gestação de 39 semanas com cicatriz uterina de cesariana anterior. Procedimento realizado: cesariana segmentar transversa. Indicação: cesárea anterior, por desejo da gestante após orientação."},
+  {"t": 28.5, "falante": "medico", "texto": "Paciente em decúbito dorsal. Incisão de Pfannenstiel às 14h30, abertura da parede por planos e histerotomia segmentar transversa."},
+  {"t": 36.2, "falante": "medico", "texto": "Extração fetal às 14h36 de recém-nascido vivo, cefálico, do sexo feminino. Apgar 8 no primeiro minuto e 9 no quinto minuto."},
+  {"t": 44.0, "falante": "medico", "texto": "Clampeamento do cordão após um minuto. Recém-nascido entregue à pediatra."},
+  {"t": 49.7, "falante": "medico", "texto": "Dequitação dirigida, placenta completa. Ocitocina 10 unidades intravenosa após o nascimento."},
+  {"t": 57.3, "falante": "medico", "texto": "Achados: útero e anexos sem alterações, líquido amniótico claro."},
+  {"t": 63.0, "falante": "medico", "texto": "Histerorrafia em dois planos com fio absorvível, revisão da hemostasia e fechamento por planos."},
+  {"t": 70.4, "falante": "instrumentador", "texto": "Contagem de compressas e instrumentais correta."},
+  {"t": 74.8, "falante": "medico", "texto": "Sem intercorrências. Sangramento estimado de 600 mL. Término da cirurgia às 15h15."},
+  {"t": 81.2, "falante": "medico", "texto": "Equipe: obstetra Dra. Paula Menezes, auxiliar Dr. Rui Campos, anestesista Dr. Otávio Reis e pediatra Dra. Lia Moraes."},
+  {"t": 88.9, "falante": "medico", "texto": "Puérpera encaminhada à recuperação pós-anestésica em boas condições e recém-nascido ao alojamento conjunto."},
+  {"t": 95.0, "falante": "circulante", "texto": "Sign-out realizado: procedimento registrado e contagem conferida."}
+ ]
+}

@@ -1,0 +1,24 @@
+versao: "1.0.0"
+id: herniorrafia
+rotulo: Herniorrafia / hernioplastia inguinal
+especialidade: cirurgia_geral
+detectar: [herniorrafia inguinal, hernioplastia inguinal, hernia inguinal, herniorrafia femoral, hernioplastia femoral, hernia femoral, hernia crural, lichtenstein]
+sitio: [inguinal, femoral, crural, virilha]
+profilaxia: [cefazolina]
+campos:
+  - campo: tela
+    rotulo: Tela (tipo, tamanho e fixação)
+    sinonimos: [tela, sem tela, lichtenstein, "tapp ", "tep ", shouldice]
+    obrigatorio: true
+    granular: true
+    motivo: A tela é OPME e muda a técnica cobrada; tipo e tamanho precisam constar.
+    fonte: herniasurge
+  - campo: classificacao_hernia
+    rotulo: Tipo da hérnia
+    sinonimos: [hernia direta, hernia indireta, hernia mista, nyhus]
+    obrigatorio: false
+    granular: true
+    motivo: O tipo da hérnia é registrado para comparar resultados e recidiva.
+    fonte: herniasurge
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Hérnia inguinal tem lado: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}

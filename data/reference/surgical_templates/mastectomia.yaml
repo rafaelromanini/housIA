@@ -1,0 +1,25 @@
+versao: "1.0.0"
+id: mastectomia
+rotulo: Mastectomia
+especialidade: cirurgia_oncologica
+detectar: [mastectomia, adenomastectomia, quadrantectomia, setorectomia de mama, cirurgia conservadora da mama]
+sitio: [mama, axila]
+profilaxia: [cefazolina, ampicilina_sulbactam]
+campos:
+  - campo: axila
+    rotulo: Abordagem axilar
+    sinonimos: [linfonodo sentinela, esvaziamento axilar, linfadenectomia axilar, axila]
+    obrigatorio: true
+    granular: true
+    motivo: A abordagem da axila define o estadiamento linfonodal.
+    fonte: ajcc_8
+  - campo: reparo_peca
+    rotulo: Orientação da peça (fios de reparo)
+    sinonimos: [fio de reparo, fios de reparo, peca orientada, orientacao da peca, reparada]
+    obrigatorio: false
+    granular: true
+    motivo: A peça orientada com fios de reparo permite ao patologista avaliar cada margem.
+    fonte: cap_protocolos
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Mama é órgão par: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}
+  peca: {obrigatorio: true, motivo: "A peça oncológica vai ao anatomopatológico para estadiamento e margens.", fonte: cap_protocolos}
