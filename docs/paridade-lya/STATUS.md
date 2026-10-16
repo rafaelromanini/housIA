@@ -1,6 +1,6 @@
 # Paridade com a Lya Health: status e como continuar
 
-Atualizado em 16/10/2026 (fim da tarde). Branch de trabalho: `claude/dreamy-pascal-x45x7r`.
+Atualizado em 16/10/2026 (noite, pausa por cota de uso em 90%). Branch de trabalho: `claude/dreamy-pascal-x45x7r`.
 
 O objetivo é fazer **tudo o que a Lya faz, melhor**, mantendo os diferenciais do HousIA: passagem de plantão,
 reconciliação na transferência, Waze da alta e fonte em cada item. O plano completo está em
@@ -55,14 +55,34 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
     `prontidao_critica` no envio sem justificativa. Verificado. Audit da justificativa por linha de OPME com texto e
     regra (`7da3c4c`).
   - **#30** Waze da jornada (`app/journey/`, tela `/jornada`, ADR 0010, migração `d001`, cenários cen7..cen7e e
-    coorte alt01..alt18). **Implementado, mas a verificação independente não terminou** (parou por limite de uso,
-    sem commits).
+    coorte alt01..alt18). Verificado depois (ver abaixo,
+    `3cc1205`).
   - Frente B juntada no branch principal no merge `5cd7e6f`. pytest completo verde depois do merge.
-- Testes: pytest verde em `5cd7e6f` (1 xfail estrito do corpus); ruff, typecheck e lint limpos. e2e (9/9) rodados e
+- Sessão de 16/10 à noite (tudo verificado, juntado e com push; head `f630fc4`):
+  - **#4+#9 verificados** (`5e665ea`): patch parcial aplicado, teste de posologia corrigido, frase com remédio e
+    queixa dividida em "e/mas/porém", "dor de barriga" como sinônimo. `wip/` apagada.
+  - **#30 verificado** (`3cc1205`): 5 critérios ok, 13 testes adversariais, sem bug.
+  - **#5+#6** (`81a136d` + verificação `fda739b`): `cid10.csv` com 14.233 códigos (DATASUS 2008 via pacote npm
+    MIT, `scripts/build_cid10.py`), 61 diagnósticos diferenciais com fonte e evidência contra, medicamentos e
+    alergias de qualquer falante, marcas (169), efeito adverso por data de início, decisão de hipótese
+    (`PUT /consultations/{id}/hipoteses`). Verificação corrigiu: CID "confiável" abusável pela IA, alergia perdida
+    em fala corrida, alergia de familiar virando do paciente, J21.9 trocado com J20.9.
+  - **#19** pedidos e prescrições em rascunho (`6dcbd31`, verificação `661f2a2`, `d564ba0`): `app/consult/orders.py`,
+    `lab_catalog.csv` (26 exames LOINC), ServiceRequest/MedicationRequest draft+proposal só do que foi assinado,
+    item crítico só com justificativa, item assinado volta a pendente se surgir alerta crítico, remédio fora do
+    catálogo vira rascunho "não reconhecido", cefalexina/cefadroxila em alérgico a penicilina = crítico.
+  - Merges das frentes: `016580f`, `2e108c8`, `f630fc4` (prompt `consult_live_clinica` em 1.5.0).
+  - pytest, ruff, typecheck e lint verdes em `f630fc4`. e2e 9/9 verdes em `016580f` (antes do #5+#6 e #19:
+    **rodar de novo** no fim da Onda 1).
+- Testes (antes desta sessão): pytest verde em `5cd7e6f` (1 xfail estrito do corpus); ruff, typecheck e lint limpos. e2e (9/9) rodados e
   verdes em `11262f4`, **ainda não rodados depois do #4, #9, #25, #26 e #30**.
 
 ### Limitações conhecidas que ficaram da Onda 1
 
+- Pedidos (#19): remédio fora de `drugs.csv` não tem checagem automática (só o aviso "não reconhecido"); "insulina"
+  sem tipo não ganha selo de alto alerta; doses máximas só as de `dose_alerts.csv`; reconciliação só para internado.
+- CID (#5): tabela de 2008; códigos mais novos (U07.1, N18.x) só passam se já estiverem no prontuário. OMA só até 12
+  anos. Sem hipótese de HSA.
 - Pergunta curta do médico sem pronome e sem "?" ("tem febre") ainda é atribuída ao paciente. As que retomam o assunto ("e a febre", "e dor no peito") e as em 3ª pessoa ("o ar tem faltado quando caminha") já são reconhecidas.
 - Acompanhante sem vocativo ("meu filho tá com febre") é inferido como paciente: o lado está certo, o papel não.
 - Falso positivo gerado pela própria IA, por exemplo um alerta sobre medicamento negado, só é contido pelo prompt.
@@ -76,16 +96,15 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 
 ## O que falta, na ordem
 
-1. **Fechar as verificações interrompidas:**
-   - #30: verificação cética (base `a4e4e43`, commits `7da3c4c`, `c6b7abe`, `09d6bd6`).
-   - Subir a stack, recarregar o seed e rodar os e2e; corrigir o que quebrar.
-2. **Resto da Onda 1, frente A, em sequência:** #5+#6 (CID-10 oficial validado e medicamentos e alergias de qualquer
-   falante), #7+#8 (histórico e exames ditos e resumo com fonte por frase e lembretes), #10 (relevância de cada fala
-   e o painel "fora da nota").
-3. **Onda 2.**
+1. **Resto da Onda 1, frente A, em sequência:** #7+#8 (histórico e exames ditos e resumo com fonte por frase e
+   lembretes), #10 (relevância de cada fala e o painel "fora da nota"). Nenhum começado (os agentes foram parados antes
+   de mudar arquivos). Prefixo de migração: c0.
+2. **Onda 2, frente B, restante:** #20 (copiloto) e #36+#37 (painel Impacto e copiloto do gestor). Prefixo d1. O #19
+   já está feito e juntado.
+3. **Onda 2, frente A** (e o que sobrar da B):
    - Frente A: #2+#13 (transcrição editável e consentimento), #3 (aceitar, descartar e fixar insights), #14+#15
      (revisão segura e cronologia), #16 (modelos de nota, SOAP e-SUS), #22 (tradução em 95+ idiomas).
-   - Frente B: #19 (pedidos em rascunho), #20 (copiloto), #36+#37 (painel Impacto e copiloto do gestor).
+   - Frente B: ~~#19~~ (feito), #20 (copiloto), #36+#37 (painel Impacto e copiloto do gestor).
 4. **Onda 3.**
    - Frente A: #21 (Smart Apps como plug-ins), #27 (pacotes de especialidade), #28 (protocolos de APS), #17
      (Bundle FHIR), #18 (codificação), #29 ("Antes de encaminhar").
