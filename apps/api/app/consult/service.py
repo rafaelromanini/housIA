@@ -667,6 +667,10 @@ def _review_opme(c: Consultation, report: dict) -> tuple[dict, list[dict]]:
     """OPME editável na revisão: só a quantidade citada e a justificativa mudam; guia e etiquetas vêm do servidor."""
     previous = SurgicalReport.model_validate((c.note_json or {}).get("relatorio_cirurgico")).opme
     lines, changes = opme.review_lines(previous, report.get("opme", []))
+    convenio = billing_params(c.extra_json or {})["convenio"]
+    for change in changes:  # a justificativa esconde a pendência e a trava de envio: o audit guarda texto e regra
+        if "tipos_suprimidos" in change:
+            change["regras"] = antiglosa.rules_for_kinds(convenio, change.pop("tipos_suprimidos"))
     kept = [p for p in report.get("pendencias", []) if p.get("categoria") != "opme"]
     kept += [h.model_dump(mode="json") for h in opme.review_highlights(lines)]
     order = {"critico": 0, "atencao": 1, "info": 2}
@@ -798,6 +802,8 @@ def _gate_billing(db: Session, user: User, c: Consultation, justification: str |
     c.note_json = note | {"relatorio_cirurgico": report.model_dump(mode="json")}
     snap = antiglosa.snapshot(ready)
     extra = {"justificativa": text, "regras_justificadas": [p.regra for p in critical]} if critical else {}
+    if justified := [{"codigo": o.codigo, "justificativa": o.justificativa} for o in report.opme if o.justificativa]:
+        extra["opme_justificadas"] = justified  # contornos da revisão que escondem pendências: ficam no audit do envio
     _audit_readiness(db, user, c, "envio", (c.extra_json or {}).get("prontidao_finish"), snap, **extra)
     if critical:
         c.extra_json = (c.extra_json or {}) | {

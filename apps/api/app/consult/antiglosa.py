@@ -154,6 +154,16 @@ def rules_for(convenio: str) -> tuple[Rule, ...]:
     return tuple(merged.values())
 
 
+def rules_for_kinds(convenio: str, kinds: list[str]) -> list[str]:
+    """Ids das regras de conciliação de OPME do convênio que avaliam algum dos tipos de problema dados."""
+    wanted = set(kinds)
+    if convenio not in convenios():
+        convenio = "generico"
+    return [
+        r.regra for r in rules_for(convenio) if r.tipo == "opme_conciliacao" and wanted & set(r.condicao.split("|"))
+    ]
+
+
 @lru_cache
 def procedures() -> dict[str, ProcRow]:
     return {

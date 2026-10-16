@@ -479,6 +479,11 @@ def test_opme_is_editable_in_review_and_server_keeps_authority(client, auth):
         "DEMO-OPME-009": "editado",
         "DEMO-OPME-006": "retirado",
     }
+    # o contorno fica auditado: texto da justificativa por linha e id da regra anti-glosa que ela esconde
+    bis = next(c for c in changes if c["codigo"] == "DEMO-OPME-009")
+    assert bis["justificativa"] == "Uso necessário por aderências; autorização complementar solicitada."
+    assert bis["regras"] == ["opme_sem_guia"]
+    assert "justificativa" not in next(c for c in changes if c["codigo"] == "DEMO-OPME-005")
     # linha nova só com código do catálogo
     again = client.put(
         f"/consultations/{cid}/note",
@@ -874,6 +879,39 @@ def test_send_with_critical_pending_needs_justification_and_audit_records_it(cli
     assert clean.status_code == 200, clean.text
     envio = [r for r in audit_rows("cirurgia.prontidao") if r["momento"] == "envio"][-1]
     assert "justificativa" not in envio and envio["depois"]["criticas"] == 0
+
+
+def test_line_justification_bypass_is_audited_with_text_rule_and_send_gate(client, auth, store):
+    h = auth("medico")
+    cid = start(client, h, pid="cen4", especialidade="cirurgia_geral")["id"]
+    dictate(client, h, cid, [(f["falante"], f["texto"]) for f in demo_scripts()["cen4_cirurgia"]["falas"]])
+    report = client.post(f"/consultations/{cid}/finish", headers=h).json()["nota"]["relatorio_cirurgico"]
+    assert "opme_sem_guia" in {p["regra"] for p in report["prontidao"]["pendencias"] if p["severidade"] == "critico"}
+    text = "Aderências extensas exigiram o bisturi ultrassônico; autorização complementar em andamento."
+    edited = [dict(o, justificativa=text) if o["codigo"] == "DEMO-OPME-009" else dict(o) for o in report["opme"]]
+    res = client.put(f"/consultations/{cid}/note", json={"relatorio_cirurgico": report | {"opme": edited}}, headers=h)
+    assert res.status_code == 200, res.text
+    change = next(c for c in audit_rows("consulta.nota_revisada")[-1]["opme"] if c["codigo"] == "DEMO-OPME-009")
+    assert change["justificativa"] == text and change["regras"] == ["opme_sem_guia"]
+
+    # o contorno é real: a pendência crítica "sem guia" some; o que sobrar ainda trava o envio
+    sent = client.post(f"/consultations/{cid}/send", headers=h)
+    if sent.status_code == 409:
+        assert "opme_sem_guia" not in {p["regra"] for p in sent.json()["detail"]["pendencias"]}
+        sent = client.post(f"/consultations/{cid}/send", json={"justificativa": text}, headers=h)
+    assert sent.status_code == 200, sent.text
+    envio = [r for r in audit_rows("cirurgia.prontidao") if r["momento"] == "envio"][-1]
+    assert {"codigo": "DEMO-OPME-009", "justificativa": text} in envio["opme_justificadas"]
+
+    # retirar a justificativa também fica registrado, e a trava "sem guia" volta
+    cleared = [dict(o, justificativa=None) if o["codigo"] == "DEMO-OPME-009" else dict(o) for o in edited]
+    res = client.put(f"/consultations/{cid}/note", json={"relatorio_cirurgico": report | {"opme": cleared}}, headers=h)
+    assert res.status_code == 200, res.text
+    change = next(c for c in audit_rows("consulta.nota_revisada")[-1]["opme"] if c["codigo"] == "DEMO-OPME-009")
+    assert change["justificativa"] is None and change["justificativa_anterior"] == text and "regras" not in change
+    again = client.post(f"/consultations/{cid}/send", headers=h)
+    assert again.status_code == 409
+    assert "opme_sem_guia" in {p["regra"] for p in again.json()["detail"]["pendencias"]}
 
 
 def test_claim_draft_validates_as_r4(client, auth, store, monkeypatch):

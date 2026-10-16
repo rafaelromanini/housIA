@@ -591,9 +591,9 @@ def review_lines(previous: list[OpmeLine], edited: list[dict]) -> tuple[list[Opm
             )
             changes.append({"codigo": code, "acao": "incluido", "citado": citado})
         elif citado != base.citado or just != base.justificativa:
-            changes.append(
-                {"codigo": code, "acao": "editado", "citado": [base.citado, citado], "justificativa": bool(just)}
-            )
+            changes.append({"codigo": code, "acao": "editado", "citado": [base.citado, citado]})
+            if just != base.justificativa:
+                changes[-1]["justificativa_anterior"] = base.justificativa
         out.append(
             base.model_copy(
                 update={
@@ -608,7 +608,30 @@ def review_lines(previous: list[OpmeLine], edited: list[dict]) -> tuple[list[Opm
             out.append(known[code])  # etiqueta lida não se apaga na revisão (a leitura é removida na sala, com audit)
             continue
         changes.append({"codigo": code, "acao": "retirado"})
-    return recompute(out), changes
+    lines = recompute(out)
+    _audit_justifications(lines, changes)
+    return lines, changes
+
+
+def suppressed_kinds(line: OpmeLine, tracking: bool) -> list[str]:
+    """Tipos de problema que a justificativa da linha esconde (a validade vencida nunca é suprimida)."""
+    bare = line.model_copy(update={"justificativa": None})
+    return sorted({kind for kind, _t, _s, _r in issues(bare, tracking) if kind != "validade_vencida"})
+
+
+def _audit_justifications(lines: list[OpmeLine], changes: list[dict]) -> None:
+    """A justificativa por linha suprime a pendência crítica (e a trava de envio): o audit guarda o texto e os tipos
+    de problema escondidos; o serviço traduz os tipos em ids de regra anti-glosa."""
+    by_code = {line.codigo: line for line in lines}
+    tracking = any(line.consumido or line.lotes for line in lines)
+    for change in changes:
+        line = by_code.get(change["codigo"])
+        if not line or change["acao"] == "retirado":
+            continue
+        if line.justificativa or "justificativa_anterior" in change:
+            change["justificativa"] = line.justificativa
+        if line.justificativa:
+            change["tipos_suprimidos"] = suppressed_kinds(line, tracking)
 
 
 def review_highlights(lines: list[OpmeLine]) -> list[Highlight]:
