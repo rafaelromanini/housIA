@@ -1,0 +1,108 @@
+{
+  "id": "cen7d",
+  "tag": "cenario-7d",
+  "titulo": "Cenário 7d — Jornada: medicamento trocado sem reconciliação",
+  "esperado": "Alta há 6 dias com troca de anti-hipertensivo (enalapril por losartana) feita na internação e nenhuma reconciliação medicamentosa executada depois. O retorno está agendado, então só a regra de troca sem reconciliação dispara; rodar a reconciliação tira o item da lista.",
+  "paciente": {
+    "nome": "Rosa Maria Figueiredo",
+    "sexo": "female",
+    "nascimento": "1953-05-21",
+    "cpf": "611.034.287-90",
+    "telefone": "(11) 98840-2219",
+    "endereco": "Rua Augusta, 900, apto 41, Consolação, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-10d",
+    "fim": "-6d",
+    "tipo": "urgencia",
+    "motivo": "Crise hipertensiva com tosse persistente",
+    "setores": [
+      {
+        "id": "enf",
+        "setor": "Enfermaria 3B",
+        "leito": "12",
+        "inicio": "-10d",
+        "fim": "-6d"
+      }
+    ]
+  },
+  "diagnosticos": [
+    {
+      "cid": "I10",
+      "texto": "Hipertensão arterial sistêmica",
+      "principal": true,
+      "inicio": "-10d"
+    },
+    {
+      "cid": "E11.9",
+      "texto": "Diabetes mellitus tipo 2",
+      "inicio": "-3000d",
+      "registro": "-10d"
+    }
+  ],
+  "alergias": [],
+  "familiares": [
+    {
+      "nome": "Sérgio Figueiredo",
+      "parentesco": "filho",
+      "codigo": "SON",
+      "cuidador": true,
+      "telefone": "(11) 98840-7700"
+    }
+  ],
+  "social": {
+    "moradores": 2
+  },
+  "prescricoes": [
+    {
+      "id": "enalapril",
+      "med": "enalapril",
+      "dose": "10 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00",
+        "20:00"
+      ],
+      "fim": "-8d",
+      "status": "stopped",
+      "motivo": "Tosse persistente atribuída ao IECA"
+    },
+    {
+      "id": "losartana",
+      "med": "losartana",
+      "dose": "50 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00"
+      ],
+      "inicio": "-8d",
+      "substitui": "enalapril"
+    },
+    {
+      "id": "metformina",
+      "med": "metformina",
+      "dose": "850 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00",
+        "20:00"
+      ]
+    }
+  ],
+  "agendamentos": [
+    {
+      "id": "ret",
+      "t": "+8d",
+      "status": "booked",
+      "motivo": "Retorno pós-alta: pressão arterial e tosse"
+    }
+  ],
+  "evolucoes": [
+    {
+      "t": "-6d1h",
+      "tipo": "medica",
+      "autor": "Dra. Camila Rocha (Clínica Médica)",
+      "texto": "Alta com troca de enalapril por losartana 50 mg (tosse por IECA). Orientar a paciente a descartar o enalapril de casa."
+    }
+  ]
+}

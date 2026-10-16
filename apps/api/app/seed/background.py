@@ -439,7 +439,7 @@ def generate(seed: int = 20251015) -> list[dict]:
             },
         ]
         out.append(dsl)
-    return out + _ambulatory(rng)
+    return out + _ambulatory(rng) + _after_discharge()
 
 
 # Agenda ambulatorial do dia (fundo): pacientes simples para a tela de consultas parecer real
@@ -495,4 +495,86 @@ def _ambulatory(rng: random.Random) -> list[dict]:
                 ],
             }
         )
+    return out
+
+
+# Coorte pós-alta (fundo): pacientes que já tiveram alta, com e sem retorno, falta e reinternação. Alimenta as
+# métricas da jornada (reinternação em 30 dias e retornos perdidos). (modelo, dias desde a alta, dias de internação,
+# reinternação depois de N dias | None, retorno: feito | falta | agendado | nenhum)
+AFTER_DISCHARGE = [
+    ("icc", 150, 6, 12, "nenhum"),
+    ("icc", 120, 5, 21, "nenhum"),
+    ("dpoc", 100, 6, 9, "nenhum"),
+    ("pneumonia", 140, 4, None, "feito"),
+    ("pneumonia", 90, 3, None, "feito"),
+    ("itu", 80, 4, None, "feito"),
+    ("hernia", 130, 2, None, "feito"),
+    ("colelitiase", 110, 2, None, "feito"),
+    ("fratura", 95, 6, 25, "feito"),
+    ("avc", 70, 7, None, "falta"),
+    ("sepse", 60, 8, None, "nenhum"),
+    ("iam", 55, 5, None, "feito"),
+    ("celulite", 45, 3, None, "feito"),
+    ("icc", 75, 5, 33, "feito"),
+    ("dpoc", 38, 4, None, "nenhum"),
+    ("pneumonia", 25, 3, None, "feito"),
+    ("itu", 18, 4, None, "agendado"),
+    ("hernia", 9, 2, None, "agendado"),
+]
+
+
+def _after_discharge(seed: int = 20260101) -> list[dict]:
+    """Mesma DSL dos cenários. Usa um gerador próprio: não altera o sorteio dos demais pacientes de fundo."""
+    rng = random.Random(seed)
+    templates = {t["key"]: t for t in TEMPLATES}
+    out = []
+    for n, (key, ended, los, gap, retorno) in enumerate(AFTER_DISCHARGE, start=1):
+        tpl = templates[key]
+        sex = rng.choice(["male", "female"])
+        age = rng.randint(*tpl["idade"])
+        index = {"inicio": f"-{ended + los}d", "duracao": f"{los}d", "motivo": tpl["motivo"], "tipo": "internacao"}
+        if gap is None:
+            main_start, main_end, earlier = f"-{ended + los}d", f"-{ended}d", []
+            last_end = ended
+        else:  # reinternado: a internação principal é a segunda; a primeira vira encontro anterior (IMP)
+            again = ended - gap
+            main_start, main_end, earlier = f"-{again}d", f"-{again - 4}d", [index]
+            last_end = again - 4
+        sid = f"alt{n:02d}"
+        dsl: dict = {
+            "id": sid,
+            "paciente": {
+                "nome": _name(rng, sex),
+                "sexo": sex,
+                "nascimento": f"{2026 - age}-{rng.randint(1, 12):02d}-{rng.randint(1, 28):02d}",
+                "cpf": _cpf(rng),
+                "telefone": f"(11) 9{rng.randint(1000, 9999)}-{rng.randint(1000, 9999)}",
+            },
+            "internacao": {
+                "inicio": main_start,
+                "fim": main_end,
+                "tipo": "eletiva" if tpl.get("eletiva") else "urgencia",
+                "motivo": tpl["motivo"],
+                "setores": [
+                    {"id": "s1", "setor": tpl["setor"], "leito": f"{20 + n}", "inicio": main_start, "fim": main_end}
+                ],
+            },
+            "encontros_anteriores": [
+                *earlier,
+                *(  # quem volta ao hospital costuma ter passado pelo pronto-socorro antes (componente E do LACE)
+                    {"inicio": f"-{ended + los + rng.randint(15, 120)}d", "motivo": "Atendimento no pronto-socorro"}
+                    for _ in range(3 if gap else rng.choice([0, 0, 1, 2]))
+                ),
+            ],
+            "diagnosticos": [{"cid": c, "texto": t, "principal": p, "inicio": main_start} for c, t, p in tpl["dx"]],
+            "alergias": [],
+        }
+        if retorno != "nenhum":
+            when, status = {
+                "feito": (f"-{max(last_end - 7, 1)}d", "fulfilled"),
+                "falta": (f"-{max(last_end - 7, 1)}d", "noshow"),
+                "agendado": (f"+{5 + n % 3}d", "booked"),
+            }[retorno]
+            dsl["agendamentos"] = [{"id": "ret", "t": when, "status": status, "motivo": "Retorno pós-alta"}]
+        out.append(dsl)
     return out

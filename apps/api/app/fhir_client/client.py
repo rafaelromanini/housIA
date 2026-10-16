@@ -1,6 +1,7 @@
 """Acesso de leitura à fonte clínica FHIR R4.
 
-O HousIA só LÊ do FHIR; nada é escrito de volta no prontuário (regra de ouro do MVP).
+O HousIA lê do FHIR. As únicas escritas são a nota revisada e aprovada pelo profissional (consulta) e os recursos
+operacionais da jornada do paciente: Task de acompanhamento e DocumentReference do contato pós-alta.
 Dois backends com a mesma interface:
 - HapiFhirClient: servidor FHIR real (HAPI no docker compose)
 - LocalFhirStore: os mesmos cenários montados em memória (testes/dev sem Docker; ADR 0001)
@@ -59,7 +60,13 @@ class FhirSource(Protocol):
 
     def ambulatory_encounters(self) -> list[dict]: ...
 
+    def encounters_by_class(self, code: str) -> list[dict]: ...
+
+    def appointments(self) -> list[dict]: ...
+
     def create(self, resource: dict) -> dict: ...
+
+    def update(self, resource: dict) -> dict: ...
 
     def locations(self) -> dict[str, dict]: ...
 
@@ -107,8 +114,27 @@ class HapiFhirClient:
     def ambulatory_encounters(self) -> list[dict]:
         return self._search("Encounter", {"class": "AMB"})
 
+    def encounters_by_class(self, code: str) -> list[dict]:
+        return self._search("Encounter", {"class": code})
+
+    def appointments(self) -> list[dict]:
+        return self._search("Appointment", {})
+
+    def update(self, resource: dict) -> dict:
+        """Atualiza um recurso criado pelo HousIA (ex.: Task concluída)."""
+        try:
+            r = self._client.put(
+                f"{self.base_url}/{resource['resourceType']}/{resource['id']}",
+                json=resource,
+                headers={"Content-Type": "application/fhir+json"},
+            )
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise FhirUnavailable(f"Servidor FHIR indisponível: {exc}") from exc
+        return r.json()
+
     def create(self, resource: dict) -> dict:
-        """Única escrita no prontuário: nota revisada e aprovada pelo profissional (EHR_WRITEBACK=true)."""
+        """Escrita no prontuário: nota aprovada (EHR_WRITEBACK=true) e Task/DocumentReference da jornada."""
         try:
             r = self._client.post(
                 f"{self.base_url}/{resource['resourceType']}",
@@ -153,6 +179,16 @@ class LocalFhirStore:
 
     def ambulatory_encounters(self) -> list[dict]:
         return [e for e in self.resources["Encounter"].values() if e.get("class", {}).get("code") == "AMB"]
+
+    def encounters_by_class(self, code: str) -> list[dict]:
+        return [e for e in self.resources["Encounter"].values() if e.get("class", {}).get("code") == code]
+
+    def appointments(self) -> list[dict]:
+        return list(self.resources["Appointment"].values())
+
+    def update(self, resource: dict) -> dict:
+        self.resources[resource["resourceType"]][resource["id"]] = resource
+        return resource
 
     def create(self, resource: dict) -> dict:
         rid = resource.get("id") or f"housia-{len(self.resources[resource['resourceType']]) + 1}"

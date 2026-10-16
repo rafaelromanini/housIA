@@ -1,0 +1,74 @@
+# Roteiro de contato pós-alta (ligação, visita ou retorno de mensagem feito PELA EQUIPE; o HousIA não envia SMS/WhatsApp).
+# HEURÍSTICA DE DEMONSTRAÇÃO: perguntas e sinais de alarme precisam ser validados pela equipe assistencial.
+# tipo: confirmacao | teach_back | retirada | sinal_alarme. Resposta: sim | nao | nao_se_aplica.
+# risco_quando = resposta que vira pendência (retirada/teach-back) ou alerta crítico (sinal de alarme).
+# `quando` restringe a pergunta: cid = prefixos de CID-10 do paciente; medicamento = princípios ativos em uso.
+versao: 1
+perguntas:
+  - id: identidade
+    tipo: confirmacao
+    texto: Confirmou que está falando com o paciente ou com o cuidador (nome completo e data de nascimento)?
+    risco_quando: nao
+  - id: tb_medicamentos
+    tipo: teach_back
+    texto: >-
+      Teach-back: peça para explicar com as próprias palavras como toma cada remédio (nome, dose, horário). Explicou
+      corretamente?
+    risco_quando: nao
+  - id: tb_retorno
+    tipo: teach_back
+    texto: >-
+      Teach-back: peça para dizer quando e onde é o retorno e o que fazer se piorar. Explicou corretamente?
+    risco_quando: nao
+  - id: retirou_medicamentos
+    tipo: retirada
+    texto: Conseguiu retirar ou comprar todos os medicamentos da receita?
+    risco_quando: nao
+  - id: sabe_retorno
+    tipo: retirada
+    texto: Tem consulta de retorno marcada (data e local) ou sabe como marcar?
+    risco_quando: nao
+  - id: sinal_febre
+    tipo: sinal_alarme
+    texto: Teve febre (37,8 °C ou mais) desde a alta?
+    alarme: Febre desde a alta
+  - id: sinal_dispneia
+    tipo: sinal_alarme
+    texto: Está com falta de ar nova ou pior do que na alta?
+    alarme: Falta de ar nova ou pior
+  - id: sinal_dor
+    tipo: sinal_alarme
+    texto: Está com dor forte que não melhora com a medicação orientada?
+    alarme: Dor forte sem melhora
+  - id: sinal_sangramento
+    tipo: sinal_alarme
+    texto: Teve sangramento, vômito com sangue ou fezes escuras?
+    alarme: Sangramento
+  - id: sinal_confusao
+    tipo: sinal_alarme
+    texto: Está confuso, muito sonolento ou desmaiou?
+    alarme: Confusão, sonolência excessiva ou desmaio
+  - id: sinal_queda
+    tipo: sinal_alarme
+    texto: Sofreu queda desde a alta?
+    alarme: Queda desde a alta
+  - id: sinal_peso_ic
+    tipo: sinal_alarme
+    texto: Ganhou mais de 2 kg em 3 dias ou notou inchaço novo nas pernas?
+    alarme: Ganho de peso rápido ou inchaço novo (insuficiência cardíaca)
+    quando: {cid: [I50, I11.0, I13]}
+  - id: sinal_hipoglicemia
+    tipo: sinal_alarme
+    texto: Teve tremor, suor frio, confusão ou glicemia abaixo de 70 mg/dL?
+    alarme: Sinais de hipoglicemia
+    quando: {medicamento: [insulina_nph, insulina_regular, insulina_glargina, glibenclamida, gliclazida]}
+  - id: sinal_ferida
+    tipo: sinal_alarme
+    texto: A ferida operatória está com vermelhidão, secreção ou abriu?
+    alarme: Sinais de infecção ou abertura da ferida operatória
+    quando: {cid: [K80, K35, K40, K42, K43, S72, O82, Z48]}
+  - id: sinal_pressao
+    tipo: sinal_alarme
+    texto: Teve dor de cabeça forte, tontura intensa ou pressão muito alta (acima de 180/110)?
+    alarme: Possível crise hipertensiva
+    quando: {cid: [I10, I11, I12, I13]}

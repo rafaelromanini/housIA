@@ -18,6 +18,7 @@ from app.discharge.router import router as discharge_router
 from app.feedback.router import router as feedback_router
 from app.fhir_client.client import FhirUnavailable, get_fhir
 from app.handoff.router import router as handoff_router
+from app.journey.router import router as journey_router
 from app.medrec.router import router as medrec_router
 from app.patients.router import router as patients_router
 
@@ -87,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(audit_router)
     app.include_router(feedback_router)
     app.include_router(consult_router)
+    app.include_router(journey_router)
     return app
 
 
