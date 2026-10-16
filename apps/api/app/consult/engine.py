@@ -12,6 +12,7 @@ from datetime import datetime
 
 from app.consult import knowledge, semiology
 from app.consult.chart import ChartView, fmt_date
+from app.consult.cid import screen
 from app.consult.schemas import (
     AllergyInfo,
     Anamnese,
@@ -36,6 +37,7 @@ from app.consult.surgical import surgical_report
 from app.consult.text import (
     FOLLOW_UP,
     QUESTION_WHEN,
+    brands,
     contains,
     find,
     has_vocative,
@@ -43,9 +45,20 @@ from app.consult.text import (
     listener_questions,
     mentioned_drugs,
     norm,
+    planned_drugs,
     question_text,
 )
-from app.reference import drugs, interactions, matches
+from app.medrec.rules import high_alert_findings
+from app.reference import (
+    adverse_patterns,
+    class_label,
+    drugs,
+    high_alert_reason,
+    icd_entry,
+    icd_problem,
+    interactions,
+    matches,
+)
 from app.timeline.context import PatientContext
 from app.timeline.events import ClinicalEvent
 from app.timeline.record import PatientRecord
@@ -132,6 +145,40 @@ FORGET_WORDS = (
 STOP_WORDS = ("parei de tomar", "deixei de tomar")
 CONTEXT_WORDS = ("moro ", "sozinh", "fumo", "cigarro", "bebo", "bebida", "alcool", "caminhada", "trabalho", "aposentad")
 PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
+HIGH_ALERT_SOURCE = "Lista de medicamentos potencialmente perigosos (high_alert_meds.csv; conceito do ISMP)"
+PLANNED_SUFFIX = " (a prescrever)"  # medicamento que o profissional disse que vai passar: ainda não está no prontuário
+MAX_HYPOTHESES = 8
+# efeito adverso: o sintoma tem de ter começado até 90 dias depois do início do fármaco (plausibilidade temporal)
+ADVERSE_WINDOW_DAYS = 90
+ADVERSE_RECENT_DAYS = 30  # sem data de início do sintoma: só vale se o fármaco é recente
+NUMBER_WORDS = {
+    "um": 1, "uma": 1, "dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6, "sete": 7, "oito": 8,
+    "nove": 9, "dez": 10, "onze": 11, "doze": 12, "quinze": 15, "vinte": 20, "trinta": 30,
+}  # fmt: skip
+DURATION = re.compile(
+    r"(?<!\w)(?:(?:faz|ha|ja faz|tem|desde ha|fazem)\s+)?"
+    r"(?:(?:cerca de|mais ou menos|umas|uns|uma|um|quase|pouco mais de|mais de)\s+)*"
+    r"(\d+|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|quinze|vinte|trinta)\s+"
+    r"(dias?|semanas?|mes|meses|anos?)(?!\w)"
+)
+UNIT_DAYS = {"dia": 1, "semana": 7, "mes": 30, "ano": 365}
+REACTION_HIGH = (
+    "inchou",
+    "inchad",
+    "inchei",
+    "inchaco",
+    "falta de ar",
+    "garganta",
+    "anafila",
+    "choque",
+    "desmai",
+    "angioedema",
+    "labios",
+    "boca inchou",
+    "passei mal",
+)
+REACTION_LOW = ("coceira", "manchas", "vermelh", "enjoo", "diarreia", "urticaria", "pele", "erupcao")
+ONSET_QUESTION = ("desde quando", "quanto tempo", "quando comecou", "quando isso comecou", "comecou quando")
 # ordem em que os campos vazios da queixa viram pergunta
 MAX_QUESTIONS = 10  # perguntas sugeridas na lista (as de anamnese vêm depois, no máximo 8)
 SEMIO_ORDER = ("inicio_duracao", "intensidade", "piora", "melhora", "frequencia", "localizacao", "associados")
@@ -197,6 +244,7 @@ class Engine:
         self.patient_segments = [s for s in segments if s.falante in PATIENT_SIDE]
         self.denied: dict[str, list[str]] = {}
         self.tags_denied: list[Tag] = []
+        self.dropped: list[dict] = []  # itens recusados pelas regras (ex.: CID que a tabela oficial não aceita)
 
     # ---------- utilidades ----------
     def said(self, words: tuple[str, ...], speakers: tuple[str, ...] | None = None) -> list[Segment]:
@@ -317,8 +365,21 @@ class Engine:
         in_use = {ing for ing, _, _ in self.reported_meds()}
         return [m for m in self._mentions("suspenso_relatado") if m[0] not in in_use]
 
-    def _med_classes(self, reported: list[tuple[str, str, str]]) -> list[tuple[str, str, str, str]]:
-        """(princípio, classe, nome, ref) do que está em uso + relatado."""
+    def planned_meds(self) -> list[tuple[str, str, str]]:
+        """(princípio ou @classe, termo, ref) do que o PROFISSIONAL diz que vai prescrever ("vou passar X")."""
+        out: list[tuple[str, str, str]] = []
+        for s in self.segments:
+            if s.falante not in TEAM_SIDE:
+                continue
+            for p in planned_drugs(s.texto):
+                if all(p.ingredient != o[0] for o in out):
+                    out.append((p.ingredient, p.term, fala_ref(s.n)))
+        return out
+
+    def _med_classes(
+        self, reported: list[tuple[str, str, str]], planned: list[tuple[str, str, str]] | None = None
+    ) -> list[tuple[str, str, str, str]]:
+        """(princípio, classe, nome, ref) do que está em uso + relatado + a prescrever (nome com sufixo)."""
         catalog = drugs()
         out = [(m.ingredient, m.drug_class, m.name, m.ref) for m in self.chart.active_meds]
         for ing, term, ref in reported:
@@ -326,6 +387,11 @@ class Engine:
                 out.append(("", ing[1:], term, ref))
             elif ing in catalog and all(ing != o[0] for o in out):
                 out.append((ing, catalog[ing].drug_class, catalog[ing].name, ref))
+        for ing, term, ref in planned or []:
+            if ing.startswith("@"):
+                out.append(("", ing[1:], f"{term}{PLANNED_SUFFIX}", ref))
+            elif ing in catalog and all(ing != o[0] for o in out):
+                out.append((ing, catalog[ing].drug_class, f"{catalog[ing].name}{PLANNED_SUFFIX}", ref))
         return out
 
     # ---------- Perguntas sugeridas ----------
@@ -505,6 +571,59 @@ class Engine:
         return main + tail, [c for _, c in covered]
 
     # ---------- Hipóteses ----------
+    def _evidence(
+        self,
+        token: str,
+        present: dict[str, list[str]],
+        denied: dict[str, list[str]],
+        classes: list[tuple[str, str, str, str]],
+        labels: dict[str, str],
+    ) -> tuple[Evidence | None, Evidence | None]:
+        """Avalia uma ficha de evidência (s, l/v, c, d, p ou n): (a favor, contra por negativa do paciente)."""
+        kind, _, spec = token.partition(":")
+        if kind == "s":
+            if spec in present:
+                return Evidence(texto=f"Relata {labels[spec].lower()}", refs=present[spec][:3]), None
+            if labels.get(spec) in denied:
+                return None, Evidence(texto=f"Nega {labels[spec].lower()}", refs=denied[labels[spec]])
+        elif kind in ("l", "v"):
+            key, op, val = spec.split(":")
+            e = self.chart.latest_vital(key, 48) if kind == "v" else self.chart.latest_lab(key, 400)
+            if key == "pas" and kind == "v":
+                pa = self.chart.latest_vital("pa", 48)
+                e, value = pa, (pa.value["sistolica"] if pa else None)
+            else:
+                value = float(e.value["valor"]) if e else None
+            if e is not None and value is not None:
+                hit = value < float(val) if op == "lt" else value > float(val)
+                if hit:
+                    return Evidence(texto=f"{e.summary} em {fmt_date(e.timestamp)}", refs=[e.source_ref]), None
+        elif kind == "c":
+            for ing, cls, name, ref in classes:
+                if spec in (ing, cls):
+                    origin = "relatado na consulta" if ref.startswith("Fala/") else "em uso"
+                    return Evidence(texto=f"{name} ({origin})", refs=[ref]), None
+        elif kind == "d":
+            c = self.chart.has_condition(spec)
+            if c is not None:
+                return Evidence(texto=c.get("code", {}).get("text", spec), refs=[f"Condition/{c['id']}"]), None
+        elif kind == "p":  # procedimento já realizado (prontuário): a cirurgia que tirou o órgão afasta a hipótese
+            for proc in self.r.resources.get("Procedure", []):
+                text = (proc.get("code") or {}).get("text", "")
+                if spec in norm(text):
+                    return Evidence(texto=f"Já realizou: {text}", refs=[f"Procedure/{proc['id']}"]), None
+        elif kind == "n":
+            notes = [e for e in self.chart.notes_text(30) if spec in norm(e.text or "")]
+            segs = self.said((spec,))
+            if notes:
+                return Evidence(texto=f"Registro: “…{spec}…”", refs=[notes[-1].source_ref]), None
+            if segs:
+                return (
+                    Evidence(texto=f"Citado na conversa: {self.quote(segs[-1], 70)}", refs=[fala_ref(segs[-1].n)]),
+                    None,
+                )
+        return None, None
+
     def hypotheses(self, present: dict[str, list[str]], denied_tags: list[Tag]) -> list[Hypothesis]:
         reported = self.reported_meds()
         classes = self._med_classes(reported)
@@ -512,50 +631,36 @@ class Engine:
         denied = {t.rotulo: t.refs for t in denied_tags if t.status == "negado"}
         out = []
         for d in knowledge.differentials():
+            if not self._fits(d.age_min, d.age_max, d.sex):
+                continue
+            problem = icd_problem(d.icd, self.r.sex, primary=True)
+            if problem:  # CID que a tabela oficial não aceita para esta hipótese: vai para "descartados" com o motivo
+                self.dropped.append(
+                    {"onde": "hipoteses", "texto": d.hypothesis, "refs_invalidas": [], "motivo": problem, "cid": d.icd}
+                )
+                continue
             pro: list[Evidence] = []
             con: list[Evidence] = []
             for ev in d.evidence:
-                kind, _, spec = ev.partition(":")
-                if kind == "s":
-                    if spec in present:
-                        pro.append(Evidence(texto=f"Relata {labels[spec].lower()}", refs=present[spec][:3]))
-                    elif labels.get(spec) in denied:
-                        con.append(Evidence(texto=f"Nega {labels[spec].lower()}", refs=denied[labels[spec]]))
-                elif kind in ("l", "v"):
-                    key, op, val = spec.split(":")
-                    e = self.chart.latest_vital(key, 48) if kind == "v" else self.chart.latest_lab(key, 400)
-                    if key == "pas" and kind == "v":
-                        pa = self.chart.latest_vital("pa", 48)
-                        e, value = pa, (pa.value["sistolica"] if pa else None)
-                    else:
-                        value = float(e.value["valor"]) if e else None
-                    if e is not None and value is not None:
-                        hit = value < float(val) if op == "lt" else value > float(val)
-                        if hit:
-                            pro.append(Evidence(texto=f"{e.summary} em {fmt_date(e.timestamp)}", refs=[e.source_ref]))
-                elif kind == "c":
-                    for ing, cls, name, ref in classes:
-                        if spec in (ing, cls):
-                            origin = "relatado na consulta" if ref.startswith("Fala/") else "em uso"
-                            pro.append(Evidence(texto=f"{name} ({origin})", refs=[ref]))
-                            break
-                elif kind == "d":
-                    c = self.chart.has_condition(spec)
-                    if c is not None:
-                        pro.append(Evidence(texto=c.get("code", {}).get("text", spec), refs=[f"Condition/{c['id']}"]))
-                elif kind == "n":
-                    notes = [e for e in self.chart.notes_text(30) if spec in norm(e.text or "")]
-                    segs = self.said((spec,))
-                    if notes:
-                        pro.append(Evidence(texto=f"Registro: “…{spec}…”", refs=[notes[-1].source_ref]))
-                    elif segs:
-                        pro.append(
-                            Evidence(
-                                texto=f"Citado na conversa: {self.quote(segs[-1], 70)}", refs=[fala_ref(segs[-1].n)]
-                            )
-                        )
-            if len(pro) < d.minimum:
+                favor, against = self._evidence(ev, present, denied, classes, labels)
+                if favor:
+                    pro.append(favor)
+                elif against:
+                    con.append(against)
+            if len(pro) < d.minimum or any(
+                not self._evidence(r, present, denied, classes, labels)[0] for r in d.required
+            ):
                 continue
+            for ev in d.against:  # exame ou sinal normal (e sintoma que afasta) conta contra, com a fonte
+                found, _ = self._evidence(ev, present, denied, classes, labels)
+                if found:
+                    kind = ev.partition(":")[0]
+                    note = (
+                        ": dentro do esperado, não sustenta a hipótese"
+                        if kind in ("l", "v")
+                        else " (afasta a hipótese)"
+                    )
+                    con.append(Evidence(texto=f"{found.texto}{note}", refs=found.refs))
             ratio = len(pro) / len(d.evidence)
             if ratio >= 0.75 and len(pro) >= 4:
                 confidence = "alta"
@@ -564,6 +669,7 @@ class Engine:
             else:
                 confidence = "baixa"
             refs = list(dict.fromkeys(r for e in pro for r in e.refs))
+            entry = icd_entry(d.icd)
             out.append(
                 Hypothesis(
                     hipotese=d.hypothesis,
@@ -574,21 +680,189 @@ class Engine:
                     proximos_passos=d.next_steps,
                     sinais_de_alarme=d.red_flags,
                     refs=refs,
+                    cid_descricao=entry.description if entry else "",
+                    pergunta_discriminante=d.question,
+                    exame_discriminante=d.exam,
+                    fonte=d.source,
                 )
             )
         rank = {"alta": 0, "media": 1, "baixa": 2}
-        out.sort(key=lambda h: (rank[h.confianca], -len(h.a_favor)))
-        return out
+        out.sort(key=lambda h: (rank[h.confianca], -len(h.a_favor), len(h.contra)))
+        return out[:MAX_HYPOTHESES]
 
     # ---------- Segurança de medicamentos ----------
-    def med_safety(self, allergies: list[AllergyInfo]) -> list[MedSuggestion]:
+    def _candidates(
+        self, reported: list[tuple[str, str, str]], planned: list[tuple[str, str, str]]
+    ) -> list[tuple[str, str, str, str, str]]:
+        """(princípio, classe, nome, ref, situação) de tudo que o paciente toma ou vai tomar, com a fonte."""
+        catalog = drugs()
+        out = [(m.ingredient, m.drug_class, m.name, m.ref, "em uso") for m in self.chart.active_meds]
+        for situation, items in (
+            ("relatado na consulta", reported),
+            ("que o profissional disse que vai prescrever", planned),
+        ):
+            for ing, term, ref in items:
+                if ing.startswith("@"):
+                    out.append(("", ing[1:], term, ref, situation))
+                elif ing in catalog:
+                    out.append((ing, catalog[ing].drug_class, catalog[ing].name, ref, situation))
+        return out
+
+    def _allergy_matches(
+        self,
+        allergies: list[AllergyInfo],
+        reported: list[tuple[str, str, str]],
+        planned: list[tuple[str, str, str]],
+    ) -> list[tuple[AllergyInfo, str, str, str, str]]:
+        """(alergia, 'direto'|'cruzado', nome, ref, situação) dos medicamentos que batem com cada alergia — o que está
+        em uso, o que o paciente relatou e o que o profissional disse que vai prescrever."""
+        defs = {d.allergen: d for d in knowledge.allergy_defs()}
+        out = []
+        for a in allergies:
+            d = defs.get(a.chave)
+            for ing, cls, name, ref, situation in self._candidates(reported, planned):
+                if a.chave and matches(a.chave, ing, cls):
+                    out.append((a, "direto", name, ref, situation))
+                elif d is not None and any(matches(t, ing, cls) for t in d.cross_with):
+                    out.append((a, "cruzado", name, ref, situation))
+        return out
+
+    def _allergy_alerts(self, matches_: list[tuple[AllergyInfo, str, str, str, str]]) -> list[MedSuggestion]:
+        out = []
+        seen: set[tuple[str, str, str]] = set()
+        for a, kind, name, ref, situation in matches_:
+            key = (a.chave or a.alergeno, kind, name)
+            if key in seen:
+                continue
+            seen.add(key)
+            origin = "consta no prontuário" if a.fonte == "prontuario" else "relatada na consulta"
+            refs = list(dict.fromkeys([ref, *a.refs]))
+            if kind == "direto":
+                tail = "Rever antes de prescrever." if "prescrever" in situation else "Rever a prescrição."
+                text = f"Alergia a {a.alergeno} ({origin}): {name}, {situation}, é do mesmo grupo. {tail}"
+                if situation == "em uso":
+                    text = f"Alergia a {a.alergeno} ({origin}): {name} em uso, do mesmo grupo. {tail}"
+                out.append(
+                    MedSuggestion(texto=text, tipo="alergia", severidade="critico", refs=refs, fonte=a.fonte_regra)
+                )
+            else:
+                text = (
+                    f"Reatividade cruzada com a alergia a {a.alergeno} ({origin}): {name}, {situation}. "
+                    f"{a.reatividade_cruzada} Avaliar antes de prescrever."
+                    if "prescrever" in situation
+                    else f"Reatividade cruzada com a alergia a {a.alergeno} ({origin}): {name} {situation}. "
+                    f"{a.reatividade_cruzada}"
+                )
+                out.append(
+                    MedSuggestion(texto=text, tipo="alergia", severidade="atencao", refs=refs, fonte=a.fonte_regra)
+                )
+        return out
+
+    def _onset_days(self, refs: list[str]) -> int | None:
+        """Há quantos dias o sintoma começou, pelo que o paciente disse na(s) fala(s) dele ou ao responder "desde
+        quando?". None se a conversa não diz."""
+        by_n = {s.n: i for i, s in enumerate(self.segments)}
+        for ref in refs:
+            i = by_n.get(int(ref.split("/")[1]))
+            if i is None:
+                continue
+            for j in (i, i + 2):
+                if j >= len(self.segments):
+                    continue
+                seg = self.segments[j]
+                if j != i and not (
+                    self.segments[i + 1].falante in TEAM_SIDE
+                    and contains(self.norm[self.segments[i + 1].n], ONSET_QUESTION)
+                    and seg.falante in PATIENT_SIDE
+                ):
+                    continue
+                m = DURATION.search(self.norm[seg.n])
+                if m:
+                    raw = m.group(1)
+                    n = int(raw) if raw.isdigit() else NUMBER_WORDS.get(raw, 0)
+                    unit = m.group(2).rstrip("s")
+                    unit = "mes" if unit.startswith("mes") else unit
+                    return int(n * UNIT_DAYS.get(unit, 0)) or None
+        return None
+
+    def adverse_effects(self, present: dict[str, list[str]]) -> list[MedSuggestion]:
+        """Sintoma que começou DEPOIS do início de um fármaco com padrão adverso (adverse_patterns.csv): sugere ao
+        profissional avaliar a relação. Cita a fala do sintoma, a fala em que o paciente liga o remédio e a receita."""
+        labels = {d.key: d.label for d in knowledge.symptoms()}
+        now = self.chart.now
+        out = []
+        for m in self.chart.active_meds:
+            start = m.start or m.authored
+            if start is None or start > now:
+                continue
+            rows = [
+                r
+                for r in adverse_patterns()
+                if r["tipo"] == "efeito_adverso"
+                and r.get("sintomas")
+                and matches(r["medicamento"], m.ingredient, m.drug_class)
+            ]
+            flagged: dict[str, tuple[list[str], int | None]] = {}
+            for r in rows:
+                for key in r["sintomas"].split("|"):
+                    if key not in present or key in flagged:
+                        continue
+                    days = self._onset_days(present[key])
+                    if days is not None:
+                        gap = ((now - start).days) - days  # dias entre o início do fármaco e o do sintoma
+                        if not 0 <= gap <= ADVERSE_WINDOW_DAYS:
+                            continue
+                    elif (now - start).days > ADVERSE_RECENT_DAYS:
+                        continue
+                    flagged[key] = (present[key], days)
+            if not flagged:
+                continue
+            descriptions = list(
+                dict.fromkeys(r["descricao"] for r in rows if set(r["sintomas"].split("|")) & set(flagged))
+            )
+            # "tontura ao levantar" é variante de "tontura": fica o sintoma-mãe
+            parents = {d.key: d.group for d in knowledge.symptoms() if d.group}
+            names = [labels[k] for k in flagged if parents.get(k) not in flagged]
+            title = " e ".join([", ".join(names[:-1]), names[-1].lower()] if len(names) > 1 else names)
+            known = [d for _, d in flagged.values() if d]
+            timing = (
+                f"sintoma há cerca de {max(known)} dias"
+                if known
+                else "início do sintoma não informado: confirmar se foi depois do remédio"
+            )
+            words = {norm(m.name), *(b for b, ing in brands().items() if ing == m.ingredient)}
+            klass = norm(class_label(m.drug_class)).split()[0] if m.drug_class else ""
+            if len(klass) >= 6:
+                words.add(klass)
+            link = [fala_ref(s.n) for s in self.patient_segments if contains(self.norm[s.n], tuple(sorted(words)))]
+            refs = list(dict.fromkeys([r for refs_, _ in flagged.values() for r in refs_[:2]] + link[:2] + [m.ref]))
+            out.append(
+                MedSuggestion(
+                    texto=f"{title} após o início de {m.name} em {fmt_date(start)} ({timing}): "
+                    f"{'; '.join(descriptions)}. Avaliar a relação temporal e considerar ajustar o medicamento.",
+                    tipo="efeito_adverso",
+                    severidade="atencao",
+                    refs=refs,
+                    fonte="Padrões de efeito adverso curados (adverse_patterns.csv)",
+                )
+            )
+        return out
+
+    def med_safety(
+        self,
+        allergies: list[AllergyInfo],
+        present: dict[str, list[str]] | None = None,
+        planned: list[tuple[str, str, str]] | None = None,
+    ) -> list[MedSuggestion]:
         reported = self.reported_meds()
-        classes = self._med_classes(reported)
+        planned = self.planned_meds() if planned is None else planned
+        classes = self._med_classes(reported, planned)
         out: list[MedSuggestion] = []
         egfr = self.chart.egfr
         age = self.r.age or 0
         for ing, cls, name, ref in classes:
             fired: set[str] = set()
+            is_planned = name.endswith(PLANNED_SUFFIX)
             for rule in sorted(knowledge.dose_alerts(), key=lambda r: r.limit):
                 if not matches(rule.item, ing, cls) or rule.criterion in fired:
                     continue
@@ -597,9 +871,14 @@ class Engine:
                     out.append(
                         MedSuggestion(
                             texto=f"{name}: {rule.recommendation} (TFG estimada ~{round(egfr[0])} mL/min/1,73 m²)",
-                            tipo="suspender" if rule.severity == "critico" else "ajuste_dose",
+                            tipo="alternativa"
+                            if is_planned and rule.severity == "critico"
+                            else "suspender"
+                            if rule.severity == "critico"
+                            else "ajuste_dose",
                             severidade=rule.severity,
                             refs=[ref, egfr[1].source_ref],
+                            fonte=rule.source,
                         )
                     )
                 elif rule.criterion == "idade" and age >= rule.limit:
@@ -610,6 +889,7 @@ class Engine:
                             tipo="alternativa",
                             severidade=rule.severity,
                             refs=[ref],
+                            fonte=rule.source,
                         )
                     )
         seen_pairs: set[frozenset] = set()
@@ -630,6 +910,7 @@ class Engine:
                                 tipo="interacao",
                                 severidade=row["severidade"],
                                 refs=[a[3], b[3]],
+                                fonte=row.get("fonte", ""),
                             )
                         )
                         break
@@ -644,18 +925,11 @@ class Engine:
                     tipo="suspender",
                     severidade="critico",
                     refs=[raas[0][3], diuretic[0][3], nsaid[0][3]],
+                    fonte="KDIGO: CKD guideline (2024); bulas dos AINE (ANVISA)",
                 )
             )
-        for a in allergies:
-            for conflict in a.conflitos:
-                out.append(
-                    MedSuggestion(
-                        texto=f"Alergia a {a.alergeno}: {conflict}. Rever a prescrição.",
-                        tipo="alergia",
-                        severidade="critico",
-                        refs=a.refs,
-                    )
-                )
+        out += self._allergy_alerts(self._allergy_matches(allergies, reported, planned))
+        out += self.adverse_effects(present or {})
         active = {m.ingredient for m in self.chart.active_meds}
         for ing, term, ref in reported:
             if ing not in active:
@@ -700,14 +974,42 @@ class Engine:
                     refs=[fala_ref(s.n) for s in adherence],
                 )
             )
+        # selo de alto alerta (MPP): dupla checagem. O que está no prontuário usa os achados da reconciliação
+        # (medrec); o que foi relatado ou será prescrito passa pelo mesmo motivo, com mais peso se for novo
+        sealed: set[str] = set()
+        for f in high_alert_findings(self.chart.active_meds, set()):
+            sealed.update(f.medicamentos)
+            out.append(
+                MedSuggestion(
+                    texto=f"{f.titulo}. {f.detalhe}.",
+                    tipo="alto_alerta",
+                    severidade=f.severidade,
+                    refs=f.refs,
+                    fonte=HIGH_ALERT_SOURCE,
+                )
+            )
+        for ing, cls, name, ref in classes:
+            reason = high_alert_reason(ing, cls)
+            if reason and (ing or cls) not in sealed:
+                sealed.add(ing or cls)
+                out.append(
+                    MedSuggestion(
+                        texto=f"Dupla checagem: {name}. {reason}.",
+                        tipo="alto_alerta",
+                        severidade="atencao" if name.endswith(PLANNED_SUFFIX) else "info",
+                        refs=[ref],
+                        fonte=HIGH_ALERT_SOURCE,
+                    )
+                )
         out.sort(key=lambda m: SEVERITY[m.severidade])
         return out
 
     # ---------- Alergias relatadas ----------
-    def allergies(self) -> list[AllergyInfo]:
-        out = self.chart.chart_allergies()
+    def allergies(self, planned: list[tuple[str, str, str]] | None = None) -> list[AllergyInfo]:
+        reported_meds = self.reported_meds()
+        planned = self.planned_meds() if planned is None else planned
+        out = self.chart.chart_allergies([(ing, term) for ing, term, _ in reported_meds])
         known = {norm(a.alergeno) for a in out}
-        reported = [(ing, term) for ing, term, _ in self.reported_meds()]
         for s in self.patient_segments:
             for clause in self.norm[s.n].split("."):
                 # "não tenho alergia a dipirona", "alergia a dipirona não", "tem alergia a algum remédio" (pergunta)
@@ -729,11 +1031,26 @@ class Engine:
                             evitar=d.avoid,
                             alternativas=d.alternatives,
                             dicas=d.tips,
-                            conflitos=self.chart.allergy_conflicts(d.allergen, reported),
+                            conflitos=[],
                             refs=[fala_ref(s.n)],
+                            chave=d.allergen,
+                            criticidade=self._reaction_severity(self.norm[s.n]),
+                            fonte_regra=d.source,
                         )
                     )
+        # conflitos (e reatividade cruzada) com o que está em uso, o que o paciente relatou e o que o médico vai passar
+        for a, kind, name, _ref, situation in self._allergy_matches(out, reported_meds, planned):
+            line = f"{name} {situation}" if kind == "direto" else f"possível reação cruzada: {name} {situation}"
+            if line not in a.conflitos:
+                a.conflitos.append(line)
         return out
+
+    @staticmethod
+    def _reaction_severity(clause: str) -> str:
+        """Criticidade (FHIR) pelo que o paciente conta da reação: via aérea/anafilaxia = alta; só pele = baixa."""
+        if contains(clause, REACTION_HIGH):
+            return "alta"
+        return "baixa" if contains(clause, REACTION_LOW) else "indeterminada"
 
     # ---------- Histórico relatado + cirurgia citada ----------
     def reported_history(self) -> list[HistoryItem]:
@@ -877,11 +1194,15 @@ class Engine:
                 consumed=self.extra.get("opme_consumo", []),
                 billing=billing_params(self.extra),
             )
+            report.cids, self.dropped = screen(
+                report.cids, "cids", self.r.sex, primary=lambda c: c.tipo != "secundario", trusted=self.chart.icd_codes
+            )
             return Insights(
                 tipo="cirurgia",
                 especialidade=self.specialty,
                 falas_analisadas=len(self.segments),
                 modo="regras",
+                descartados=self.dropped,
                 relatorio_cirurgico=report,
                 alergias=self.chart.chart_allergies(),
                 alertas=[p for p in report.pendencias if p.severidade == "critico"],
@@ -899,8 +1220,9 @@ class Engine:
         surgery_items, surgery_refs = self.surgery()
         hyps = self.hypotheses(present, tags)
         questions, covered = self.questions(present, emotions, surgery_refs, hyps, sem, specialty_fields)
-        allergies = self.allergies()
-        meds_safety = self.med_safety(allergies)
+        planned = self.planned_meds()
+        allergies = self.allergies(planned)
+        meds_safety = self.med_safety(allergies, present, planned)
         reported = self.reported_meds()
         exams = self.chart.exams()
         history = self.chart.history() + self.reported_history()
@@ -925,7 +1247,7 @@ class Engine:
             historico=history,
             alergias=allergies,
             exames=exams,
-            medicamentos=self.chart.meds(reported, self.suspended_meds()),
+            medicamentos=self.chart.meds(reported, self.suspended_meds(), planned),
             sugestoes_medicamentos=meds_safety,
             cirurgia=surgery_items,
             protocolos=self.chart.protocols(),
@@ -933,4 +1255,5 @@ class Engine:
             anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),
             alertas=alerts,
             tfg=egfr[0] if egfr else None,
+            descartados=self.dropped,
         )

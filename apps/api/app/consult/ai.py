@@ -13,10 +13,12 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
     SPECIALTIES,
     SPECIALTY_FOCUS,
+    allergy_defs,
     anamnesis_question_ids,
     emotions,
     semiology,
@@ -24,6 +26,7 @@ from app.consult.knowledge import (
 )
 from app.consult.schemas import (
     LANGUAGE_LABELS,
+    AllergyInfo,
     Anamnese,
     CampoEspecialidade,
     CampoSemio,
@@ -49,9 +52,10 @@ from app.consult.schemas import (
     Tag,
     fala_ref,
 )
-from app.consult.text import norm
+from app.consult.text import contains, norm
 from app.llm.client import LLMResult, generate_structured
 from app.llm.pseudonymize import Pseudonymizer
+from app.reference import icd_entry
 
 KIND_LABEL = {"consulta": "consulta", "visita": "visita à beira do leito", "cirurgia": "ditado de relatório cirúrgico"}
 EmotionKey = Literal["ansiedade", "preocupacao", "tristeza", "frustracao", "confusao", "dor", "alivio", "confianca"]
@@ -101,9 +105,28 @@ class AiHypothesis(BaseModel):
 
 class AiMedSuggestion(BaseModel):
     texto: str
-    tipo: Literal["ajuste_dose", "alternativa", "suspender", "interacao", "registrar", "adesao", "alergia"]
+    tipo: Literal[
+        "ajuste_dose",
+        "alternativa",
+        "suspender",
+        "interacao",
+        "registrar",
+        "adesao",
+        "alergia",
+        "efeito_adverso",
+        "alto_alerta",
+    ]
     severidade: Severity
     refs: list[str]
+
+
+class AiAlergia(BaseModel):
+    """Alergia que o paciente (ou o acompanhante) contou e as regras não reconheceram: entra como "IA — confirmar"."""
+
+    alergeno: str
+    reacao: str
+    criticidade: Literal["alta", "baixa", "indeterminada"]
+    refs: list[str]  # falas do paciente/acompanhante em que ele contou
 
 
 class AiText(BaseModel):
@@ -174,6 +197,7 @@ class ClinicaOutput(BaseModel):
     cirurgia: list[AiText]
     historico_relatado: list[AiText]
     anamnese: AiAnamnese
+    alergias_relatadas: list[AiAlergia] = []
 
 
 class ConsultLiveOutput(BaseModel):
@@ -191,6 +215,7 @@ class ConsultLiveOutput(BaseModel):
     anamnese: Anamnese
     falantes: list[AiSpeaker]
     perguntas_abordadas: list[AiAbordada] = []
+    alergias_relatadas: list[AiAlergia] = []
 
 
 class AiTranslation(BaseModel):
@@ -347,6 +372,7 @@ class RefValidator:
                         "texto": getattr(it, "texto", None)
                         or getattr(it, "pergunta", None)
                         or getattr(it, "hipotese", None)
+                        or getattr(it, "alergeno", None)
                         or getattr(it, "rotulo", ""),
                         "refs_invalidas": [r for r in it.refs if r not in self.valid],
                     }
@@ -466,7 +492,9 @@ def _similar(a: str, b: str) -> bool:
 
 
 # ---------- mescla IA + regras ----------
-def merge_live(base: Insights, ai: ConsultLiveOutput, valid: set[str], segments: list[Segment]) -> Insights:
+def merge_live(
+    base: Insights, ai: ConsultLiveOutput, valid: set[str], segments: list[Segment], sex: str = ""
+) -> Insights:
     v = RefValidator(valid)
     labels = {d.key: d.label for d in emotions()}
     approach = {d.key: d.approach for d in emotions()}
@@ -522,14 +550,24 @@ def merge_live(base: Insights, ai: ConsultLiveOutput, valid: set[str], segments:
     out.perguntas_abordadas = base.perguntas_abordadas + moved
 
     hyps = []
-    for h in ai.hipoteses:
+    # CID que a tabela oficial não aceita (inexistente, causa externa, restrito ao outro sexo) não vira hipótese
+    proposed, bad_cids = screen(ai.hipoteses, "hipoteses", sex, code="cid", label="hipotese", primary=True)
+    v.dropped += bad_cids
+    for h in proposed:
         pro = [e for e in h.a_favor if v.ok(e.refs)]
         con = [e for e in h.contra if v.ok(e.refs)]
         refs = [r for r in h.refs if r in valid] or [r for e in pro for r in e.refs]
         if not pro or not refs:
             v.dropped.append({"onde": "hipoteses", "texto": h.hipotese, "refs_invalidas": h.refs})
             continue
-        hyps.append(Hypothesis(**(h.model_dump() | {"a_favor": pro, "contra": con, "refs": refs}), origem="ia"))
+        entry = icd_entry(h.cid)
+        hyps.append(
+            Hypothesis(
+                **(h.model_dump() | {"a_favor": pro, "contra": con, "refs": refs}),
+                origem="ia",
+                cid_descricao=entry.description if entry else "",
+            )
+        )
     rule_cids = {h.cid[:3] for h in base.hipoteses}
     out.hipoteses = base.hipoteses + [h for h in hyps if h.cid[:3] not in rule_cids]
 
@@ -560,7 +598,41 @@ def merge_live(base: Insights, ai: ConsultLiveOutput, valid: set[str], segments:
             return row in semio_ids and (chave, semio_ids[row]) in known
 
         out.perguntas = [q for q in out.perguntas if not answered(q)]
-    out.descartados = v.dropped
+    out.alergias = base.alergias + _ai_allergies(base, ai, v, segments)
+    out.descartados = base.descartados + v.dropped
+    return out
+
+
+def _ai_allergies(base: Insights, ai: ConsultLiveOutput, v: RefValidator, segments: list[Segment]) -> list[AllergyInfo]:
+    """Alergias que só a IA viu: valem com fonte (fala de quem tem a alergia, ou o acompanhante) e entram com o selo
+    "IA — confirmar". A reatividade cruzada vem da base curada quando o alérgeno é conhecido."""
+    known = [a.alergeno for a in base.alergias]
+    out: list[AllergyInfo] = []
+    for al in v.keep(ai.alergias_relatadas, "alergias"):
+        spoken = [_fala(r, segments) for r in al.refs]
+        if not al.alergeno.strip() or not all(x is not None and x.falante in PATIENT_SIDE for x in spoken):
+            v.dropped.append({"onde": "alergias", "texto": al.alergeno, "refs_invalidas": al.refs})
+            continue
+        if any(_similar(al.alergeno, k) or norm(al.alergeno) in norm(k) for k in [*known, *(a.alergeno for a in out)]):
+            continue  # as regras (ou a própria IA) já registraram
+        d = next((x for x in allergy_defs() if contains(norm(al.alergeno), x.words)), None)
+        out.append(
+            AllergyInfo(
+                alergeno=d.label if d else al.alergeno.strip(),
+                reacao=f"Relatado: {al.reacao.strip() or '—'}",
+                fonte="relatado",
+                reatividade_cruzada=d.cross if d else "Sem dados de reatividade cruzada na base de demonstração.",
+                evitar=d.avoid if d else al.alergeno.strip(),
+                alternativas=d.alternatives if d else "—",
+                dicas=d.tips if d else "Informe a alergia em toda consulta e atendimento.",
+                conflitos=[],
+                refs=al.refs,
+                origem="ia",
+                chave=d.allergen if d else "",
+                criticidade=al.criticidade,
+                fonte_regra=d.source if d else "",
+            )
+        )
     return out
 
 
@@ -576,6 +648,7 @@ def mock_live(base: Insights) -> dict:
         "sugestoes_medicamentos": [],
         "cirurgia": [],
         "historico_relatado": [],
+        "alergias_relatadas": [],
         "anamnese": anamnese_to_ai(base.anamnese)
         if base.anamnese
         else AiAnamnese(
@@ -591,6 +664,27 @@ def mock_live(base: Insights) -> dict:
         "falantes": [],
         "perguntas_abordadas": [],
     }
+
+
+def reconcile_ai_allergies(engine: Engine, ins: Insights) -> None:
+    """Alergia que só a IA achou também passa pela checagem determinística: medicamento em uso, relatado ou que o
+    profissional disse que vai prescrever, do mesmo grupo (ou com reação cruzada), vira alerta e conflito."""
+    extra = [a for a in ins.alergias if a.origem == "ia"]
+    if not extra:
+        return
+    reported, planned = engine.reported_meds(), engine.planned_meds()
+    matches_ = engine._allergy_matches(extra, reported, planned)
+    for a, kind, name, _ref, situation in matches_:
+        line = f"{name} {situation}" if kind == "direto" else f"possível reação cruzada: {name} {situation}"
+        if line not in a.conflitos:
+            a.conflitos.append(line)
+    alerts = engine._allergy_alerts(matches_)
+    ins.sugestoes_medicamentos += [
+        m for m in alerts if not any(_similar(m.texto, b.texto) for b in ins.sugestoes_medicamentos)
+    ]
+    ins.alertas += [
+        Highlight(texto=m.texto, severidade=m.severidade, refs=m.refs) for m in alerts if m.severidade == "critico"
+    ]
 
 
 def run_live(engine: Engine, base: Insights, pseudo: Pseudonymizer, valid: set[str]):
@@ -620,7 +714,8 @@ def run_live(engine: Engine, base: Insights, pseudo: Pseudonymizer, valid: set[s
         mode=conv.mode,
         repaired=conv.repaired or clin.repaired,
     )
-    merged = merge_live(base, result.output, valid, engine.segments)
+    merged = merge_live(base, result.output, valid, engine.segments, engine.r.sex)
+    reconcile_ai_allergies(engine, merged)
     if result.mode == "mock":
         merged.modo = "regras"
     return merged, result
@@ -634,6 +729,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     vitals = [e for e in engine.chart.events if e.kind == "vital" and (engine.chart.now - e.timestamp).days <= 1]
     abnormal = [e for e in ins.exames if e.status != "normal"]
     plan = [m for m in ins.sugestoes_medicamentos if m.severidade in ("critico", "atencao")]
+    planned_meds = [m for m in ins.medicamentos if m.status == "planejado"]
     pending_protocol = [p for p in ins.protocolos if p.status in ("sem_registro", "pendente")]
     cids = [{"codigo": h.cid, "descricao": h.hipotese, "tipo": "hipotese", "refs": h.refs[:3]} for h in hyps] + [
         {"codigo": icd, "descricao": text, "tipo": "secundario", "refs": [f"Condition/{c['id']}"]}
@@ -686,10 +782,10 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
             "texto": "; ".join(
                 f"{m.posologia}" if m.status != "relatado" else f"{m.medicamento} (relatado)"
                 for m in ins.medicamentos
-                if m.status != "suspenso"
+                if m.status not in ("suspenso", "planejado")
             )
             or no_record,
-            "refs": [r for m in ins.medicamentos if m.status != "suspenso" for r in m.refs],
+            "refs": [r for m in ins.medicamentos if m.status not in ("suspenso", "planejado") for r in m.refs],
         },
         "alergias": {
             "texto": "; ".join(
@@ -717,8 +813,12 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
             "refs": [r for h in hyps for r in h.refs[:2]],
         },
         "plano": {
-            "texto": "; ".join(f"{m.texto} (a confirmar)" for m in plan) or no_record,
-            "refs": [r for m in plan for r in m.refs],
+            "texto": "; ".join(
+                [f"Prescrição citada pelo profissional: {m.medicamento} (a confirmar)" for m in planned_meds]
+                + [f"{m.texto} (a confirmar)" for m in plan]
+            )
+            or no_record,
+            "refs": [r for m in planned_meds for r in m.refs] + [r for m in plan for r in m.refs],
         },
         "cids": cids,
         "cronologia": chrono,
@@ -766,6 +866,15 @@ def run_note(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[st
         section: NoteSection = getattr(note, name)
         section.refs = [r for r in section.refs if r in valid]
     note.cids = v.keep(note.cids, "cids")
+    # CID da nota precisa existir na tabela oficial; diagnóstico/hipótese não pode ser causa externa nem de outro sexo
+    note.cids, bad_cids = screen(
+        note.cids,
+        "cids",
+        engine.r.sex,
+        primary=lambda c: c.tipo in ("principal", "hipotese"),
+        trusted=engine.chart.icd_codes,
+    )
+    v.dropped += bad_cids
     note.cronologia = [c for c in note.cronologia if all(r in valid for r in c.refs)]
     note.pendencias = v.keep(note.pendencias, "pendencias")
     return note, result, v.dropped
@@ -829,7 +938,15 @@ def run_surgical(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: se
             new_fields.append(f.model_copy(update={"texto": ai.texto, "refs": ai.refs or f.refs}))
         else:
             new_fields.append(f)  # campo não ditado continua vazio: a pendência é do cirurgião, não da IA
-    cids = v.keep(result.output.cids, "cids") or report.cids
+    proposed, bad_cids = screen(
+        v.keep(result.output.cids, "cids"),
+        "cids",
+        engine.r.sex,
+        primary=lambda c: c.tipo != "secundario",
+        trusted=engine.chart.icd_codes,
+    )
+    v.dropped += bad_cids
+    cids = proposed or report.cids
     out = ins.model_copy(deep=True)
     out.relatorio_cirurgico = report.model_copy(update={"campos": new_fields, "cids": cids})
     out.modo = "ia" if result.mode == "real" else "regras"

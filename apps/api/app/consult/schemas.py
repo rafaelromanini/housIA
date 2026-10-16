@@ -128,6 +128,10 @@ class Hypothesis(BaseModel):
     sinais_de_alarme: str
     refs: list[str]
     origem: Origin = "regra"
+    cid_descricao: str = ""  # descrição oficial do CID (cid10.csv); vazio quando o CID não existe
+    pergunta_discriminante: str = ""  # a pergunta que mais separa esta hipótese das vizinhas
+    exame_discriminante: str = ""  # o exame que a confirma ou afasta
+    fonte: str = ""  # diretriz de onde vem a linha curada
 
 
 class HistoryItem(BaseModel):
@@ -149,6 +153,9 @@ class AllergyInfo(BaseModel):
     conflitos: list[str]
     refs: list[str]
     origem: Origin = "regra"
+    chave: str = ""  # alérgeno na base de reatividade cruzada: princípio ativo, "@classe" ou "alimento:..."
+    criticidade: Literal["alta", "baixa", "indeterminada"] = "indeterminada"  # FHIR AllergyIntolerance.criticality
+    fonte_regra: str = ""  # de onde vem a reatividade cruzada (allergy_cross.csv)
 
 
 class ExamInfo(BaseModel):
@@ -167,17 +174,28 @@ class MedItem(BaseModel):
     medicamento: str
     posologia: str
     desde: str | None = None
-    status: Literal["em_uso", "suspenso", "relatado"]
+    status: Literal["em_uso", "suspenso", "relatado", "planejado"]
     observacao: str | None = None
     refs: list[str]
 
 
 class MedSuggestion(BaseModel):
     texto: str
-    tipo: Literal["ajuste_dose", "alternativa", "suspender", "interacao", "registrar", "adesao", "alergia"]
+    tipo: Literal[
+        "ajuste_dose",
+        "alternativa",
+        "suspender",
+        "interacao",
+        "registrar",
+        "adesao",
+        "alergia",
+        "efeito_adverso",
+        "alto_alerta",
+    ]
     severidade: Severity
     refs: list[str]
     origem: Origin = "regra"
+    fonte: str = ""  # regra de onde vem o alerta (dose_alerts.csv, interactions.csv, allergy_cross.csv...)
 
 
 class SurgeryItem(BaseModel):

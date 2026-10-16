@@ -2,6 +2,7 @@
 
 import csv
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -67,6 +68,56 @@ def charlson() -> list[dict[str, str]]:
 @lru_cache
 def adverse_patterns() -> list[dict[str, str]]:
     return _read_csv("adverse_patterns.csv")
+
+
+@dataclass(frozen=True)
+class Cid10Entry:
+    code: str
+    description: str
+    kind: str  # "categoria" (3 caracteres) ou "subcategoria"
+    sex: str  # "F" ou "M" quando o código só vale para um sexo
+
+
+@lru_cache
+def cid10() -> dict[str, Cid10Entry]:
+    """CID-10 oficial (DATASUS, revisão 2008): categorias e subcategorias, por código com ponto (J06.9).
+
+    Montada por scripts/build_cid10.py a partir dos arquivos públicos do DATASUS.
+    """
+    return {r["codigo"]: Cid10Entry(r["codigo"], r["descricao"], r["tipo"], r["sexo"]) for r in _read_csv("cid10.csv")}
+
+
+def norm_icd(code: str | None) -> str:
+    """ "j45.9", "J459" e " J45,9 " viram "J45.9"; o que não tem o formato de um código vira ""."""
+    c = (code or "").strip().upper().replace(",", ".").replace(" ", "")
+    if len(c) >= 4 and c[3] != ".":
+        c = f"{c[:3]}.{c[3:]}"
+    return c if re.fullmatch(r"[A-Z]\d{2}(\.\d{1,2})?", c) else ""
+
+
+def valid_icd(code: str | None) -> bool:
+    """O código existe na CID-10 oficial (categoria ou subcategoria)? Código inventado ("J99.9") não existe."""
+    return norm_icd(code) in cid10()
+
+
+def icd_entry(code: str | None) -> Cid10Entry | None:
+    return cid10().get(norm_icd(code))
+
+
+def icd_problem(code: str | None, sex: str = "", primary: bool = False) -> str | None:
+    """Motivo para recusar o código num diagnóstico/hipótese do paciente, ou None se pode entrar.
+
+    `primary`: hipótese ou diagnóstico principal. O capítulo XX (causas externas, V01–Y98) só complementa um
+    diagnóstico e não pode ser a hipótese.
+    """
+    entry = icd_entry(code)
+    if entry is None:
+        return "CID inexistente"
+    if primary and entry.code[0] in "VWXY":
+        return "CID de causa externa não é diagnóstico"
+    if entry.sex and sex in ("F", "M") and entry.sex != sex:
+        return f"CID restrito ao sexo {'feminino' if entry.sex == 'F' else 'masculino'}"
+    return None
 
 
 @lru_cache

@@ -1,5 +1,5 @@
 ---
-version: 1.1.0
+version: 1.2.0
 description: Relatório cirúrgico a partir do ditado do cirurgião (campos estruturados + CID-10)
 ---
 # system
@@ -17,7 +17,8 @@ Regras obrigatórias:
 - Cirurgia Segura, lateralidade, contagem e profilaxia são verificadas pelo HousIA de forma determinística: não
   as reescreva nem as contradiga; se o ditado disser que a contagem não confere, o campo diz isso.
 - `cids`: CID-10 do diagnóstico pré/pós-operatório quando inequívoco, com refs (falas ou Condition do
-  prontuário). Não sugira códigos de procedimento (TUSS/CBHPM).
+  prontuário). Use só códigos REAIS da CID-10 do DATASUS (o HousIA confere na tabela oficial e descarta o código
+  inexistente). Não sugira códigos de procedimento (TUSS/CBHPM).
 - Sem texto fora do JSON. O paciente é [PACIENTE].
 
 # user

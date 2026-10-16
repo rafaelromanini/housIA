@@ -57,12 +57,30 @@ class QuestionDef:
 
 @dataclass(frozen=True)
 class DifferentialDef:
+    """Hipótese diagnóstica (consult_differentials.csv).
+
+    Fichas de evidência: `s:` sintoma, `l:`/`v:` exame/sinal vital (chave:op:limite), `c:` medicamento em uso (princípio
+    ou classe), `d:` diagnóstico ativo (prefixo de CID), `p:` procedimento já realizado, `n:` palavra na nota ou na
+    conversa. Com `-` na frente, a ficha
+    é evidência CONTRA (um exame ou sinal normal, um sintoma que torna a hipótese menos provável); com `!`, é
+    obrigatória (a hipótese só entra se ela existir).
+    """
+
     hypothesis: str
     icd: str
-    evidence: tuple[str, ...]
+    evidence: tuple[str, ...]  # a favor, sem o "!"
     minimum: int
     next_steps: str
     red_flags: str
+    against: tuple[str, ...] = ()
+    required: tuple[str, ...] = ()
+    specialty: str = ""
+    age_min: int | None = None
+    age_max: int | None = None
+    sex: str = ""
+    question: str = ""  # a pergunta que mais separa esta hipótese das vizinhas
+    exam: str = ""  # o exame que a confirma ou afasta
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -74,6 +92,10 @@ class AllergyDef:
     avoid: str
     alternatives: str
     tips: str
+    cross_with: tuple[
+        str, ...
+    ] = ()  # princípios ativos e "@classes" com risco de reação cruzada (atenção, não bloqueio)
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,6 +105,7 @@ class DoseAlertDef:
     limit: float
     severity: str
     recommendation: str
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -206,17 +229,29 @@ def anamnesis_question_ids() -> frozenset[str]:
 
 @lru_cache
 def differentials() -> tuple[DifferentialDef, ...]:
-    return tuple(
-        DifferentialDef(
-            r["hipotese"],
-            r["cid"],
-            _words(r["evidencias"]),
-            int(r["minimo"]),
-            r["proximos_passos"],
-            r["sinais_de_alarme"],
+    out = []
+    for r in _read_csv("consult_differentials.csv"):
+        tokens = _words(r["evidencias"])
+        out.append(
+            DifferentialDef(
+                r["hipotese"],
+                r["cid"],
+                tuple(t.lstrip("!") for t in tokens if not t.startswith("-")),
+                int(r["minimo"]),
+                r["proximos_passos"],
+                r["sinais_de_alarme"],
+                against=tuple(t[1:] for t in tokens if t.startswith("-")),
+                required=tuple(t[1:] for t in tokens if t.startswith("!")),
+                specialty=r.get("especialidade", ""),
+                age_min=_int(r.get("idade_min")),
+                age_max=_int(r.get("idade_max")),
+                sex=r.get("sexo", ""),
+                question=r.get("pergunta", ""),
+                exam=r.get("exame", ""),
+                source=r.get("fonte", ""),
+            )
         )
-        for r in _read_csv("consult_differentials.csv")
-    )
+    return tuple(out)
 
 
 # ---------- semiologia por queixa (data/reference/consult_semiology.yaml) ----------
@@ -315,6 +350,8 @@ def allergy_defs() -> tuple[AllergyDef, ...]:
             r["evitar"],
             r["alternativas"],
             r["dicas"],
+            _words(r.get("cruza_com", "")),
+            r.get("fonte", ""),
         )
         for r in _read_csv("allergy_cross.csv")
     )
@@ -323,7 +360,9 @@ def allergy_defs() -> tuple[AllergyDef, ...]:
 @lru_cache
 def dose_alerts() -> tuple[DoseAlertDef, ...]:
     return tuple(
-        DoseAlertDef(r["item"], r["criterio"], float(r["limite"]), r["severidade"], r["recomendacao"])
+        DoseAlertDef(
+            r["item"], r["criterio"], float(r["limite"]), r["severidade"], r["recomendacao"], r.get("fonte", "")
+        )
         for r in _read_csv("dose_alerts.csv")
     )
 

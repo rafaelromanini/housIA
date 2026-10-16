@@ -525,6 +525,12 @@ export interface ConsultHypothesis {
   sinais_de_alarme: string;
   refs: string[];
   origem: Origin;
+  /** descrição oficial do CID-10 (DATASUS) */
+  cid_descricao?: string;
+  /** a pergunta e o exame que mais separam esta hipótese das vizinhas */
+  pergunta_discriminante?: string;
+  exame_discriminante?: string;
+  fonte?: string;
 }
 export interface HistoryItem {
   texto: string;
@@ -544,6 +550,11 @@ export interface AllergyInfo {
   conflitos: string[];
   refs: string[];
   origem: Origin;
+  chave?: string;
+  /** criticidade FHIR: potencial de reação grave */
+  criticidade?: "alta" | "baixa" | "indeterminada";
+  /** de onde vem a reatividade cruzada */
+  fonte_regra?: string;
 }
 export interface ExamInfo {
   exame: string;
@@ -560,16 +571,27 @@ export interface MedItem {
   medicamento: string;
   posologia: string;
   desde: string | null;
-  status: "em_uso" | "suspenso" | "relatado";
+  status: "em_uso" | "suspenso" | "relatado" | "planejado";
   observacao: string | null;
   refs: string[];
 }
 export interface MedSuggestion {
   texto: string;
-  tipo: "ajuste_dose" | "alternativa" | "suspender" | "interacao" | "registrar" | "adesao" | "alergia";
+  tipo:
+    | "ajuste_dose"
+    | "alternativa"
+    | "suspender"
+    | "interacao"
+    | "registrar"
+    | "adesao"
+    | "alergia"
+    | "efeito_adverso"
+    | "alto_alerta";
   severidade: Severity;
   refs: string[];
   origem: Origin;
+  /** regra de onde vem o alerta */
+  fonte?: string;
 }
 export interface SurgeryItem {
   texto: string;

@@ -404,6 +404,7 @@ export function SmartAppsPanel({
                   <SeverityIcon severity="critico" className="mt-0.5 size-5 shrink-0" />
                   <div>
                     <p className="font-bold text-critico">{r(m.texto)}</p>
+                    {m.fonte && <p className="text-xs text-muted-foreground">Fonte da regra: {m.fonte}</p>}
                     <SourceRefs patientId={pid} refs={m.refs} />
                   </div>
                 </li>
@@ -571,7 +572,7 @@ export function SmartAppsPanel({
                 <li key={h.hipotese + h.cid} className={cn("rounded-md border p-2.5 text-sm", h.origem === "ia" && "border-dashed")}>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p className="font-bold">{r(h.hipotese)}</p>
-                    <Badge variant="outline" className="font-mono text-[11px]">
+                    <Badge variant="outline" className="font-mono text-[11px]" title={h.cid_descricao || undefined}>
                       CID {h.cid}
                     </Badge>
                     <Badge variant={CONFIDENCE[h.confianca]} className="text-[11px]">
@@ -593,10 +594,26 @@ export function SmartAppsPanel({
                       </li>
                     ))}
                   </ul>
+                  {h.cid_descricao && (
+                    <p className="mt-1 text-xs text-muted-foreground">CID-10 (DATASUS): {h.cid_descricao}</p>
+                  )}
                   <p className="mt-1">
                     <span className="font-bold">Próximos passos: </span>
                     {r(h.proximos_passos)}
                   </p>
+                  {h.pergunta_discriminante && (
+                    <p className="mt-0.5">
+                      <span className="font-bold">Pergunta que separa: </span>
+                      {r(h.pergunta_discriminante)}
+                    </p>
+                  )}
+                  {h.exame_discriminante && (
+                    <p className="mt-0.5">
+                      <span className="font-bold">Exame que separa: </span>
+                      {r(h.exame_discriminante)}
+                    </p>
+                  )}
+                  {h.fonte && <p className="mt-0.5 text-xs text-muted-foreground">Fonte: {h.fonte}</p>}
                   {h.sinais_de_alarme && (
                     <p className="mt-0.5 text-critico">
                       <span className="font-bold">Sinais de alarme: </span>
@@ -683,6 +700,7 @@ export function SmartAppsPanel({
                   <SeverityIcon severity={m.severidade} className="mt-0.5 size-4 shrink-0" />
                   <span className="flex-1">
                     {r(m.texto)} {m.origem === "ia" && <OriginBadge origem="ia" />} <SourceRefs patientId={pid} refs={m.refs} />
+                    {m.fonte && <span className="block text-xs text-muted-foreground">Fonte da regra: {m.fonte}</span>}
                   </span>
                 </li>
               ))}
@@ -710,8 +728,11 @@ export function SmartAppsPanel({
                       {m.observacao && <span className="block text-xs text-muted-foreground">{m.observacao}</span>}
                     </td>
                     <td className="py-1.5">
-                      <Badge variant={m.status === "em_uso" ? "ok" : m.status === "relatado" ? "atencao" : "outline"} className="text-[11px]">
-                        {{ em_uso: "Em uso", suspenso: "Suspenso", relatado: "Relatado" }[m.status]}
+                      <Badge
+                        variant={m.status === "em_uso" ? "ok" : m.status === "relatado" || m.status === "planejado" ? "atencao" : "outline"}
+                        className="text-[11px]"
+                      >
+                        {{ em_uso: "Em uso", suspenso: "Suspenso", relatado: "Relatado", planejado: "A prescrever" }[m.status]}
                       </Badge>
                     </td>
                   </tr>
@@ -735,6 +756,12 @@ export function SmartAppsPanel({
                     <Badge variant={a.fonte === "prontuario" ? "outline" : "atencao"} className="text-[11px]">
                       {a.fonte === "prontuario" ? "No prontuário" : "Relatada — registrar no prontuário"}
                     </Badge>
+                    {a.criticidade && a.criticidade !== "indeterminada" && (
+                      <Badge variant={a.criticidade === "alta" ? "critico" : "outline"} className="text-[11px]">
+                        criticidade {a.criticidade}
+                      </Badge>
+                    )}
+                    {a.origem === "ia" && <Badge variant="atencao" className="text-[11px]">IA — confirmar</Badge>}
                   </div>
                   <p>{a.reacao}</p>
                   {a.conflitos.map((c) => (
@@ -745,7 +772,10 @@ export function SmartAppsPanel({
                   <dl className="mt-1 grid gap-0.5">
                     <div>
                       <dt className="inline font-bold">Reatividade cruzada: </dt>
-                      <dd className="inline">{a.reatividade_cruzada}</dd>
+                      <dd className="inline">
+                        {a.reatividade_cruzada}
+                        {a.fonte_regra && <span className="text-xs text-muted-foreground"> (fonte: {a.fonte_regra})</span>}
+                      </dd>
                     </div>
                     <div>
                       <dt className="inline font-bold">Evitar: </dt>

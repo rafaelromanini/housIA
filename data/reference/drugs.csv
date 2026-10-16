@@ -87,3 +87,41 @@ carbamazepina,Carbamazepina,N03AF01,anticonvulsivante
 alopurinol,Alopurinol,M04AA01,antigotoso
 lactulose,Lactulose,A06AD11,laxativo
 bromoprida,Bromoprida,A03FA04,procinetico
+ampicilina,Ampicilina,J01CA01,penicilina
+oxacilina,Oxacilina,J01CF04,penicilina
+benzilpenicilina_benzatina,Benzilpenicilina benzatina,J01CE08,penicilina
+cefalexina,Cefalexina,J01DB01,cefalosporina
+cefadroxil,Cefadroxil,J01DB05,cefalosporina
+cefaclor,Cefaclor,J01DC04,cefalosporina
+eritromicina,Eritromicina,J01FA01,macrolideo
+doxiciclina,Doxiciclina,J01AA02,tetraciclina
+naproxeno,Naproxeno,M01AE02,aine
+nimesulida,Nimesulida,M01AX17,aine
+celecoxibe,Celecoxibe,M01AH01,aine
+metadona,Metadona,N07BC02,opioide
+lidocaina,Lidocaína,N01BB02,anestesico_local
+bupivacaina,Bupivacaína,N01BB01,anestesico_local
+iohexol,Iohexol,V08AB02,contraste_iodado
+fenobarbital,Fenobarbital,N03AA02,anticonvulsivante
+lamotrigina,Lamotrigina,N03AX09,anticonvulsivante
+gabapentina,Gabapentina,N03AX12,anticonvulsivante
+pregabalina,Pregabalina,N03AX16,anticonvulsivante
+oxcarbazepina,Oxcarbazepina,N03AF02,anticonvulsivante
+rosuvastatina,Rosuvastatina,C10AA07,estatina
+nitroglicerina,Nitroglicerina,C01DA02,nitrato
+mononitrato_isossorbida,Mononitrato de isossorbida,C01DA14,nitrato
+loratadina,Loratadina,R06AX13,anti_histaminico
+cetirizina,Cetirizina,R06AE07,anti_histaminico
+prometazina,Prometazina,R06AD02,anti_histaminico
+escitalopram,Escitalopram,N06AB10,isrs
+venlafaxina,Venlafaxina,N06AX16,isrsn
+zolpidem,Zolpidem,N05CF02,hipnotico_z
+tansulosina,Tansulosina,G04CA02,alfabloqueador
+finasterida,Finasterida,G04CB01,inibidor_5_alfa_redutase
+donepezila,Donepezila,N06DA02,inibidor_colinesterase
+dapagliflozina,Dapagliflozina,A10BK01,isglt2
+empagliflozina,Empagliflozina,A10BK03,isglt2
+sitagliptina,Sitagliptina,A10BH01,idpp4
+colchicina,Colchicina,M04AC01,antigotoso
+ciclobenzaprina,Ciclobenzaprina,M03BX08,relaxante_muscular
+sulfato_ferroso,Sulfato ferroso,B03AA07,ferro_oral

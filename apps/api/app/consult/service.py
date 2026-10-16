@@ -107,11 +107,14 @@ def _get(db: Session, cid: int) -> Consultation:
 
 def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> Insights:
     """Regras na hora + a última análise da IA re-mesclada (a IA atualiza em ciclos, as regras a cada fala)."""
-    base = _engine(c, record, events, ctx, segments).run()
+    engine = _engine(c, record, events, ctx, segments)
+    base = engine.run()
     meta = c.ai_meta_json or {}
     if meta.get("saida") and meta.get("modo") == "real" and c.kind != "cirurgia":
         valid = _valid_refs(record, events, ctx, segments)
-        return ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments)
+        merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
+        ai.reconcile_ai_allergies(engine, merged)
+        return merged
     return base
 
 
@@ -559,8 +562,10 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
                     s.falante = fixes[s.n]
             c.segments_json = [s.model_dump() for s in segments]
         valid = _valid_refs(record, events, ctx, segments)
-        base = _engine(c, record, events, ctx, segments).run()
-        merged = ai.merge_live(base, result.output, valid, segments)
+        engine = _engine(c, record, events, ctx, segments)
+        base = engine.run()
+        merged = ai.merge_live(base, result.output, valid, segments, engine.r.sex)
+        ai.reconcile_ai_allergies(engine, merged)
         if result.mode == "mock":
             merged.modo = "regras"
     c.ai_meta_json = {

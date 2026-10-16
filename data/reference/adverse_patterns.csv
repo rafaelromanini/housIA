@@ -1,54 +1,54 @@
-medicamento,tipo,sinal,descricao
-@betabloqueador,retirada,taquicardia,Taquicardia rebote após suspensão abrupta de betabloqueador
-@betabloqueador,retirada,hipertensao,Elevação pressórica após suspensão abrupta de betabloqueador
-@betabloqueador,retirada,agitacao,Ansiedade/palpitações por hiperatividade adrenérgica após retirada de betabloqueador
-@betabloqueador,efeito_adverso,bradicardia,Bradicardia compatível com efeito de betabloqueador
-@betabloqueador,efeito_adverso,hipotensao,Hipotensão compatível com efeito de betabloqueador
-@agonista_alfa2,retirada,hipertensao,Rebote hipertensivo após suspensão de clonidina
-@agonista_alfa2,retirada,taquicardia,Taquicardia após suspensão de clonidina
-@bloqueador_canal_calcio,retirada,hipertensao,Elevação pressórica após suspensão de anti-hipertensivo
-@bra,efeito_adverso,hipercalemia,Hipercalemia compatível com efeito de BRA
-@bra,efeito_adverso,hipotensao,Hipotensão compatível com efeito de BRA
-@ieca,efeito_adverso,hipercalemia,Hipercalemia compatível com efeito de IECA
-@ieca,efeito_adverso,tosse,Tosse seca compatível com efeito de IECA
-@ieca,efeito_adverso,hipotensao,Hipotensão compatível com efeito de IECA
-@diuretico_poupador_potassio,efeito_adverso,hipercalemia,Hipercalemia compatível com espironolactona
-@diuretico_alca,efeito_adverso,hipocalemia,Hipocalemia compatível com diurético de alça
-@diuretico_alca,efeito_adverso,hipotensao,Hipotensão/hipovolemia compatível com diurético de alça
-@benzodiazepinico,retirada,agitacao,Agitação compatível com abstinência de benzodiazepínico
-@benzodiazepinico,retirada,taquicardia,Taquicardia compatível com abstinência de benzodiazepínico
-@benzodiazepinico,retirada,convulsao,Crise convulsiva compatível com abstinência de benzodiazepínico
-@benzodiazepinico,efeito_adverso,sedacao,Sedação compatível com efeito de benzodiazepínico
-@benzodiazepinico,efeito_adverso,bradipneia,Bradipneia compatível com efeito de benzodiazepínico
-@benzodiazepinico,efeito_adverso,confusao,Confusão/delirium compatível com benzodiazepínico em idoso
-@opioide,efeito_adverso,sedacao,Sedação compatível com efeito de opioide
-@opioide,efeito_adverso,bradipneia,Bradipneia compatível com depressão respiratória por opioide
-@opioide,efeito_adverso,dessaturacao,Dessaturação compatível com depressão respiratória por opioide
-@opioide,efeito_adverso,nausea,Náusea/vômito compatível com efeito de opioide
-@opioide,efeito_adverso,prurido,Prurido compatível com efeito de opioide
-@opioide,efeito_adverso,confusao,Confusão compatível com efeito de opioide em idoso
-@opioide,retirada,agitacao,Agitação compatível com abstinência de opioide
-@opioide,retirada,taquicardia,Taquicardia compatível com abstinência de opioide
-@corticoide,retirada,hipotensao,Hipotensão compatível com insuficiência adrenal após suspensão de corticoide
-@corticoide,efeito_adverso,hiperglicemia,Hiperglicemia compatível com efeito de corticoide
-@insulina_basal,efeito_adverso,hipoglicemia,Hipoglicemia compatível com efeito de insulina
-@insulina_rapida,efeito_adverso,hipoglicemia,Hipoglicemia compatível com efeito de insulina
-@sulfonilureia,efeito_adverso,hipoglicemia,Hipoglicemia compatível com sulfonilureia
-@insulina_basal,retirada,hiperglicemia,Hiperglicemia após suspensão de insulina
-@biguanida,retirada,hiperglicemia,Hiperglicemia após suspensão de antidiabético oral
-@anticoagulante_oral,efeito_adverso,sangramento,Sangramento compatível com anticoagulante
-@heparina,efeito_adverso,sangramento,Sangramento compatível com heparina
-@antiagregante,efeito_adverso,sangramento,Sangramento compatível com antiagregante
-@antipsicotico,efeito_adverso,sedacao,Sedação compatível com antipsicótico
-@anticonvulsivante,retirada,convulsao,Crise convulsiva após suspensão de anticonvulsivante
-@penicilina,efeito_adverso,prurido,Prurido/urticária compatível com reação a betalactâmico
-@cefalosporina,efeito_adverso,prurido,Prurido/urticária compatível com reação a cefalosporina
-@analgesico_simples,efeito_adverso,prurido,Prurido/urticária compatível com reação a analgésico
-@fluoroquinolona,efeito_adverso,confusao,Confusão compatível com fluoroquinolona em idoso
-@hormonio_tireoidiano,efeito_adverso,taquicardia,Taquicardia compatível com excesso de levotiroxina
-@beta2_agonista,efeito_adverso,taquicardia,Taquicardia compatível com beta-2 agonista
-@beta2_agonista,efeito_adverso,hipocalemia,Hipocalemia compatível com beta-2 agonista
-metoclopramida,efeito_adverso,agitacao,Acatisia/agitação compatível com metoclopramida
-@diuretico_tiazidico,efeito_adverso,hipotensao,Tontura/hipotensão ortostática compatível com diurético tiazídico
-@diuretico_tiazidico,efeito_adverso,hiponatremia,Hiponatremia compatível com diurético tiazídico
-@aine,efeito_adverso,hipercalemia,Hipercalemia/piora renal compatível com AINE (sobretudo com IECA/BRA e diurético)
+medicamento,tipo,sinal,descricao,sintomas
+@betabloqueador,retirada,taquicardia,Taquicardia rebote após suspensão abrupta de betabloqueador,
+@betabloqueador,retirada,hipertensao,Elevação pressórica após suspensão abrupta de betabloqueador,
+@betabloqueador,retirada,agitacao,Ansiedade/palpitações por hiperatividade adrenérgica após retirada de betabloqueador,
+@betabloqueador,efeito_adverso,bradicardia,Bradicardia compatível com efeito de betabloqueador,tontura|desmaio|cansaco
+@betabloqueador,efeito_adverso,hipotensao,Hipotensão compatível com efeito de betabloqueador,tontura|tontura_postural|desmaio|queda
+@agonista_alfa2,retirada,hipertensao,Rebote hipertensivo após suspensão de clonidina,
+@agonista_alfa2,retirada,taquicardia,Taquicardia após suspensão de clonidina,
+@bloqueador_canal_calcio,retirada,hipertensao,Elevação pressórica após suspensão de anti-hipertensivo,
+@bra,efeito_adverso,hipercalemia,Hipercalemia compatível com efeito de BRA,palpitacao|cansaco
+@bra,efeito_adverso,hipotensao,Hipotensão compatível com efeito de BRA,tontura|tontura_postural|desmaio|queda
+@ieca,efeito_adverso,hipercalemia,Hipercalemia compatível com efeito de IECA,palpitacao|cansaco
+@ieca,efeito_adverso,tosse,Tosse seca compatível com efeito de IECA,tosse
+@ieca,efeito_adverso,hipotensao,Hipotensão compatível com efeito de IECA,tontura|tontura_postural|desmaio|queda
+@diuretico_poupador_potassio,efeito_adverso,hipercalemia,Hipercalemia compatível com espironolactona,palpitacao|cansaco
+@diuretico_alca,efeito_adverso,hipocalemia,Hipocalemia compatível com diurético de alça,cansaco|dor_perna
+@diuretico_alca,efeito_adverso,hipotensao,Hipotensão/hipovolemia compatível com diurético de alça,tontura|tontura_postural|desmaio|queda
+@benzodiazepinico,retirada,agitacao,Agitação compatível com abstinência de benzodiazepínico,
+@benzodiazepinico,retirada,taquicardia,Taquicardia compatível com abstinência de benzodiazepínico,
+@benzodiazepinico,retirada,convulsao,Crise convulsiva compatível com abstinência de benzodiazepínico,
+@benzodiazepinico,efeito_adverso,sedacao,Sedação compatível com efeito de benzodiazepínico,sonolencia
+@benzodiazepinico,efeito_adverso,bradipneia,Bradipneia compatível com efeito de benzodiazepínico,dispneia
+@benzodiazepinico,efeito_adverso,confusao,Confusão/delirium compatível com benzodiazepínico em idoso,confusao_mental
+@opioide,efeito_adverso,sedacao,Sedação compatível com efeito de opioide,sonolencia
+@opioide,efeito_adverso,bradipneia,Bradipneia compatível com depressão respiratória por opioide,dispneia
+@opioide,efeito_adverso,dessaturacao,Dessaturação compatível com depressão respiratória por opioide,dispneia
+@opioide,efeito_adverso,nausea,Náusea/vômito compatível com efeito de opioide,nausea
+@opioide,efeito_adverso,prurido,Prurido compatível com efeito de opioide,coceira
+@opioide,efeito_adverso,confusao,Confusão compatível com efeito de opioide em idoso,confusao_mental
+@opioide,retirada,agitacao,Agitação compatível com abstinência de opioide,
+@opioide,retirada,taquicardia,Taquicardia compatível com abstinência de opioide,
+@corticoide,retirada,hipotensao,Hipotensão compatível com insuficiência adrenal após suspensão de corticoide,
+@corticoide,efeito_adverso,hiperglicemia,Hiperglicemia compatível com efeito de corticoide,sede|nicturia
+@insulina_basal,efeito_adverso,hipoglicemia,Hipoglicemia compatível com efeito de insulina,sintomas_hipoglicemia|tontura
+@insulina_rapida,efeito_adverso,hipoglicemia,Hipoglicemia compatível com efeito de insulina,sintomas_hipoglicemia|tontura
+@sulfonilureia,efeito_adverso,hipoglicemia,Hipoglicemia compatível com sulfonilureia,sintomas_hipoglicemia|tontura
+@insulina_basal,retirada,hiperglicemia,Hiperglicemia após suspensão de insulina,
+@biguanida,retirada,hiperglicemia,Hiperglicemia após suspensão de antidiabético oral,
+@anticoagulante_oral,efeito_adverso,sangramento,Sangramento compatível com anticoagulante,sangue_fezes|hematuria|hemoptise|hematemese
+@heparina,efeito_adverso,sangramento,Sangramento compatível com heparina,sangue_fezes|hematuria|hemoptise|hematemese
+@antiagregante,efeito_adverso,sangramento,Sangramento compatível com antiagregante,sangue_fezes|hematuria|hemoptise|hematemese
+@antipsicotico,efeito_adverso,sedacao,Sedação compatível com antipsicótico,sonolencia
+@anticonvulsivante,retirada,convulsao,Crise convulsiva após suspensão de anticonvulsivante,
+@penicilina,efeito_adverso,prurido,Prurido/urticária compatível com reação a betalactâmico,coceira
+@cefalosporina,efeito_adverso,prurido,Prurido/urticária compatível com reação a cefalosporina,coceira
+@analgesico_simples,efeito_adverso,prurido,Prurido/urticária compatível com reação a analgésico,coceira
+@fluoroquinolona,efeito_adverso,confusao,Confusão compatível com fluoroquinolona em idoso,confusao_mental
+@hormonio_tireoidiano,efeito_adverso,taquicardia,Taquicardia compatível com excesso de levotiroxina,palpitacao
+@beta2_agonista,efeito_adverso,taquicardia,Taquicardia compatível com beta-2 agonista,palpitacao
+@beta2_agonista,efeito_adverso,hipocalemia,Hipocalemia compatível com beta-2 agonista,cansaco|dor_perna
+metoclopramida,efeito_adverso,agitacao,Acatisia/agitação compatível com metoclopramida,insonia
+@diuretico_tiazidico,efeito_adverso,hipotensao,Tontura/hipotensão ortostática compatível com diurético tiazídico,tontura|tontura_postural|desmaio|queda
+@diuretico_tiazidico,efeito_adverso,hiponatremia,Hiponatremia compatível com diurético tiazídico,tontura|confusao_mental|nausea|cansaco
+@aine,efeito_adverso,hipercalemia,Hipercalemia/piora renal compatível com AINE (sobretudo com IECA/BRA e diurético),palpitacao|cansaco

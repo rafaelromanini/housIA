@@ -19,7 +19,7 @@ from app.consult.schemas import (
 )
 from app.consult.text import norm
 from app.fhir_client import codes
-from app.reference import drugs, matches
+from app.reference import drugs, matches, norm_icd
 from app.timeline.context import PatientContext
 from app.timeline.events import ClinicalEvent
 from app.timeline.record import MedInfo, PatientRecord, coding, parse_dt
@@ -103,6 +103,11 @@ class ChartView:
             icd = coding(c.get("code"), codes.ICD10) or {}
             out.append((icd.get("code", ""), c.get("code", {}).get("text") or icd.get("display", ""), c))
         return out
+
+    @property
+    def icd_codes(self) -> frozenset[str]:
+        """CID dos diagnósticos que o profissional já registrou (aceitos mesmo fora da tabela oficial do DATASUS)."""
+        return frozenset(norm_icd(icd) for icd, _, _ in self.conditions if icd)
 
     def has_condition(self, prefix: str) -> dict | None:
         for icd, _, c in self.conditions:
@@ -254,10 +259,13 @@ class ChartView:
 
     # ---------- Medicamentos ----------
     def meds(
-        self, reported: list[tuple[str, str, str]], suspended: list[tuple[str, str, str]] | None = None
+        self,
+        reported: list[tuple[str, str, str]],
+        suspended: list[tuple[str, str, str]] | None = None,
+        planned: list[tuple[str, str, str]] | None = None,
     ) -> list[MedItem]:
-        """`reported`/`suspended`: (princípio ativo ou @classe, termo dito, ref da fala) do que o paciente diz usar /
-        diz ter parado."""
+        """`reported`/`suspended`/`planned`: (princípio ativo ou @classe, termo dito, ref da fala) do que o paciente
+        diz usar / diz ter parado / do que o profissional diz que vai prescrever."""
         stopped = {ing: ref for ing, _, ref in suspended or []}
         out = [
             MedItem(
@@ -313,6 +321,19 @@ class ChartView:
                     refs=[ref],
                 )
             )
+        for ing, term, ref in planned or []:
+            if ing in seen:
+                continue
+            seen.add(ing)
+            out.append(
+                MedItem(
+                    medicamento=drugs()[ing].name if ing in drugs() else term.capitalize(),
+                    posologia="Dito pelo profissional como prescrição a fazer (ainda não está no prontuário)",
+                    status="planejado",
+                    observacao="Conferir alergia, dose e interações antes de prescrever; registrar a dose.",
+                    refs=[ref],
+                )
+            )
         return out
 
     def _replaced(self, m: MedInfo) -> str | None:
@@ -322,7 +343,9 @@ class ChartView:
         return f"Substituiu {prior.text}" if prior else "Substituiu prescrição anterior"
 
     # ---------- Alergias ----------
-    def chart_allergies(self) -> list[AllergyInfo]:
+    def chart_allergies(self, reported: list[tuple[str, str]] | None = None) -> list[AllergyInfo]:
+        """Alergias do prontuário. `reported`: (princípio ativo, termo dito) do que o paciente diz tomar, cruzado com
+        cada alergia para apontar o conflito."""
         defs = knowledge.allergy_defs()
         out = []
         for a in self.ctx.alergias:
@@ -340,8 +363,11 @@ class ChartView:
                     evitar=d.avoid if d else name,
                     alternativas=d.alternatives if d else "—",
                     dicas=d.tips if d else "Informe a alergia em toda consulta e atendimento.",
-                    conflitos=self.allergy_conflicts(key),
+                    conflitos=self.allergy_conflicts(key, reported),
                     refs=[a.source_ref],
+                    chave=key,
+                    criticidade={"high": "alta", "low": "baixa"}.get(detail.get("criticidade") or "", "indeterminada"),
+                    fonte_regra=d.source if d else "",
                 )
             )
         return out

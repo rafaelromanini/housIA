@@ -9,7 +9,7 @@ import re
 from functools import lru_cache
 from typing import Literal, NamedTuple
 
-from app.reference import drugs
+from app.reference import _read_csv, drugs
 from app.timeline.record import normalize
 
 NEG_WORDS = {"nao", "nunca", "nem", "sem", "nega", "negou", "nenhum", "nenhuma", "jamais"}
@@ -66,22 +66,33 @@ VOCATIVE = re.compile(r"(?<!\w)(doutora|doutor|dra|dr)(?!\w)")
 NOT_VOCATIVE_BEFORE = {"o", "a", "do", "da", "no", "na", "pelo", "pela", "com", "pro", "pra", "ao", "outro", "outra"}
 NOT_VOCATIVE_BEFORE |= {"seu", "sua", "meu", "minha", "esse", "essa", "aquele", "aquela", "um", "uma"}
 
-# nomes comerciais comuns -> princípio ativo (data/reference/drugs.csv)
-BRANDS = {
-    "advil": "ibuprofeno",
-    "alivium": "ibuprofeno",
-    "buscofem": "ibuprofeno",
-    "novalgina": "dipirona",
-    "anador": "dipirona",
-    "tylenol": "paracetamol",
-    "cataflam": "diclofenaco",
-    "voltaren": "diclofenaco",
-    "aspirina": "aas",
-    "rivotril": "clonazepam",
-    "glifage": "metformina",
-    "daonil": "glibenclamida",
-}
+
+# nomes comerciais -> princípio ativo (data/reference/drug_brands.csv, ≥150 marcas do mercado brasileiro)
+@lru_cache
+def brands() -> dict[str, str]:
+    """Marca (normalizada, sem acento) -> princípio ativo do catálogo (drugs.csv)."""
+    catalog = drugs()
+    return {
+        norm(r["marca"]): r["principio_ativo"] for r in _read_csv("drug_brands.csv") if r["principio_ativo"] in catalog
+    }
+
+
+@lru_cache
+def _brand_pattern() -> re.Pattern:
+    """Uma marca é uma palavra inteira (com plural): "atenol" não casa com "atenolol"."""
+    names = sorted(brands(), key=len, reverse=True)
+    return re.compile(r"(?<=\s)(" + "|".join(re.escape(n) for n in names) + r")(?:s)?(?![a-z0-9])")
+
+
 GENERIC_CLASSES = {"anti-inflamatorio": "aine", "antiinflamatorio": "aine", "anti inflamatorio": "aine"}
+# classes que só valem como intenção do profissional ("vou passar um corticoide"): na fala do paciente, "corticoide"
+# solto não diz que ele usa o medicamento
+PLANNED_CLASSES = GENERIC_CLASSES | {
+    "corticoide": "corticoide",
+    "anticoagulante": "anticoagulante_oral",
+    "opioide": "opioide",
+    "benzodiazepinico": "benzodiazepinico",
+}
 
 # ---------- status do medicamento citado ----------
 DrugStatus = Literal["em_uso", "suspenso_relatado", "negado"]
@@ -337,7 +348,7 @@ def _catalog_names() -> tuple[tuple[str, str, str], ...]:
     return tuple((norm(d.name), ing, d.name) for ing, d in drugs().items() if len(norm(d.name)) >= 5)
 
 
-def _drug_hits(clause: str) -> list[tuple[int, int, str, str]]:
+def _drug_hits(clause: str, classes: dict[str, str] | None = None) -> list[tuple[int, int, str, str]]:
     """(início, fim, princípio ou @classe, termo dito) na oração, em ordem."""
     t = f" {clause} "
     catalog = drugs()
@@ -346,16 +357,16 @@ def _drug_hits(clause: str) -> list[tuple[int, int, str, str]]:
         idx = t.find(f" {name}")
         if idx >= 0:
             hits.append((idx, idx + 1 + len(name), ing, label))
-    for brand, ing in BRANDS.items():
-        idx = t.find(f" {brand}")
-        if idx >= 0 and ing in catalog and all(ing != h[2] for h in hits):
-            hits.append((idx, idx + 1 + len(brand), ing, brand.capitalize()))
-    if not any(catalog[h[2]].drug_class == "aine" for h in hits if h[2] in catalog):
-        for term, cls in GENERIC_CLASSES.items():
-            idx = t.find(term)
-            if idx >= 0:
-                hits.append((idx, idx + len(term), f"@{cls}", "anti-inflamatório"))
-                break
+    for m in _brand_pattern().finditer(t):
+        ing = brands()[m.group(1)]
+        if all(ing != h[2] for h in hits):
+            hits.append((m.start() - 1, m.end(), ing, m.group(1).title()))
+    for term, cls in (classes or GENERIC_CLASSES).items():
+        idx = t.find(f" {term}")
+        # "anti-inflamatório" genérico só vale se nenhum AINE específico foi dito; cada classe entra uma vez
+        if idx < 0 or any(h[2] == f"@{cls}" or (h[2] in catalog and catalog[h[2]].drug_class == cls) for h in hits):
+            continue
+        hits.append((idx, idx + 1 + len(term), f"@{cls}", "anti-inflamatório" if cls == "aine" else term))
     return sorted(hits)
 
 
@@ -417,4 +428,94 @@ def mentioned_drugs(text: str) -> tuple[DrugMention, ...]:
             if prev is None or _STATUS_RANK[status] < _STATUS_RANK[prev.status]:
                 found[ing] = DrugMention(ing, prev.term if prev else term, status)
             last.append(ing)
+    return tuple(found.values())
+
+
+# ---------- medicamentos que o profissional diz que vai prescrever ----------
+PLAN_VERBS = (
+    "passar|prescrever|receitar|iniciar|comecar|introduzir|associar|colocar|dar|trocar|mudar|substituir|aumentar"
+    "|reiniciar|retomar|adicionar|acrescentar|indicar|ministrar|usar|tentar|incluir|reforcar|dobrar"
+)
+PLAN_INTENT = re.compile(
+    r"(?<!\w)(?:vou|vamos|iremos|irei|pretendo|podemos|gostaria de)"
+    rf"(?: (?:te|lhe|ja|entao|tambem|agora|logo|ter|que|precisar|so|primeiro))* ({PLAN_VERBS})(?!\w)"
+    r"|(?<!\w)(prescrevo|receito|indico|introduzo|associo|acrescento|adiciono|troco|aumento)(?!\w)"
+    r"|(?<!\w)(?:vai|deve|precisa|tem que|vai ter que|vai precisar|a senhora vai|o senhor vai)"
+    r" (tomar|usar|iniciar|comecar)(?!\w)"
+    r"|(?<![\w-])(tome|use|comece|inicie)(?!\w)"
+)
+# "vou pedir uma tomografia com contraste": o contraste iodado também passa pela checagem de alergia
+CONTRAST_EXAM = re.compile(
+    r"(?<!\w)(vou|vamos|preciso|precisamos|iremos) (\w+ ){0,2}(pedir|solicitar|fazer|realizar|marcar)(?!\w)"
+    r"(?=.*(tomografia|angiotomografia|cateterismo|urografia|arteriografia|angiografia|exame)(?!\w))"
+    r".*(?<!sem )(?<!\w)com contraste(?!\w)"
+)
+SWAP_VERBS = {"trocar", "mudar", "substituir", "troco"}
+SWAP_TO = {"por", "pelo", "pela", "para", "pra"}
+PLAN_STOP = {"nao", "nunca", "sem", "nenhum", "nenhuma"}
+PLAN_INSTEAD = re.compile(r"(?<!\w)(em vez d[eoa]|no lugar d[eoa]|ao inves d[eoa]|alem d[eoa])(?!\w)")
+PLAN_LISTING = re.compile(r"((e|ou|tambem|depois|um|uma|o|a|de|do|da|bem|so|seria|talvez|mais) ?)*")
+PLAN_MAX_GAP = 7  # palavras entre o verbo de intenção e o medicamento
+
+
+class PlannedDrug(NamedTuple):
+    ingredient: str  # princípio ativo ou "@classe"
+    term: str
+    verb: str  # "passar", "trocar", "aumentar"...
+
+
+def _outside(t: str, hits: list[tuple[int, int, str, str]]) -> list[str]:
+    """Palavras da oração fora dos medicamentos citados."""
+    words, pos = [], 0
+    for start, end, *_ in hits:
+        words += t[pos:start].split()
+        pos = end
+    return words + t[pos:].split()
+
+
+@lru_cache(maxsize=4096)
+def planned_drugs(text: str) -> tuple[PlannedDrug, ...]:
+    """Medicamentos que a fala diz que o profissional VAI prescrever ("vou passar amoxicilina 500 mg", "vamos
+    começar metformina", "vou trocar a glibenclamida por gliclazida" → só a gliclazida).
+
+    Vale o verbo de intenção antes do medicamento, na mesma oração; "não vou passar", "no lugar do ibuprofeno" e o
+    medicamento que será substituído não contam. Quem diz é o profissional: o chamador só passa falas dele.
+    """
+    found: dict[str, PlannedDrug] = {}
+    carry = ""  # verbo de uma oração que abriu a lista sem citar o medicamento ("vou prescrever um antibiótico,")
+    for clause in clauses(text):
+        t = f" {clause} "
+        if CONTRAST_EXAM.search(t) and "@contraste_iodado" not in found:
+            found["@contraste_iodado"] = PlannedDrug("@contraste_iodado", "contraste iodado", "pedir")
+        hits = _drug_hits(clause, PLANNED_CLASSES)
+        intents = list(PLAN_INTENT.finditer(t))
+        if not hits:
+            carry = (
+                next((g for g in intents[-1].groups() if g), "") if intents else (carry if not clause.strip() else "")
+            )
+            continue
+        listing = not intents and carry and PLAN_LISTING.fullmatch(" ".join(_outside(t, hits)))
+        for start, _end, ing, term in hits:
+            before = [m for m in intents if m.end() <= start + 1]
+            if before:
+                m = before[-1]
+                verb = next(g for g in m.groups() if g)
+                gap = t[m.end() : start].split()
+                lead = t[: m.start()].split()[-3:]
+            elif listing:
+                verb, gap, lead = carry, [], []
+            else:
+                continue
+            if (
+                len(gap) > PLAN_MAX_GAP
+                or PLAN_STOP & set(gap)
+                or PLAN_STOP & set(lead)
+                or PLAN_INSTEAD.search(" ".join(gap))
+            ):
+                continue
+            if verb in SWAP_VERBS and not SWAP_TO & set(gap):
+                continue  # "trocar a glibenclamida": é o que sai, não o que entra
+            if ing not in found:
+                found[ing] = PlannedDrug(ing, term, verb)
+        carry = next((g for g in intents[-1].groups() if g), "") if intents else (carry if listing else "")
     return tuple(found.values())
