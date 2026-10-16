@@ -145,6 +145,11 @@ FORGET_WORDS = (
 STOP_WORDS = ("parei de tomar", "deixei de tomar")
 CONTEXT_WORDS = ("moro ", "sozinh", "fumo", "cigarro", "bebo", "bebida", "alcool", "caminhada", "trabalho", "aposentad")
 PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
+RELATIVE_ALLERGY = re.compile(
+    r"(?<!\w)(minha|meu|a|o|do|da) (mae|pai|irma|irmao|filha|filho|avo|avos|marido|esposa|tia|tio|neta|neto|sobrinha"
+    r"|sobrinho|prima|primo|genro|nora|sogra|sogro|vizinha|vizinho|amiga|amigo)(?!\w)"
+)
+SELF_ALLERGY = re.compile(r"(?<!\w)(eu tambem|tambem tenho|eu tenho|eu sou|sou alergic|eu tb|comigo tambem)(?!\w)")
 HIGH_ALERT_SOURCE = "Lista de medicamentos potencialmente perigosos (high_alert_meds.csv; conceito do ISMP)"
 PLANNED_SUFFIX = " (a prescrever)"  # medicamento que o profissional disse que vai passar: ainda não está no prontuário
 MAX_HYPOTHESES = 8
@@ -1015,6 +1020,8 @@ class Engine:
                 # "não tenho alergia a dipirona", "alergia a dipirona não", "tem alergia a algum remédio" (pergunta)
                 if keyword_status(clause, ("alergi",), skip_questions=True) != "presente":
                     continue
+                if s.falante == "paciente" and RELATIVE_ALLERGY.search(clause) and not SELF_ALLERGY.search(clause):
+                    continue  # "minha mãe tem alergia a sulfa" é da mãe, não do paciente
                 for d in knowledge.allergy_defs():
                     hit = contains(clause, d.words)
                     if not hit or keyword_status(clause, d.words) != "presente":

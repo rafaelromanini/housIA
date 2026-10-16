@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import ai, antiglosa, gs1, knowledge, opme, stt
+from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, stt
 from app.consult import orders as order_drafts
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
@@ -115,8 +115,8 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
         valid = _valid_refs(record, events, ctx, segments)
         merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
         ai.reconcile_ai_allergies(engine, merged)
-        return merged
-    return base
+        return hipoteses.apply(merged, c.extra_json)
+    return hipoteses.apply(base, c.extra_json)
 
 
 def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
@@ -328,6 +328,36 @@ def set_main_complaint(db: Session, fhir: FhirSource, user: User, cid: int, key:
         "consultation",
         c.id,
         {"patient_id": c.patient_id, "queixa": key or None},
+    )
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
+def set_hypothesis_decision(
+    db: Session, fhir: FhirSource, user: User, cid: int, code: str, decision: str, reason: str
+) -> dict:
+    """O profissional confirma (ou deixa provisória), descarta ou limpa a decisão de uma hipótese da análise."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O modo cirúrgico não tem hipóteses diagnósticas.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: as hipóteses não podem mais ser alteradas.")
+    if decision not in hipoteses.DECISIONS:
+        raise HTTPException(422, "Decisão inválida.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    if not any(
+        hipoteses.key(h.cid) == hipoteses.key(code) for h in _insights(c, record, events, ctx, segments).hipoteses
+    ):
+        raise HTTPException(422, "Essa hipótese não aparece na análise.")
+    c.extra_json = hipoteses.decide(c.extra_json or {}, code, decision, reason, user.name, clock.now().isoformat())
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    log_action(
+        db,
+        user,
+        "consulta.hipotese",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "cid": hipoteses.key(code), "decisao": decision},
     )
     return {"insights": c.insights_json, "total": len(segments)}
 
@@ -678,7 +708,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         "descartados": merged.descartados,
         "saida": saida,
     }
-    c.insights_json = merged.model_dump(mode="json")
+    c.insights_json = hipoteses.apply(merged, c.extra_json).model_dump(mode="json")
     log_action(
         db,
         user,
@@ -743,7 +773,7 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
             if ins.falas_analisadas != len(segments):
                 ins = _insights(c, record, events, ctx, segments)
             note_model, result, dropped = ai.run_note(engine, ins, pseudo, valid, c.patient_language)
-            note = note_model.model_dump(mode="json")
+            note = hipoteses.apply_to_note(note_model.model_dump(mode="json"), hipoteses.apply(ins, c.extra_json))
     except LLMError as exc:
         log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc)})
         raise HTTPException(502, str(exc)) from exc
@@ -785,6 +815,8 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
             note = note | {"relatorio_cirurgico": report}
         else:
             ConsultNote.model_validate(note)
+            # as propostas de Condition vêm das decisões do profissional na consulta, não da edição do texto
+            note = note | {"condicoes_propostas": (c.note_json or {}).get("condicoes_propostas", [])}
     except ValidationError as exc:
         raise HTTPException(422, f"Nota em formato inválido: {exc.error_count()} erro(s)") from exc
     c.note_json = note

@@ -132,6 +132,8 @@ class Hypothesis(BaseModel):
     pergunta_discriminante: str = ""  # a pergunta que mais separa esta hipótese das vizinhas
     exame_discriminante: str = ""  # o exame que a confirma ou afasta
     fonte: str = ""  # diretriz de onde vem a linha curada
+    decisao: Literal["pendente", "confirmada", "provisoria", "descartada"] = "pendente"  # decisão do profissional
+    decisao_motivo: str = ""
 
 
 class HistoryItem(BaseModel):

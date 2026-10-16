@@ -54,7 +54,7 @@ from app.consult.schemas import (
     Tag,
     fala_ref,
 )
-from app.consult.text import contains, norm
+from app.consult.text import contains, keyword_status, norm
 from app.llm.client import LLMResult, generate_structured
 from app.llm.pseudonymize import Pseudonymizer
 from app.reference import icd_entry
@@ -644,6 +644,17 @@ def _ai_allergies(base: Insights, ai: ConsultLiveOutput, v: RefValidator, segmen
         spoken = [_fala(r, segments) for r in al.refs]
         if not al.alergeno.strip() or not all(x is not None and x.falante in PATIENT_SIDE for x in spoken):
             v.dropped.append({"onde": "alergias", "texto": al.alergeno, "refs_invalidas": al.refs})
+            continue
+        if all(keyword_status(norm(x.texto), ("alergi",)) == "negado" for x in spoken if x):
+            # a fala citada nega a alergia ("não tenho alergia a dipirona"): a IA não pode transformá-la em alergia
+            v.dropped.append(
+                {
+                    "onde": "alergias",
+                    "texto": al.alergeno,
+                    "refs_invalidas": [],
+                    "motivo": "a fala citada nega a alergia",
+                }
+            )
             continue
         if any(_similar(al.alergeno, k) or norm(al.alergeno) in norm(k) for k in [*known, *(a.alergeno for a in out)]):
             continue  # as regras (ou a própria IA) já registraram

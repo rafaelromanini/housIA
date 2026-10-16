@@ -359,6 +359,20 @@ export function NoteReview({
               </ul>
             </div>
 
+            {(note.condicoes_propostas ?? []).length > 0 && (
+              <div>
+                <p className="text-sm font-bold">Diagnósticos propostos para o prontuário</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
+                  {(note.condicoes_propostas ?? []).map((c) => (
+                    <li key={c.codigo}>
+                      <span className="font-mono">{c.codigo}</span> {r(c.descricao)} (
+                      {c.verificacao === "confirmed" ? "confirmado" : "provisório"})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {note.pendencias.length > 0 && (
               <div>
                 <p className="text-sm font-bold">Pendências</p>

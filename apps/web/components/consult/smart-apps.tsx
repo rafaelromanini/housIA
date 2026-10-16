@@ -33,7 +33,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import type { Anamnese, ConsultInsights, Origin, ProtocolItem, QueixaDetalhada, SemioField } from "@/lib/api";
+import type { Anamnese, ConsultInsights, HypothesisDecision, Origin, ProtocolItem, QueixaDetalhada, SemioField } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type AppKey =
@@ -239,16 +239,26 @@ function Semiologia({
   );
 }
 
+const DECISION_LABEL: Record<HypothesisDecision, string> = {
+  pendente: "",
+  confirmada: "Confirmada",
+  provisoria: "Provisória",
+  descartada: "Descartada",
+};
+
 export function SmartAppsPanel({
   insights: ins,
   onMainComplaint,
   orders,
+  onHypothesisDecision,
 }: {
   insights: ConsultInsights;
   /** fixa (ou solta, com null) a queixa principal da anamnese; sem ela, a anamnese é só leitura */
   onMainComplaint?: (chave: string | null) => void;
   /** assinatura dos pedidos em rascunho; sem ela, a aba "Pedidos" não aparece (a revisão da nota os assina) */
   orders?: { consultId: number; onInsights: (insights: ConsultInsights) => void };
+  /** confirma, deixa provisória, descarta ou limpa a decisão sobre uma hipótese; sem ela, as hipóteses são só leitura */
+  onHypothesisDecision?: (cid: string, decisao: HypothesisDecision) => void;
 }) {
   const { patient } = usePatient();
   const r = (t: string) => reidentify(t, patient.nome);
@@ -580,7 +590,10 @@ export function SmartAppsPanel({
           ) : (
             <ul className="space-y-2">
               {ins.hipoteses.map((h) => (
-                <li key={h.hipotese + h.cid} className={cn("rounded-md border p-2.5 text-sm", h.origem === "ia" && "border-dashed")}>
+                <li
+                  key={h.hipotese + h.cid}
+                  className={cn("rounded-md border p-2.5 text-sm", h.origem === "ia" && "border-dashed", h.decisao === "descartada" && "opacity-60")}
+                >
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p className="font-bold">{r(h.hipotese)}</p>
                     <Badge variant="outline" className="font-mono text-[11px]" title={h.cid_descricao || undefined}>
@@ -590,7 +603,28 @@ export function SmartAppsPanel({
                       confiança {h.confianca}
                     </Badge>
                     <OriginBadge origem={h.origem} />
+                    {h.decisao && h.decisao !== "pendente" && (
+                      <Badge variant={h.decisao === "descartada" ? "outline" : "ok"} className="text-[11px]">
+                        {DECISION_LABEL[h.decisao]}
+                      </Badge>
+                    )}
                   </div>
+                  {onHypothesisDecision && (
+                    <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label={`Decisão sobre ${h.hipotese}`}>
+                      {(["confirmada", "provisoria", "descartada"] as const).map((d) => (
+                        <Button
+                          key={d}
+                          variant={h.decisao === d ? "default" : "outline"}
+                          size="sm"
+                          className="min-h-9 px-2 text-xs"
+                          aria-pressed={h.decisao === d}
+                          onClick={() => onHypothesisDecision(h.cid, h.decisao === d ? "pendente" : d)}
+                        >
+                          {d === "confirmada" ? "Confirmar" : d === "provisoria" ? "Provisória" : "Descartar"}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                   <ul className="mt-1 space-y-0.5">
                     {h.a_favor.map((e) => (
                       <li key={e.texto} className="flex flex-wrap items-center gap-1">

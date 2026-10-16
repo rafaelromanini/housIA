@@ -107,7 +107,9 @@ class ChartView:
     @property
     def icd_codes(self) -> frozenset[str]:
         """CID dos diagnósticos que o profissional já registrou (aceitos mesmo fora da tabela oficial do DATASUS)."""
-        return frozenset(norm_icd(icd) for icd, _, _ in self.conditions if icd)
+        return frozenset(
+            c for c in (norm_icd(icd) for icd, _, _ in self.conditions) if c
+        )  # sem "" de código malformado
 
     def has_condition(self, prefix: str) -> dict | None:
         for icd, _, c in self.conditions:

@@ -171,6 +171,24 @@ def decide_order(
     return service.decide_order(db, fhir, user, cid, draft_id, body)
 
 
+class HypothesisDecisionIn(BaseModel):
+    cid: str = Field(..., min_length=3, max_length=10)
+    decisao: Literal["pendente", "confirmada", "provisoria", "descartada"]
+    motivo: str = Field("", max_length=300)
+
+
+@router.put("/consultations/{cid}/hipoteses")
+def hypothesis_decision(
+    cid: int,
+    body: HypothesisDecisionIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Confirma, deixa provisória ou descarta uma hipótese (gera proposta de Condition ou negativa pertinente)."""
+    return service.set_hypothesis_decision(db, fhir, user, cid, body.cid, body.decisao, body.motivo)
+
+
 class OpmeItemIn(BaseModel):
     codigo: str = Field(..., min_length=1, max_length=40)
     quantidade: int = Field(1, ge=1, le=99)
