@@ -5,8 +5,10 @@ segurança — a IA complementa, não substitui.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
+
+import yaml
 
 from app.config import get_settings
 from app.reference import _read_csv
@@ -22,6 +24,10 @@ class SymptomDef:
     label: str
     words: tuple[str, ...]
     excludes: tuple[str, ...] = ()  # na mesma oração, anulam o sintoma ("a pressão caiu" não é queda)
+    age_min: int | None = None  # anos; "febre" vale de 12 em diante e "febre na criança" até 11
+    age_max: int | None = None
+    sex: str = ""  # "F" ou "M": sintoma que só vale para um sexo
+    group: str = ""  # variante de outro sintoma ("tontura ao levantar" agrupa em "tontura")
 
 
 @dataclass(frozen=True)
@@ -35,12 +41,18 @@ class EmotionDef:
 
 @dataclass(frozen=True)
 class QuestionDef:
+    id: str  # estável: a IA devolve estes ids ao dizer quais perguntas o profissional já fez
     trigger: str
     text: str
     reason: str
-    asked_words: tuple[str, ...]
+    asked_words: tuple[str, ...]  # "@chave" vale por todas as palavras do sintoma de mesma chave
     priority: str
     specialty: str
+    source: str  # diretriz ou referência de onde vem a pergunta
+    age_min: int | None = None
+    age_max: int | None = None
+    sex: str = ""
+    discriminates: tuple[str, ...] = ()  # CID-10 das hipóteses que a resposta ajuda a separar
 
 
 @dataclass(frozen=True)
@@ -108,10 +120,30 @@ class ProphylaxisDef:
     source: str
 
 
+def _int(cell: str | None) -> int | None:
+    return int(cell) if cell else None
+
+
+def fits(age_min: int | None, age_max: int | None, sex_required: str, age: int | None, sex: str) -> bool:
+    """O paciente (idade em anos, sexo "F"/"M") está dentro do que a linha pede? Idade desconhecida não exclui."""
+    if age is not None and ((age_min is not None and age < age_min) or (age_max is not None and age > age_max)):
+        return False
+    return not sex_required or sex == sex_required
+
+
 @lru_cache
 def symptoms() -> tuple[SymptomDef, ...]:
     return tuple(
-        SymptomDef(r["chave"], r["rotulo"], _words(r["palavras"]), _words(r.get("exclui", "")))
+        SymptomDef(
+            r["chave"],
+            r["rotulo"],
+            _words(r["palavras"]),
+            _words(r.get("exclui", "")),
+            _int(r.get("idade_min")),
+            _int(r.get("idade_max")),
+            r.get("sexo", ""),
+            r.get("agrupa_em", ""),
+        )
         for r in _read_csv("consult_symptoms.csv")
     )
 
@@ -126,12 +158,46 @@ def emotions() -> tuple[EmotionDef, ...]:
 
 @lru_cache
 def questions() -> tuple[QuestionDef, ...]:
-    return tuple(
-        QuestionDef(
-            r["gatilho"], r["pergunta"], r["motivo"], _words(r["ja_perguntado"]), r["prioridade"], r["especialidade"]
+    symptom_words = {d.key: d.words for d in symptoms()}
+    out = []
+    for r in _read_csv("consult_questions.csv"):
+        asked: list[str] = []
+        for w in _words(r["ja_perguntado"]):
+            asked += symptom_words.get(w[1:], ()) if w.startswith("@") else (w,)
+        out.append(
+            QuestionDef(
+                r["id"],
+                r["gatilho"],
+                r["pergunta"],
+                r["motivo"],
+                tuple(asked),
+                r["prioridade"],
+                r["especialidade"],
+                r["fonte"],
+                _int(r.get("idade_min")),
+                _int(r.get("idade_max")),
+                r.get("sexo", ""),
+                _words(r.get("discrimina", "")),
+            )
         )
-        for r in _read_csv("consult_questions.csv")
-    )
+    return tuple(out)
+
+
+@lru_cache
+def semiology_questions() -> dict[str, str]:
+    """id da linha → campo semiológico, das perguntas que cobrem os campos vazios de uma queixa."""
+    fields = semiology().fields
+    return {
+        q.id: q.trigger.split(":", 1)[1]
+        for q in questions()
+        if q.trigger.startswith("semiologia:") and q.trigger.split(":", 1)[1] in fields
+    }
+
+
+@lru_cache
+def anamnesis_question_ids() -> frozenset[str]:
+    """ids de todas as perguntas que preenchem a anamnese (semiologia da queixa e campos da especialidade)."""
+    return frozenset(q.id for q in questions() if q.trigger.startswith("semiologia:"))
 
 
 @lru_cache
@@ -146,6 +212,86 @@ def differentials() -> tuple[DifferentialDef, ...]:
             r["sinais_de_alarme"],
         )
         for r in _read_csv("consult_differentials.csv")
+    )
+
+
+# ---------- semiologia por queixa (data/reference/consult_semiology.yaml) ----------
+@dataclass(frozen=True)
+class VocabEntry:
+    value: str
+    words: tuple[str, ...]
+    needs_cue: bool = False  # só vale com pista de piora/melhora na mesma oração
+
+
+@dataclass(frozen=True)
+class SemioGroup:
+    id: str
+    label: str
+    symptoms: tuple[str, ...]
+    fields: tuple[str, ...]
+    source: str
+
+
+@dataclass(frozen=True)
+class SpecialtyField:
+    key: str
+    label: str
+    source: str
+    entries: tuple[VocabEntry, ...]
+
+
+@dataclass(frozen=True)
+class SemiologyDef:
+    version: str
+    source: str
+    fields: dict[str, str]  # chave do campo -> rótulo
+    groups: tuple[SemioGroup, ...]
+    worsening: tuple[VocabEntry, ...]
+    relief: tuple[VocabEntry, ...]
+    worsening_cues: tuple[str, ...]
+    relief_cues: tuple[str, ...]
+    location: tuple[VocabEntry, ...]
+    specialty_fields: dict[str, tuple[SpecialtyField, ...]] = field(default_factory=dict)
+    specialty_max_age: dict[str, int] = field(default_factory=dict)
+
+    def group_of(self, symptom: str) -> SemioGroup:
+        for g in self.groups:
+            if symptom in g.symptoms:
+                return g
+        return next(g for g in self.groups if g.id == "geral")
+
+
+def _vocab(items: list[dict]) -> tuple[VocabEntry, ...]:
+    return tuple(
+        VocabEntry(i["valor"], tuple(str(w) for w in i["palavras"]), bool(i.get("exige_pista"))) for i in items
+    )
+
+
+@lru_cache
+def semiology() -> SemiologyDef:
+    with open(get_settings().data_dir / "reference" / "consult_semiology.yaml", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    extras = raw.get("especialidades", {})
+    return SemiologyDef(
+        version=str(raw["versao"]),
+        source=" ".join(str(raw["fonte"]).split()),
+        fields=dict(raw["campos"]),
+        groups=tuple(
+            SemioGroup(g["id"], g["rotulo"], tuple(g["sintomas"]), tuple(g["campos"]), " ".join(g["fonte"].split()))
+            for g in raw["grupos"]
+        ),
+        worsening=_vocab(raw["piora"]),
+        relief=_vocab(raw["melhora"]),
+        worsening_cues=tuple(raw["pista_piora"]),
+        relief_cues=tuple(raw["pista_melhora"]),
+        location=_vocab(raw["localizacao"]),
+        specialty_fields={
+            spec: tuple(
+                SpecialtyField(c["campo"], c["rotulo"], c["fonte"], _vocab(c["entradas"])) for c in body["campos"]
+            )
+            for spec, body in extras.items()
+        },
+        specialty_max_age={spec: int(body["idade_max"]) for spec, body in extras.items() if "idade_max" in body},
     )
 
 

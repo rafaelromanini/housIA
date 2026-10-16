@@ -1,5 +1,5 @@
 ---
-version: 1.2.0
+version: 1.3.0
 description: Consulta em tempo real — Smart Apps da conversa (queixas, emoções, perguntas, resumo, quem falou)
 ---
 # system
@@ -18,6 +18,12 @@ CONVERSA. Regras obrigatórias:
 - `perguntas`: até 6 perguntas curtas, faladas, para o profissional fazer AGORA. Não repita o que já foi
   perguntado ou respondido na conversa, nem as perguntas que a camada determinística já sugeriu. Priorize sinais
   de alarme e lacunas que mudam a conduta. `refs` = falas/registros que motivam a pergunta.
+- `perguntas_abordadas`: entre as `perguntas_ja_sugeridas` (cada uma tem `id` e `pergunta`), as que o PROFISSIONAL
+  já fez na conversa mesmo com outras palavras (paráfrase). Exemplo: "o ar tem faltado quando a senhora caminha?"
+  cobre a pergunta sobre falta de ar. Devolva o `id` exatamente como recebido, em `refs` a fala do profissional em
+  que ele perguntou e em `resposta_refs` a fala do paciente que respondeu (vazio se ainda não respondeu). Só vale
+  fala do profissional: o paciente dizer uma palavra da pergunta, sem que ela tenha sido feita, NÃO conta. Na
+  dúvida, não inclua.
 - `queixas`: queixas do paciente/acompanhante em tags curtas (2–4 palavras), com `status` "presente" ou
   "negado" (negativas pertinentes). Pergunta do profissional não é queixa ("a senhora tem sentido dor no peito"):
   vale a resposta. Sintoma que "não tem mais" é "negado".

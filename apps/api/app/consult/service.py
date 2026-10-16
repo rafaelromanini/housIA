@@ -282,6 +282,34 @@ def mark_checklist(db: Session, fhir: FhirSource, user: User, cid: int, step: st
     return {"insights": c.insights_json, "total": len(segments)}
 
 
+def set_main_complaint(db: Session, fhir: FhirSource, user: User, cid: int, key: str | None) -> dict:
+    """O profissional fixa (ou solta, com `key` vazio) a queixa principal da anamnese. Vale para o resto da consulta."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O modo cirúrgico não tem queixa principal.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: a queixa principal não pode mais ser alterada.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    extra = {k: v for k, v in (c.extra_json or {}).items() if k != "qp_principal"}
+    if key:
+        extra["qp_principal"] = key
+    ins = Engine(record, events, ctx, segments, c.specialty, c.kind, clock.now(), extra).run()
+    if key and not (ins.anamnese and any(q.chave == key for q in ins.anamnese.queixas_detalhadas)):
+        raise HTTPException(422, "Essa queixa não aparece na conversa.")
+    c.extra_json = extra
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    log_action(
+        db,
+        user,
+        "consulta.queixa_principal",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "queixa": key or None},
+    )
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
 # ---------- IA (ciclos) ----------
 def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = False) -> dict:
     c = _get(db, cid)

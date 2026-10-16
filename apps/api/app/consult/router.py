@@ -117,6 +117,22 @@ def checklist(
     return service.mark_checklist(db, fhir, user, cid, body.etapa, body.feito)
 
 
+class MainComplaintIn(BaseModel):
+    chave: str | None = None  # chave do sintoma (ex.: "tontura"); vazio solta a queixa fixada
+
+
+@router.put("/consultations/{cid}/queixa-principal")
+def main_complaint(
+    cid: int,
+    body: MainComplaintIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Fixa a queixa principal da anamnese (por padrão é a primeira dita pelo paciente)."""
+    return service.set_main_complaint(db, fhir, user, cid, body.chave)
+
+
 @router.post("/consultations/{cid}/audio")
 async def add_audio(
     cid: int,

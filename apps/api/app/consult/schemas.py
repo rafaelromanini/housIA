@@ -72,6 +72,7 @@ class Tag(BaseModel):
     status: Literal["presente", "negado"]
     refs: list[str]
     origem: Origin = "regra"
+    detalhe: str = ""  # o que já se sabe da queixa ("3 sem · ao levantar"), vindo da semiologia
 
 
 class Emotion(BaseModel):
@@ -103,8 +104,13 @@ class Question(BaseModel):
     pergunta: str
     motivo: str
     prioridade: Priority
-    refs: list[str]
+    refs: list[str]  # sugerida: o que motiva a pergunta; abordada: a fala do profissional que a fez
     origem: Origin = "regra"
+    id: str = ""  # id da linha em consult_questions.csv (a IA devolve ids ao dizer o que já foi perguntado)
+    fonte: str = ""  # diretriz de origem da pergunta
+    resposta: str = ""  # abordada: o que o paciente respondeu
+    resposta_refs: list[str] = []  # abordada: a fala do paciente que respondeu
+    discrimina: list[str] = []  # hipóteses de maior confiança que a resposta ajuda a separar
 
 
 class Evidence(BaseModel):
@@ -196,6 +202,42 @@ class Highlight(BaseModel):
     refs: list[str]
 
 
+SemioField = Literal["inicio_duracao", "localizacao", "intensidade", "piora", "melhora", "frequencia", "associados"]
+
+
+class CampoSemio(BaseModel):
+    """Um campo semiológico: o valor dito e as falas de onde veio. Vazio = ainda não foi dito."""
+
+    valor: str = ""
+    refs: list[str] = []
+
+
+class QueixaDetalhada(BaseModel):
+    """Semiologia de uma queixa presente: cada campo é {valor, refs}; `faltam` lista o que ainda não foi perguntado."""
+
+    chave: str
+    rotulo: str
+    refs: list[str]
+    inicio_duracao: CampoSemio = Field(default_factory=CampoSemio)
+    localizacao: CampoSemio = Field(default_factory=CampoSemio)
+    intensidade: CampoSemio = Field(default_factory=CampoSemio)
+    piora: CampoSemio = Field(default_factory=CampoSemio)
+    melhora: CampoSemio = Field(default_factory=CampoSemio)
+    frequencia: CampoSemio = Field(default_factory=CampoSemio)
+    associados: CampoSemio = Field(default_factory=CampoSemio)
+    nega: CampoSemio = Field(default_factory=CampoSemio)  # sintomas negados na mesma conversa ("sem desmaio")
+    faltam: list[SemioField] = []
+
+
+class CampoEspecialidade(BaseModel):
+    """Campo extra da anamnese de uma especialidade (pediatria: gestação e parto, vacinas, DNPM)."""
+
+    campo: str
+    rotulo: str
+    valor: str = ""
+    refs: list[str] = []
+
+
 class Anamnese(BaseModel):
     queixa_principal: str
     hda: str
@@ -205,6 +247,10 @@ class Anamnese(BaseModel):
     habitos_e_contexto: list[str]
     revisao_de_sistemas: list[str]
     refs: list[str]
+    qp_principal: str = ""  # chave da queixa principal (a primeira dita, ou a que o profissional fixou)
+    qp_fixada: bool = False
+    queixas_detalhadas: list[QueixaDetalhada] = []
+    campos_especialidade: list[CampoEspecialidade] = []
 
 
 class Summary(BaseModel):

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import knowledge
+from app.consult import knowledge, semiology
 from app.consult.chart import ChartView, fmt_date
 from app.consult.schemas import (
     AllergyInfo,
@@ -24,6 +24,7 @@ from app.consult.schemas import (
     Hypothesis,
     Insights,
     MedSuggestion,
+    QueixaDetalhada,
     Question,
     Segment,
     Summary,
@@ -34,6 +35,7 @@ from app.consult.schemas import (
 from app.consult.surgical import surgical_report
 from app.consult.text import (
     contains,
+    find,
     has_vocative,
     keyword_status,
     listener_questions,
@@ -87,6 +89,13 @@ THIRD_PERSON = re.compile(
     r"(?<!\w)(ela|ele)( nao| ja| quase| tambem| sempre| nunca)? (tem|teve|esta|ta|anda|andou|caiu|cai|sente|sentiu"
     r"|reclama|reclamou|fica|ficou|toma|tomou|e|era|estava|vem|veio|nao)(?!\w)|(?<!\w)(dele|dela)(?!\w)"
 )
+# pergunta ao paciente sem pronome nem "?": "o ar tem faltado quando caminha" (verbo na 3ª pessoa, sem "eu"/"ela")
+QUESTION_WHEN = re.compile(
+    r"(?<!\w)quando (caminha|anda|levanta|deita|sobe|desce|come|respira|urina|tosse|dorme|se esforca|faz esforco|abaixa"
+    r"|agacha|vira|se mexe|fica em pe|fica deitad[oa]|evacua|engole)(?!\w)"
+)
+# fragmento de pergunta do profissional que retoma o assunto: "e a febre", "e dor no peito falta de ar"
+FOLLOW_UP = re.compile(r"^e (a|o|as|os|de|do|da|na|no|dor|tosse|febre|falta|algum|alguma|quando|se|como)(?!\w)")
 MEASUREMENT = re.compile(r"\d+ (por|x) \d+|(deu|esta|ta|foi) \d+")
 FAMILY_RE = re.compile(r"(minha|meu) (mae|pai|irma|irmao|avo|avô|tia|tio|filha|filho)")
 FAMILY_DISEASE = (
@@ -127,6 +136,9 @@ FORGET_WORDS = (
 STOP_WORDS = ("parei de tomar", "deixei de tomar")
 CONTEXT_WORDS = ("moro ", "sozinh", "fumo", "cigarro", "bebo", "bebida", "alcool", "caminhada", "trabalho", "aposentad")
 PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
+# ordem em que os campos vazios da queixa viram pergunta
+MAX_QUESTIONS = 10  # perguntas sugeridas na lista (as de anamnese vêm depois, no máximo 8)
+SEMIO_ORDER = ("inicio_duracao", "intensidade", "piora", "melhora", "frequencia", "localizacao", "associados")
 SEVERITY = {"critico": 0, "atencao": 1, "info": 2}
 
 
@@ -146,7 +158,9 @@ def infer_speaker(text: str) -> str:
     vocative = has_vocative(text)
     doctor = 3 * sum(listener_questions(text)) + 2 * _cues(t, DOCTOR_MARKERS)
     doctor += 2 * bool(MEASUREMENT.search(t)) + bool(re.search(r"(?<!\w)(a senhora|o senhor|voce)(?!\w)", t))
+    doctor += 2 * bool(QUESTION_WHEN.search(t) and not re.search(r"(?<!\w)(eu|ela|ele)(?!\w)", t))
     patient = 3 * vocative + 2 * _cues(t, PATIENT_MARKERS)
+    doctor += 2 * bool(FOLLOW_UP.match(t) and len(t.split()) <= 8 and not patient)
     if not question and any(keyword_status(text, d.words, skip_questions=True) for d in knowledge.symptoms()):
         patient += 1
     if patient > doctor and vocative and THIRD_PERSON.search(t) and not _cues(t, FIRST_PERSON_SYMPTOM):
@@ -176,6 +190,8 @@ class Engine:
         self.extra = extra or {}
         self.norm = {s.n: norm(s.texto) for s in segments}
         self.patient_segments = [s for s in segments if s.falante in PATIENT_SIDE]
+        self.denied: dict[str, list[str]] = {}
+        self.tags_denied: list[Tag] = []
 
     # ---------- utilidades ----------
     def said(self, words: tuple[str, ...], speakers: tuple[str, ...] | None = None) -> list[Segment]:
@@ -193,9 +209,13 @@ class Engine:
         present: dict[str, list[str]] = {}
         denied: dict[str, list[str]] = {}
         order: list[str] = []
-        labels = {d.key: d.label for d in knowledge.symptoms()}
+        defs = [d for d in knowledge.symptoms() if self._fits(d.age_min, d.age_max, d.sex)]
+        labels = {d.key: d.label for d in defs}
         for s in self.patient_segments:
-            for d in knowledge.symptoms():
+            # na ordem em que o paciente falou ("febre e tosse e falta de ar"), não na da tabela
+            spoken = sorted((hit[1], i) for i, d in enumerate(defs) for hit in [find(self.norm[s.n], d.words)] if hit)
+            for _, i in spoken:
+                d = defs[i]
                 # pergunta em 2ª pessoa ("a senhora tem sentido dor no peito") não é queixa de quem fala
                 status = keyword_status(s.texto, d.words, skip_questions=True, excludes=d.excludes)
                 if status is None:
@@ -210,7 +230,12 @@ class Engine:
                 tags.append(Tag(rotulo=labels[key], status="presente", refs=present[key]))
             else:
                 tags.append(Tag(rotulo=labels[key], status="negado", refs=denied[key]))
+        self.denied = {k: v for k, v in denied.items() if k not in present}
         return tags, present
+
+    def _fits(self, age_min: int | None, age_max: int | None, sex: str) -> bool:
+        """A idade e o sexo do paciente estão dentro do que o sintoma ou a pergunta pede?"""
+        return knowledge.fits(age_min, age_max, sex, self.r.age, self.r.sex)
 
     # ---------- Análise multidimensional ----------
     def emotions(self) -> tuple[list[Emotion], list[EmotionPoint], CommMetrics]:
@@ -299,11 +324,40 @@ class Engine:
         return out
 
     # ---------- Perguntas sugeridas ----------
-    def questions(self, present: dict[str, list[str]], emotions: list[Emotion], surgery_refs: list[str]):
+    def team_asked(self, words: tuple[str, ...]) -> tuple[Segment, Segment | None] | None:
+        """A primeira fala do PROFISSIONAL com alguma das palavras (inclusive parafraseada) e a resposta do paciente na
+        fala seguinte. Fala do paciente sozinha não conta: dizer "sono" não responde a pergunta que ninguém fez."""
+        found = [s for s in self.segments if s.falante in TEAM_SIDE and contains(self.norm[s.n], words)]
+        if not found:
+            return None
+        by_n = {s.n: s for s in self.segments}
+        for s in found:
+            reply = by_n.get(s.n + 1)
+            if reply is not None and reply.falante in PATIENT_SIDE:
+                return s, reply
+        return found[0], None
+
+    @staticmethod
+    def _answer(reply: Segment | None, size: int = 160) -> tuple[str, list[str]]:
+        if reply is None:
+            return "", []
+        text = reply.texto.strip()
+        return f"{text[:size]}{'…' if len(text) > size else ''}", [fala_ref(reply.n)]
+
+    def questions(
+        self,
+        present: dict[str, list[str]],
+        emotions: list[Emotion],
+        surgery_refs: list[str],
+        hyps: list[Hypothesis] | None = None,
+        sem: semiology.Semiology | None = None,
+        specialty_fields: list | None = None,
+    ):
         triggers: dict[str, list[dict]] = {}
 
-        def add(trigger: str, refs: list[str], **fmt) -> None:
-            triggers.setdefault(trigger, []).append({"refs": refs, "fmt": fmt})
+        def add(trigger: str, refs: list[str], key: str = "", filled: bool = False, semio: bool = False, **fmt) -> None:
+            occ = {"refs": refs, "fmt": fmt, "key": key, "filled": filled, "semio": semio}
+            triggers.setdefault(trigger, []).append(occ)
 
         for key, refs in present.items():
             add(f"sintoma:{key}", refs)
@@ -311,13 +365,19 @@ class Engine:
         for icd, _, c in self.chart.conditions if ambulatory else []:
             for q in knowledge.questions():
                 if q.trigger.startswith("condicao:") and icd.startswith(q.trigger.split(":", 1)[1]):
-                    add(q.trigger, [f"Condition/{c['id']}"])
+                    add(q.trigger, [f"Condition/{c['id']}"], key=c["id"])
         reported = self.reported_meds()
         for _ing, cls, name, ref in self._med_classes(reported):
-            add(f"classe:{cls}", [ref], med=name)
+            add(f"classe:{cls}", [ref], key=name, med=name)
         for a in self.chart.ctx.alergias:
             name, _, reaction = a.summary.partition(" — ")
-            add("alergia:*", [a.source_ref], alergeno=name, reacao=reaction.split(" (")[0].lower() or "não descrita")
+            add(
+                "alergia:*",
+                [a.source_ref],
+                key=name,
+                alergeno=name,
+                reacao=reaction.split(" (")[0].lower() or "não descrita",
+            )
         if surgery_refs:
             add("contexto:cirurgia", surgery_refs)
         if ambulatory and len(self.chart.active_meds) >= 4:
@@ -328,30 +388,115 @@ class Engine:
         if anxious:
             add("contexto:emocional", anxious[0].refs)
         add("especialidade:*", [])
+        for f in specialty_fields or []:  # campos extras da especialidade (pediatria: gestação e parto, vacinas, DNPM)
+            add(f"semiologia:{f.campo}", [], key=f.campo, filled=bool(f.valor), semio=True)
 
-        suggested: list[Question] = []
-        covered: list[Question] = []
+        # semiologia: campos vazios (ou já perguntados) da queixa principal e das duas seguintes
+        semio_rows = {
+            q.trigger.split(":", 1)[1]: q for q in knowledge.questions() if q.trigger.startswith("semiologia:")
+        }
+        asked_semio = {(a.campo, a.chave): a for a in (sem.perguntas if sem else [])}
+        semio_occ: list[tuple[knowledge.QuestionDef, dict, bool]] = []
+        for rank, d in enumerate((sem.queixas if sem else [])[:3]):
+            group = knowledge.semiology().group_of(d.chave)
+            wanted = [f for f in SEMIO_ORDER if f in group.fields]
+            missing = 0
+            for field_ in wanted:
+                row = semio_rows.get(field_)
+                if row is None or row.specialty:
+                    continue
+                known = bool(getattr(d, field_).valor)
+                if known and (field_, d.chave) not in asked_semio:
+                    continue
+                if not known and (field_, d.chave) not in asked_semio:
+                    missing += 1
+                    if missing > (3 if rank == 0 else 1):
+                        continue
+                occ = {
+                    "refs": d.refs[:3],
+                    "fmt": {"queixa": d.rotulo.lower()},
+                    "key": d.chave,
+                    "filled": False,
+                    "semio": True,
+                    "asked": asked_semio.get((field_, d.chave)),
+                    "priority": row.priority if rank == 0 else "baixa",
+                }
+                semio_occ.append((row, occ, True))
+
+        top = [h for h in (hyps or [])[:2]]
+        suggested: list[tuple[Question, int, bool, bool, bool, int]] = []
+        order: dict[tuple[str, str], int] = {}
+        covered: list[tuple[int, Question]] = []
         seen: set[str] = set()
-        for q in knowledge.questions():
+        trat = "a senhora" if self.r.sex == "F" else "o senhor"
+
+        def build(q: knowledge.QuestionDef, occ: dict, semio: bool) -> None:
             if q.specialty and q.specialty != self.specialty:
-                continue
+                return
+            if not self._fits(q.age_min, q.age_max, q.sex):
+                return
+            try:
+                text = q.text.format(trat=trat, **occ["fmt"])
+            except KeyError:
+                return
+            if text in seen:
+                return
+            seen.add(text)
+            qid = f"{q.id}:{occ['key']}" if occ["key"] else q.id
+            priority = occ.get("priority", q.priority)
+            names = [h.hipotese for h in top if h.cid in q.discriminates]
+            item = Question(
+                id=qid,
+                pergunta=text,
+                motivo=q.reason,
+                prioridade=priority,
+                refs=occ["refs"],
+                fonte=q.source,
+                discrimina=names,
+            )
+            asked = occ.get("asked")
+            if asked is not None:  # semiologia: a pergunta do profissional já foi lida pelo extrator
+                origin = next(s for s in self.segments if s.n == asked.pergunta_n)
+                reply = next((s for s in self.segments if s.n == asked.resposta_n), None)
+                found = (origin, reply)
+            elif occ.get("semio") and "queixa" in occ["fmt"]:
+                found = None  # pergunta de semiologia ainda não feita: o extrator já olhou as falas
+            else:
+                found = self.team_asked(q.asked_words) if q.asked_words else None
+            if found is not None:
+                answer, answer_refs = self._answer(found[1])
+                covered.append(
+                    (
+                        found[0].n,
+                        item.model_copy(
+                            update={"refs": [fala_ref(found[0].n)], "resposta": answer, "resposta_refs": answer_refs}
+                        ),
+                    )
+                )
+            elif occ.get("filled"):
+                return  # campo da especialidade que o paciente já informou sem ser perguntado
+            else:
+                conv_first = any(r.startswith("Fala/") for r in occ["refs"])
+                boosted = bool(names)
+                nth = order.get((q.trigger, occ["key"]), 0)  # 1ª, 2ª… pergunta da mesma queixa ou do mesmo gatilho
+                order[(q.trigger, occ["key"])] = nth + 1
+                suggested.append((item, PRIORITY[priority], conv_first, boosted, semio, nth))
+
+        for q in knowledge.questions():
+            if q.trigger.startswith("semiologia:") and q.trigger.split(":", 1)[1] in knowledge.semiology().fields:
+                continue  # as de queixa vêm de `semio_occ`
             for occ in triggers.get(q.trigger, []):
-                try:
-                    text = q.text.format(trat="a senhora" if self.r.sex == "F" else "o senhor", **occ["fmt"])
-                except KeyError:
-                    continue
-                if text in seen:
-                    continue
-                seen.add(text)
-                answered = self.said(q.asked_words) if q.asked_words else []
-                item = Question(pergunta=text, motivo=q.reason, prioridade=q.priority, refs=occ["refs"])
-                if answered:
-                    covered.append(item.model_copy(update={"refs": [fala_ref(s.n) for s in answered[:2]]}))
-                else:
-                    suggested.append(item)
-        conv_first = {q.pergunta: any(r.startswith("Fala/") for r in q.refs) for q in suggested}
-        suggested.sort(key=lambda q: (PRIORITY[q.prioridade], not conv_first[q.pergunta]))
-        return suggested[:8], covered
+                build(q, occ, occ["semio"])
+        for row, occ, semio in semio_occ:
+            build(row, occ, semio)
+
+        # prioridade; dentro dela, as que nascem da conversa antes das do prontuário, uma pergunta de cada queixa antes
+        # da segunda e, entre elas, as que ajudam a decidir entre as 2 hipóteses de maior confiança primeiro
+        suggested.sort(key=lambda t: (t[1], not t[2], t[5], not t[3]))
+        main = [t[0] for t in suggested if not t[4]][:MAX_QUESTIONS]
+        tail = [t[0] for t in suggested if t[4]][:8]
+        covered.sort(key=lambda t: t[0])
+        return main + tail, [c for _, c in covered]
 
     # ---------- Hipóteses ----------
     def hypotheses(self, present: dict[str, list[str]], denied_tags: list[Tag]) -> list[Hypothesis]:
@@ -659,39 +804,59 @@ class Engine:
                 highlights.append(Highlight(texto=f"Relata: {t.rotulo.lower()}", severidade="atencao", refs=t.refs))
         return Summary(texto=text, destaques=highlights[:8])
 
-    def anamnese(self, tags: list[Tag], allergies: list[AllergyInfo], reported) -> Anamnese:
-        complaint_segs = [
-            s for s in self.patient_segments if any(f"Fala/{s.n}" in t.refs for t in tags if t.status == "presente")
-        ]
-        present = [t.rotulo for t in tags if t.status == "presente"]
-        qp = (
-            f"{', '.join(present[:3])} — {self.quote(complaint_segs[0], 110)}"
-            if complaint_segs
-            else "Sem queixa registrada na conversa até agora."
+    def semiology(self, present: dict[str, list[str]]) -> semiology.Semiology:
+        """Semiologia das queixas presentes; a queixa principal que o profissional fixou vai para o começo."""
+        sem = semiology.extract(
+            self.segments,
+            present,
+            self.denied,
+            age=self.r.age,
+            sex=self.r.sex,
+            patient_side=PATIENT_SIDE,
+            team_side=TEAM_SIDE,
         )
-        hda = " ".join(self.quote(s, 160) for s in complaint_segs[:6]) or "—"
+        pinned = self.extra.get("qp_principal")
+        sem.queixas.sort(key=lambda d: d.chave != pinned)  # estável: o resto segue a ordem em que foi dito
+        return sem
+
+    def anamnese(
+        self,
+        allergies: list[AllergyInfo],
+        reported,
+        details: list[QueixaDetalhada],
+        specialty_fields: list,
+    ) -> Anamnese:
         meds = [m.text for m in self.chart.active_meds] + [
             f"{term} (relatado, por conta própria)"
             for ing, term, _ in reported
             if ing not in {m.ingredient for m in self.chart.active_meds}
         ]
+        own = [(term, ref) for ing, term, ref in reported if ing not in {m.ingredient for m in self.chart.active_meds}]
+        extras = []
+        if own:
+            names = ", ".join(dict.fromkeys(term.lower() for term, _ in own))
+            extras.append(f"Refere uso por conta própria de {names}{semiology.falas_text([r for _, r in own])}.")
         context = [self.quote(s, 120) for s in self.patient_segments if contains(self.norm[s.n], CONTEXT_WORDS)]
-        refs = [fala_ref(s.n) for s in complaint_segs[:6]]
+        refs = sorted({r for d in details for r in d.refs} | {r for _, r in own}, key=lambda r: int(r.split("/")[1]))
         catalog = drugs()
         previous = [
             f"Uso prévio de {catalog[ing].name if ing in catalog else term} (relatado, suspenso)"
             for ing, term, _ in self.suspended_meds()
         ]
         return Anamnese(
-            queixa_principal=qp,
-            hda=hda,
+            queixa_principal=semiology.complaint_text(details),
+            hda=semiology.hda_text(details, extras),
             antecedentes=[h.texto for h in self.chart.history() if h.tipo in ("diagnostico", "cirurgia")] + previous,
             medicacoes_em_uso=meds,
             alergias=[f"{a.alergeno} — {a.reacao}" for a in allergies]
             or (["Nega alergias conhecidas"] if self.chart.ctx.nega_alergias else ["Sem registro"]),
             habitos_e_contexto=context,
-            revisao_de_sistemas=[f"Nega {t.rotulo.lower()}" for t in tags if t.status == "negado"],
+            revisao_de_sistemas=[f"Nega {t.rotulo.lower()}" for t in self.tags_denied],
             refs=refs,
+            qp_principal=details[0].chave if details else "",
+            qp_fixada=bool(details and self.extra.get("qp_principal") == details[0].chave),
+            queixas_detalhadas=details,
+            campos_especialidade=specialty_fields,
         )
 
     # ---------- tudo junto ----------
@@ -714,10 +879,18 @@ class Engine:
                 alertas=[p for p in report.pendencias if p.severidade == "critico"],
             )
         tags, present = self.complaints()
+        self.tags_denied = [t for t in tags if t.status == "negado"]
+        sem = self.semiology(present)
+        label_key = {d.label: d.key for d in knowledge.symptoms()}
+        detail = {d.chave: semiology.tag_detail(d) for d in sem.queixas}
+        for t in tags:
+            if t.status == "presente":
+                t.detalhe = detail.get(label_key.get(t.rotulo, ""), "")
+        specialty_fields = semiology.specialty_fields(self.segments, self.specialty, self.r.age, PATIENT_SIDE)
         emotions, timeline, metrics = self.emotions()
         surgery_items, surgery_refs = self.surgery()
-        questions, covered = self.questions(present, emotions, surgery_refs)
         hyps = self.hypotheses(present, tags)
+        questions, covered = self.questions(present, emotions, surgery_refs, hyps, sem, specialty_fields)
         allergies = self.allergies()
         meds_safety = self.med_safety(allergies)
         reported = self.reported_meds()
@@ -749,7 +922,7 @@ class Engine:
             cirurgia=surgery_items,
             protocolos=self.chart.protocols(),
             resumo=self.summary(tags, hyps, meds_safety, exams),
-            anamnese=self.anamnese(tags, allergies, reported),
+            anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),
             alertas=alerts,
             tfg=egfr[0] if egfr else None,
         )

@@ -1,6 +1,6 @@
 {
  "descricao": "Corpus de regressão das regras da Consulta com IA: frases de consulta real (sem pontuação, com vocativo, negação, passado e pergunta sem '?'), com o que as regras devem e NÃO devem extrair. Mede falso positivo e falso negativo a cada build (apps/api/tests/test_consult_regressao.py). Dados sintéticos.",
- "versao": "1.1.0",
+ "versao": "1.2.0",
  "paciente_padrao": "cen6",
  "campos": {
   "frase": "texto como chega da captura (microfone, digitado ou servidor)",
@@ -1713,8 +1713,58 @@
    "falante": "desconhecido",
    "esperado": {
     "falante": "medico"
-   },
-   "limitacao": "Pergunta do profissional sem pronome, sem verbo e sem '?' (fala do microfone): sem pista lexical, a heurística atribui ao paciente e as tags viram queixa. A IA corrige o falante no ciclo seguinte."
+   }
+  },
+  {
+   "id": "pergunta-retoma-assunto-e-a-febre",
+   "categoria": "falante",
+   "frase": "e a febre",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-retoma-assunto-e-tosse-catarro",
+   "categoria": "falante",
+   "frase": "e a tosse tem catarro",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-terceira-pessoa-quando-caminha",
+   "categoria": "falante",
+   "frase": "o ar tem faltado quando caminha",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "controle-paciente-e-as-vezes-suor-frio",
+   "categoria": "controle",
+   "frase": "e às vezes antes do almoço me dá um suor frio",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Suor frio e tremor": "presente"
+    }
+   }
+  },
+  {
+   "id": "controle-paciente-ar-faltado-quando-caminho",
+   "categoria": "controle",
+   "frase": "o ar tem faltado quando eu caminho",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Falta de ar": "presente"
+    }
+   }
   },
   {
    "id": "sintoma-no-passado-resolvido",

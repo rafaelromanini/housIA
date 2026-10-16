@@ -13,11 +13,19 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult.engine import Engine
-from app.consult.knowledge import SPECIALTIES, SPECIALTY_FOCUS, emotions
+from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
+from app.consult.knowledge import (
+    SPECIALTIES,
+    SPECIALTY_FOCUS,
+    anamnesis_question_ids,
+    emotions,
+    semiology,
+    semiology_questions,
+)
 from app.consult.schemas import (
     LANGUAGE_LABELS,
     Anamnese,
+    CampoSemio,
     CidSuggestion,
     Confidence,
     ConsultNote,
@@ -30,6 +38,7 @@ from app.consult.schemas import (
     MedSuggestion,
     NoteSection,
     Priority,
+    QueixaDetalhada,
     Question,
     ReportField,
     Segment,
@@ -70,6 +79,14 @@ class AiQuestion(BaseModel):
     refs: list[str]
 
 
+class AiAbordada(BaseModel):
+    """Pergunta sugerida que o profissional já fez, mesmo com outras palavras (paráfrase)."""
+
+    id: str  # id de `perguntas_ja_sugeridas`
+    refs: list[str]  # falas do PROFISSIONAL em que perguntou
+    resposta_refs: list[str]  # fala do paciente que respondeu (vazio se ainda não respondeu)
+
+
 class AiHypothesis(BaseModel):
     hipotese: str
     cid: str
@@ -107,6 +124,7 @@ class ConversaOutput(BaseModel):
     emocoes: list[AiEmotion]
     perguntas: list[AiQuestion]
     falantes: list[AiSpeaker]
+    perguntas_abordadas: list[AiAbordada] = []
 
 
 class ClinicaOutput(BaseModel):
@@ -133,6 +151,7 @@ class ConsultLiveOutput(BaseModel):
     historico_relatado: list[AiText]
     anamnese: Anamnese
     falantes: list[AiSpeaker]
+    perguntas_abordadas: list[AiAbordada] = []
 
 
 class AiTranslation(BaseModel):
@@ -197,7 +216,7 @@ def chart_payload(engine: Engine) -> dict:
 
 def deterministic_payload(ins: Insights) -> dict:
     return {
-        "perguntas_ja_sugeridas": [q.pergunta for q in ins.perguntas],
+        "perguntas_ja_sugeridas": [{"id": q.id, "pergunta": q.pergunta} for q in ins.perguntas],
         "perguntas_ja_abordadas": [q.pergunta for q in ins.perguntas_abordadas],
         "hipoteses_por_regra": [f"{h.hipotese} ({h.cid}) — confiança {h.confianca}" for h in ins.hipoteses],
         "alertas_de_seguranca": [{"texto": m.texto, "refs": m.refs} for m in ins.sugestoes_medicamentos],
@@ -208,6 +227,12 @@ def deterministic_payload(ins: Insights) -> dict:
             if any(r.startswith("Fala/") for r in m.refs)
         ],
         "protocolo_pendente": [f"{p.protocolo}: {p.item}" for p in ins.protocolos if p.status != "em_dia"],
+        # semiologia que as regras já leram da conversa (cada campo com as falas de onde veio)
+        "anamnese_por_regra": ins.anamnese.model_dump(
+            include={"qp_principal", "qp_fixada", "queixas_detalhadas", "campos_especialidade"}
+        )
+        if ins.anamnese
+        else {},
     }
 
 
@@ -239,6 +264,114 @@ class RefValidator:
         return out
 
 
+MAX_LIST = 12  # perguntas sugeridas (regras + IA), fora as de semiologia, que ficam no fim
+SEMIO_FIELDS = ("inicio_duracao", "localizacao", "intensidade", "piora", "melhora", "frequencia", "associados")
+
+
+def _fala(ref: str, segments: list[Segment]) -> Segment | None:
+    if not ref.startswith("Fala/"):
+        return None
+    return next((s for s in segments if s.n == int(ref.split("/")[1])), None)
+
+
+def _paraphrased(base: Insights, ai: ConsultLiveOutput, v: RefValidator, segments: list[Segment]) -> list[Question]:
+    """Perguntas sugeridas que a IA viu o profissional fazer com outras palavras. Só vale com o id de uma pergunta da
+    lista e a fala do PROFISSIONAL (ref válida) em que ele perguntou; a resposta, se houver, é fala do paciente."""
+    by_id = {q.id: q for q in base.perguntas if q.id}
+    out: dict[str, Question] = {}
+    for a in ai.perguntas_abordadas:
+        asked = [_fala(r, segments) for r in a.refs]
+        if a.id not in by_id or not v.ok(a.refs) or not all(s and s.falante in TEAM_SIDE for s in asked):
+            v.dropped.append(
+                {
+                    "onde": "perguntas_abordadas",
+                    "texto": a.id,
+                    "refs_invalidas": [r for r in a.refs if r not in v.valid] or a.refs,
+                }
+            )
+            continue
+        replies = [_fala(r, segments) for r in a.resposta_refs if v.ok([r])]
+        reply = next((s for s in replies if s and s.falante in PATIENT_SIDE and s.n > asked[0].n), None)
+        text = reply.texto.strip() if reply else ""
+        out.setdefault(
+            a.id,
+            by_id[a.id].model_copy(
+                update={
+                    "refs": a.refs[:2],
+                    "resposta": f"{text[:160]}{'…' if len(text) > 160 else ''}",
+                    "resposta_refs": [fala_ref(reply.n)] if reply else [],
+                    "origem": "ia",
+                }
+            ),
+        )
+    return list(out.values())
+
+
+def _merge_anamnese(
+    rule: Anamnese | None, ai: Anamnese, v: RefValidator, valid: set[str], segments: list[Segment]
+) -> Anamnese:
+    """Texto livre da IA; nos campos semiológicos vale o da regra que tem fonte e o da IA entra onde a regra não tem."""
+    out = ai.model_copy(update={"refs": [r for r in ai.refs if r in valid]})
+    if rule is None:
+        out.queixas_detalhadas = []
+        out.campos_especialidade = []
+        return out
+    out.qp_principal, out.qp_fixada = rule.qp_principal, rule.qp_fixada
+    if rule.qp_fixada or not out.queixa_principal.strip():  # a queixa principal que o profissional fixou não muda
+        out.queixa_principal = rule.queixa_principal
+    if out.hda.strip() in ("", "—"):
+        out.hda = rule.hda
+
+    def usable(field: CampoSemio) -> bool:
+        return (
+            bool(field.valor.strip())
+            and bool(field.refs)
+            and all(r in valid and r.startswith("Fala/") for r in field.refs)
+        )
+
+    def sync(q: QueixaDetalhada) -> QueixaDetalhada:
+        q.faltam = [f for f in semiology().group_of(q.chave).fields if not getattr(q, f).valor]  # type: ignore[misc]
+        return q
+
+    merged: list[QueixaDetalhada] = []
+    taken: set[int] = set()
+    for r in rule.queixas_detalhadas:
+        q = r.model_copy(deep=True)
+        for i, a in enumerate(ai.queixas_detalhadas):
+            if a.chave == r.chave or _similar(a.rotulo, r.rotulo):
+                taken.add(i)
+                for f in (*SEMIO_FIELDS, "nega"):
+                    if not getattr(q, f).valor and usable(getattr(a, f)):
+                        setattr(q, f, getattr(a, f))
+        q.refs = sorted(
+            {*q.refs, *(x for f in SEMIO_FIELDS for x in getattr(q, f).refs)}, key=lambda x: int(x.split("/")[1])
+        )
+        merged.append(sync(q))
+    for i, a in enumerate(ai.queixas_detalhadas):  # queixa que só a IA viu: entra com os campos que têm fonte válida
+        if i in taken:
+            continue
+        q = QueixaDetalhada(chave=a.chave, rotulo=a.rotulo, refs=[])
+        for f in (*SEMIO_FIELDS, "nega"):
+            if usable(getattr(a, f)):
+                setattr(q, f, getattr(a, f))
+        q.refs = sorted(
+            {x for f in (*SEMIO_FIELDS, "nega") for x in getattr(q, f).refs}, key=lambda x: int(x.split("/")[1])
+        )
+        if q.refs:
+            merged.append(sync(q))
+        else:
+            v.dropped.append({"onde": "anamnese", "texto": a.rotulo, "refs_invalidas": a.refs})
+    out.queixas_detalhadas = merged
+    ai_extra = {c.campo: c for c in ai.campos_especialidade}
+    out.campos_especialidade = [
+        c
+        if c.valor or c.campo not in ai_extra or not usable(ai_extra[c.campo])
+        else c.model_copy(update={"valor": ai_extra[c.campo].valor, "refs": ai_extra[c.campo].refs})
+        for c in rule.campos_especialidade
+    ]
+    return out
+
+
 def _similar(a: str, b: str) -> bool:
     ta, tb = set(norm(a).split()), set(norm(b).split())
     return bool(ta and tb) and len(ta & tb) / len(ta | tb) >= 0.5
@@ -252,7 +385,18 @@ def merge_live(base: Insights, ai: ConsultLiveOutput, valid: set[str], segments:
     out = base.model_copy(deep=True)
     out.modo = "ia"
 
-    tags = [Tag(rotulo=t.rotulo, status=t.status, refs=t.refs, origem="ia") for t in v.keep(ai.queixas, "queixas")]
+    tags = [
+        Tag(
+            rotulo=t.rotulo,
+            status=t.status,
+            refs=t.refs,
+            origem="ia",
+            detalhe=next(
+                (b.detalhe for b in base.queixas if b.status == t.status and _similar(b.rotulo, t.rotulo)), ""
+            ),
+        )
+        for t in v.keep(ai.queixas, "queixas")
+    ]
     out.queixas = tags + [t for t in base.queixas if not any(_similar(t.rotulo, x.rotulo) for x in tags)]
 
     emo = [
@@ -271,16 +415,23 @@ def merge_live(base: Insights, ai: ConsultLiveOutput, valid: set[str], segments:
     ]
     out.emocoes = emo + [e for e in base.emocoes if not any(x.emocao == e.emocao and x.quem == e.quem for x in emo)]
 
-    covered = [q.pergunta for q in base.perguntas_abordadas]
+    moved = _paraphrased(base, ai, v, segments)
+    moved_ids = {q.id for q in moved}
+    kept = [q for q in base.perguntas if q.id not in moved_ids]
+    covered = [q.pergunta for q in base.perguntas_abordadas + moved]
     questions = [
         q
         for q in v.keep(ai.perguntas, "perguntas")
-        if not any(_similar(q.pergunta, b.pergunta) for b in base.perguntas)
-        and not any(_similar(q.pergunta, c) for c in covered)
+        if not any(_similar(q.pergunta, b.pergunta) for b in kept) and not any(_similar(q.pergunta, c) for c in covered)
     ]
     rank = {"alta": 0, "media": 1, "baixa": 2}
     ai_questions = [Question(**q.model_dump(), origem="ia") for q in questions]
-    out.perguntas = sorted(base.perguntas + ai_questions, key=lambda q: rank[q.prioridade])[:10]
+    # as de semiologia ficam no fim da lista, como nas regras; as sugeridas pela IA entram por prioridade
+    semio_ids = semiology_questions()
+    tail = [q for q in kept if q.id.split(":")[0] in anamnesis_question_ids()]
+    head = [q for q in kept if q.id.split(":")[0] not in anamnesis_question_ids()]
+    out.perguntas = sorted(head + ai_questions, key=lambda q: rank[q.prioridade])[:MAX_LIST] + tail
+    out.perguntas_abordadas = base.perguntas_abordadas + moved
 
     hyps = []
     for h in ai.hipoteses:
@@ -312,8 +463,15 @@ def merge_live(base: Insights, ai: ConsultLiveOutput, valid: set[str], segments:
         destaques=rule_highlights
         + [h for h in highlights if not any(_similar(h.texto, r.texto) for r in rule_highlights)],
     )
-    anamnese = ai.anamnese.model_copy(update={"refs": [r for r in ai.anamnese.refs if r in valid]})
-    out.anamnese = anamnese
+    out.anamnese = _merge_anamnese(base.anamnese, ai.anamnese, v, valid, segments)
+    if out.anamnese:  # campo semiológico que a IA preencheu com fonte: a pergunta correspondente sai da lista
+        known = {(q.chave, f) for q in out.anamnese.queixas_detalhadas for f in SEMIO_FIELDS if getattr(q, f).valor}
+
+        def answered(q: Question) -> bool:
+            row, _, chave = q.id.partition(":")
+            return row in semio_ids and (chave, semio_ids[row]) in known
+
+        out.perguntas = [q for q in out.perguntas if not answered(q)]
     out.descartados = v.dropped
     return out
 
@@ -343,6 +501,7 @@ def mock_live(base: Insights) -> dict:
             refs=[],
         ).model_dump(),
         "falantes": [],
+        "perguntas_abordadas": [],
     }
 
 
