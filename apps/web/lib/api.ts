@@ -808,7 +808,8 @@ export type OrderCheckType =
   | "retirada_abrupta"
   | "sem_prescricao"
   | "exame_repetido"
-  | "exame_pendente";
+  | "exame_pendente"
+  | "item_nao_reconhecido";
 export interface OrderCheck {
   tipo: OrderCheckType;
   severidade: Severity;

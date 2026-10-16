@@ -424,7 +424,10 @@ def test_frases_variadas_geram_o_pedido_certo(record):
     caso = {
         "Vou pedir um hemograma completo, uma creatinina e TSH.": {"Hemograma completo", "Creatinina", "TSH"},
         "vamos pedir ecg pra ver o coracao": {"Eletrocardiograma"},  # sem acento e sem pontuação
-        "Pede um raio x de tórax e uma ultrassonografia de abdome.": set(),  # imperativo "pede" não é intenção
+        "Pede um raio x de tórax e uma ultrassonografia de abdome.": {  # imperativo no começo da fala
+            "Radiografia de tórax",
+            "Ultrassonografia de abdome",
+        },
         "Vou solicitar um raio X de tórax.": {"Radiografia de tórax"},
         "VAMOS COLHER UM PERFIL LIPÍDICO": {"Perfil lipídico"},
         "Vou pedir o exame de urina e urocultura": {"Urina tipo 1 (EAS)", "Urocultura"},
@@ -608,3 +611,111 @@ def test_negacao_no_meio_da_frase_nao_herda_o_verbo_anterior(record, texto, espe
     assert {d.chave for d in spoken(record, "cen6", texto)} == esperado
     if "omeprazol" in esperado:
         assert spoken(record, "cen6", texto)[0].dose == "40 mg"  # dose dita antes do nome do medicamento
+
+
+# ---------- catálogo ampliado, item não reconhecido, imperativo e "dobrar" ----------
+def test_cefalexina_em_alergica_a_penicilina_e_critica_e_so_assina_com_justificativa(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    d = by_item(say(client, h, cid, ("medico", "Vou prescrever cefalexina 500 mg de 6 em 6 horas.")), "Cefalexina")
+    cruzada = next(c for c in d["checagens"] if c["tipo"] == "reatividade_cruzada")
+    assert cruzada["severidade"] == "critico" and d["gravidade"] == "critico"
+    assert decide(client, h, cid, d["id"], estado="assinado").status_code == 409
+    ok = decide(client, h, cid, d["id"], estado="assinado", justificativa="Cefalexina tolerada em uso anterior.")
+    assert ok.status_code == 200 and by_item(ok.json()["insights"], "Cefalexina")["decisao"]["estado"] == "assinado"
+
+
+def test_ceftriaxona_segue_como_atencao_e_o_catalogo_novo_dispara_a_alergia(record):
+    cef = spoken(record, "cen6", "Vou prescrever ceftriaxona 1 g.")[0]
+    assert [(c.tipo, c.severidade) for c in cef.checagens] == [("reatividade_cruzada", "atencao")]
+    for texto, chave in (
+        ("Vou começar amoxil 500 mg de 8 em 8 horas.", "amoxicilina"),
+        ("Vou prescrever augmentin 875 mg.", "amoxicilina_clavulanato"),
+        ("Vou prescrever penicilina benzatina 1.200.000 UI dose única im.", "penicilina_benzatina"),
+        ("Vou prescrever ampicilina 500 mg.", "ampicilina"),
+    ):
+        d = spoken(record, "cen6", texto)[0]
+        assert d.chave == chave and d.gravidade == "critico", texto
+        assert any(c.tipo == "alergia" and c.severidade == "critico" for c in d.checagens), texto
+    benzatina = spoken(record, "cen6", "Vou prescrever penicilina benzatina 1.200.000 UI dose única im.")[0]
+    assert benzatina.dose == "1.200.000 UI"  # o ponto de milhar não vira "000"
+    assert spoken(record, "cen6", "Vou prescrever cefadroxila 500 mg.")[0].gravidade == "critico"
+    # metamizol é sinônimo de dipirona (alergia registrada no cen5)
+    dip = spoken(record, "cen5", "Vou prescrever metamizol 500 mg.")[0]
+    assert dip.chave == "dipirona" and any(c.tipo == "alergia" for c in dip.checagens)
+
+
+def test_dose_com_ponto_de_milhar_vai_inteira_para_o_fhir(record):
+    d = spoken(record, "cen6", "Vou aumentar a metformina para 1.000 mg de 12 em 12 horas.")[0]
+    assert d.dose == "1.000 mg"
+    resource = orders.medication_request(
+        d, patient_id="cen6", encounter_id=None, author="Dra. X", when=clock.now(), consultation_id=1
+    )
+    assert resource["dosageInstruction"][0]["doseAndRate"][0]["doseQuantity"] == {"value": 1000.0, "unit": "mg"}
+
+
+@pytest.mark.parametrize(
+    ("texto", "item"),
+    [
+        ("Vou receitar clindamicina.", "Clindamicina"),
+        ("Vou prescrever 150 mg de bupropiona.", "Bupropiona"),
+        ("Vou começar um antibiótico.", "Antibiótico"),
+        ("vou prescrever oseltamivir 75 mg de 12 em 12 horas", "Oseltamivir"),
+        ("Vou passar um calmante para dormir.", "Calmante"),
+    ],
+)
+def test_remedio_fora_do_catalogo_vira_rascunho_nao_reconhecido(record, texto, item):
+    drafts = spoken(record, "cen6", texto)
+    assert [d.item for d in drafts] == [item], texto
+    d = drafts[0]
+    assert d.chave.startswith(orders.UNKNOWN) and d.gravidade == "atencao" and d.refs == ["Fala/1"]
+    assert [(c.tipo, c.severidade, c.texto) for c in d.checagens] == [
+        ("item_nao_reconhecido", "atencao", "Item não reconhecido — confira alergias e dose manualmente.")
+    ]
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Vou prescrever repouso e dieta.",
+        "Vou receitar um atestado de 3 dias.",
+        "Vou prescrever fisioterapia.",
+        "Vou pedir ressonância do joelho.",
+        "Vou pedir bilirrubina.",
+        "Não vou prescrever fluconazol.",
+        "Se precisar vou prescrever fluconazol.",
+        "A receita de losartana está ok.",
+        "Vou iniciar tratamento para a pressão.",
+    ],
+)
+def test_nao_remedio_ou_negado_nao_vira_item_nao_reconhecido(record, texto):
+    assert spoken(record, "cen6", texto) == [], texto
+
+
+def test_item_nao_reconhecido_pode_ser_assinado_com_dose_e_vai_para_o_fhir_sem_codigo(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    d = by_item(say(client, h, cid, ("medico", "Vou receitar clindamicina 300 mg de 6 em 6 horas.")), "Clindamicina")
+    ok = decide(client, h, cid, d["id"], estado="assinado")  # atenção não exige justificativa
+    assert ok.status_code == 200 and by_item(ok.json()["insights"], "Clindamicina")["decisao"]["estado"] == "assinado"
+    resource = orders.medication_request(
+        orders.OrderDraft.model_validate(by_item(ok.json()["insights"], "Clindamicina")),
+        patient_id="cen6",
+        encounter_id=None,
+        author="Dra. X",
+        when=clock.now(),
+        consultation_id=1,
+    )
+    assert "coding" not in resource["medicationCodeableConcept"] and resource["status"] == "draft"
+
+
+def test_imperativo_pede_e_dobrar_a_losartana_sao_reconhecidos(record):
+    assert {d.chave for d in spoken(record, "cen6", "Pede hemograma e TSH.")} == {"hemograma", "tsh"}
+    assert {d.chave for d in spoken(record, "cen6", "Doutora, pede hemograma.")} == {"hemograma"}
+    d = spoken(record, "cen6", "Vamos dobrar a losartana.")[0]
+    assert (d.chave, d.acao, d.dose, d.dose_anterior) == ("losartana", "alterar_dose", "100 mg", "50 mg")
+    assert d.prescricao_ref.startswith("MedicationRequest/")
+    assert spoken(record, "cen6", "Vou dobrar a dose da losartana.")[0].dose == "100 mg"
+    # a paciente dizendo o mesmo não vira pedido, nem "dobrar" sem o "vou"
+    assert spoken(record, "cen6", "Vamos dobrar a losartana.", "paciente") == []
+    assert spoken(record, "cen6", "A senhora pede ao plano o hemograma?") == []

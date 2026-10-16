@@ -421,6 +421,7 @@ OrderCheckType = Literal[
     "sem_prescricao",
     "exame_repetido",
     "exame_pendente",
+    "item_nao_reconhecido",
 ]
 
 

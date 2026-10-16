@@ -80,6 +80,11 @@ BRANDS = {
     "rivotril": "clonazepam",
     "glifage": "metformina",
     "daonil": "glibenclamida",
+    "amoxil": "amoxicilina",
+    "novamox": "amoxicilina",
+    "benzetacil": "penicilina_benzatina",
+    "keflex": "cefalexina",
+    "metamizol": "dipirona",  # sinônimo (metamizol / metamizole)
 }
 GENERIC_CLASSES = {"anti-inflamatorio": "aine", "antiinflamatorio": "aine", "anti inflamatorio": "aine"}
 

@@ -37,6 +37,8 @@ from app.medrec.rules import CRITICAL_OMISSION, CROSS_REACTIVITY, DUPLICITY_EXEM
 from app.reference import drugs, high_alert_reason, interactions, matches
 from app.timeline.record import normalize
 
+# cefalosporinas com a mesma cadeia lateral R1 da amoxicilina/ampicilina: em alérgico a penicilina o risco é alto
+SAME_SIDE_CHAIN = {"cefalexina", "cefadroxila"}
 SEVERITY_RANK: dict[str, int] = {"critico": 0, "atencao": 1, "info": 2}
 MAX_SUGGESTIONS = 6
 MIN_JUSTIFICATION = 15  # caracteres mínimos da justificativa para assinar um item com alerta crítico
@@ -59,6 +61,11 @@ for _words, _cls, _scope in (
         "rx",
     ),
     ("pedir peco pedimos solicitar solicito requisitar passar passo colocar", "start", "both"),
+    # imperativo no começo da fala do médico: "Pede um raio x", "Inicia amoxicilina", "Suspende o ibuprofeno"
+    ("pede peca solicita", "start", "both"),
+    ("inicia prescreve", "start", "rx"),
+    ("suspende", "stop", "rx"),
+    ("dobrar dobramos dobre dobra", "double", "rx"),
     (
         "aumentar aumento aumentamos subir elevar reduzir reduzo diminuir diminuo baixar ajustar ajusto corrigir",
         "change",
@@ -113,9 +120,11 @@ NUMBER_WORDS = {
 }
 NUM = r"(\d+|" + "|".join(NUMBER_WORDS) + r")"
 UNIT = r"(mg|miligramas?|mcg|microgramas?|g|gramas?|ml|ui|unidades|gotas|comprimidos?|capsulas?|ampolas?)"
-DOSE = re.compile(rf"(?<![\w,.])(\d+(?:[.,]\d+)?)\s*{UNIT}(?![a-z])")
+# "1.000 mg" e "1.200.000 UI" têm ponto de milhar; "2,5 mg" e "0.5 mg" são decimais
+QTY = r"(\d{1,3}(?:\.\d{3})+(?![\d,])|\d+(?:[.,]\d+)?)"
+DOSE = re.compile(rf"(?<![\w,.]){QTY}\s*{UNIT}(?![a-z])")
 DOSE_TO = re.compile(
-    rf"(?:\bpara|\bpra)\s+(?:o\s+)?(\d+(?:[.,]\d+)?)(?:\s*{UNIT}(?![a-z]))?(?!\s*(?:dias?|semanas?|mes|meses|horas?|vezes|vez|x)\b)"
+    rf"(?:\bpara|\bpra)\s+(?:o\s+)?{QTY}(?:\s*{UNIT}(?![a-z]))?(?!\s*(?:dias?|semanas?|mes|meses|horas?|vezes|vez|x)\b)"
 )
 EVERY_N = re.compile(r"\bde (\d+) em \1 horas?\b")
 EACH_N = re.compile(r"\b(?:a )?cada (\d+) horas?\b")
@@ -150,6 +159,7 @@ UNIT_LABEL = {
     "micrograma": "mcg",
     "gramas": "g",
     "grama": "g",
+    "ui": "UI",
 }
 PERIOD_UNIT = {"dia": "d", "semana": "wk", "mes": "mo"}
 
@@ -174,7 +184,8 @@ def _num(token: str) -> int:
 
 def _fmt_dose(value: str, unit: str | None) -> str:
     unit = UNIT_LABEL.get(unit or "", unit or "")
-    return f"{value.replace('.', ',')} {unit}".strip()
+    thousands = re.fullmatch(r"\d{1,3}(?:\.\d{3})+", value)
+    return f"{value if thousands else value.replace('.', ',')} {unit}".strip()
 
 
 def parse_posology(text: str) -> Posology:
@@ -232,6 +243,71 @@ def route_coding(via: str) -> dict | None:
         if label == via and code:
             return {"system": codes.SNOMED, "code": code, "display": display}
     return None
+
+
+# ---------- medicamento que o catálogo não conhece ----------
+UNKNOWN = "nr_"  # prefixo da chave de um rascunho de medicamento fora do catálogo ("nr_cefalexina")
+UNKNOWN_TEXT = "Item não reconhecido — confira alergias e dose manualmente."
+FILLER_OBJ = {
+    *("a o as os um uma uns umas de do da dos das uso dose na no mais tambem outro outra esse essa este esta".split()),
+    *("mesmo mesma novo nova".split()),
+}
+# objetos de prescrição que não são medicamento ("vou prescrever repouso", "vou receitar um atestado")
+NOT_A_DRUG = set(
+    (
+        "dieta repouso atestado fisioterapia exercicio exercicios caminhada oxigenio orientacao orientacoes retorno "
+        "encaminhamento alta internacao cirurgia tratamento medicacao medicamento medicamentos remedio remedios "
+        "receita pedido exame exames consulta curativo soro hidratacao acompanhamento tempo medicina vitaminas "
+        "bilirrubina hemoglobina albumina proteina procalcitonina calcitonina prolactina cortisol colesterol "
+        "mioglobina creatinina glicina ressonancia tomografia"
+    ).split()
+)
+DRUG_SUFFIX = (
+    "ina|ona|ol|ida|ato|ila|ima|pam|zol|fen|ico|ide|ium|pril|artana|dipino|statina|olol|oxacino|micina|cilina|mina"
+).split("|")
+DOSE_WORDS = set("mg mcg g ml ui gotas comprimido comprimidos capsula capsulas ampola ampolas".split())
+GENERIC_DRUG_WORDS = {
+    "antibiotico",
+    "analgesico",
+    "calmante",
+    "corticoide",
+    "antidepressivo",
+    "ansiolitico",
+    "vitamina",
+}
+DOSE_AHEAD = re.compile(r"\b(?:\d+(?:[.,]\d+)?\s*(?:mg|mcg|g|ml|ui|gotas|comprimidos?)|de \d+ em \d+ horas?|\d+\s*x)\b")
+
+
+def find_unknown(clause: str, items: list[Item], intents: list[Intent]) -> list[Item]:
+    """Verbo de prescrição + nome de remédio que o catálogo não conhece: vira rascunho "não reconhecido" em vez de
+    sumir (o profissional precisa ver que a checagem automática não cobriu o item)."""
+    found: list[Item] = []
+    tokens = [(m.group(), m.start(), m.end()) for m in TOKEN.finditer(clause)]
+    for intent in intents:
+        if intent.negated or intent.scope == "exam":
+            continue
+        after = [t for t in tokens if t[1] >= intent.end]
+        skipped = 0
+        while skipped < len(after) and (
+            after[skipped][0] in FILLER_OBJ or after[skipped][0] in DOSE_WORDS or after[skipped][0].isdigit()
+        ):
+            skipped += 1
+        if skipped >= len(after):
+            continue
+        word, start, end = after[skipped]
+        if (
+            len(word) < 5
+            or word.isdigit()
+            or word in NOT_A_DRUG
+            or word in VERBS
+            or any(start < i.end and i.start < end for i in items)
+            or any(word in lab.words or any(word in w.split() for w in lab.words) for lab in knowledge.lab_catalog())
+        ):
+            continue
+        ahead = clause[end : end + 60]
+        if word in GENERIC_DRUG_WORDS or word.endswith(tuple(DRUG_SUFFIX)) or DOSE_AHEAD.search(ahead):
+            found.append(Item("medicamento", start, end, UNKNOWN + word, word))
+    return found
 
 
 # ---------- itens na fala ----------
@@ -416,6 +492,16 @@ def _drug_checks(d: OrderDraft, ing: str, cls: str, name: str, ctx: OrderContext
                     refs,
                 )
             )
+        elif key == "@penicilina" and ing in SAME_SIDE_CHAIN:
+            checks.append(
+                _check(
+                    "reatividade_cruzada",
+                    "critico",
+                    f"Alergia a {label}: {name} tem cadeia lateral idêntica à da amoxicilina/ampicilina (reação "
+                    "cruzada bem mais provável que nas outras cefalosporinas). Escolher alternativa ou justificar.",
+                    refs,
+                )
+            )
         elif key.startswith("@") and cls in CROSS_REACTIVITY.get(key[1:], set()):
             checks.append(
                 _check(
@@ -447,7 +533,7 @@ def _drug_checks(d: OrderDraft, ing: str, cls: str, name: str, ctx: OrderContext
             checks.append(_check("dose_idade", sev, f"{name}: {rule.recommendation} ({age} anos)", []))
     others = [c for c in ctx.in_use if (c[0] != ing if ing else c[1] != cls)]
     for other in drafts:  # outros rascunhos da mesma consulta também entram na checagem
-        if other is d or other.tipo != "medicamento" or other.acao in ("suspender",):
+        if other is d or other.tipo != "medicamento" or other.acao in ("suspender",) or other.chave.startswith(UNKNOWN):
             continue
         o_ing = other.chave if not other.chave.startswith("@") else ""
         o_cls = other.chave[1:] if other.chave.startswith("@") else drugs()[other.chave].drug_class
@@ -559,14 +645,28 @@ def _draft_id(prefix: str, n: int, key: str, action: str) -> str:
     return f"{prefix}-{n}-{key.lstrip('@')}-{action}"
 
 
-def _new_med(item: Item, action: str, seg: Segment, pos: Posology, active_dose: str, active_ref: str) -> OrderDraft:
+def _doubled(dose: str) -> str:
+    m = re.match(r"(\d+(?:[.,]\d+)?)\s*(.*)", dose)
+    if not m:
+        return ""
+    value = float(m.group(1).replace(",", ".")) * 2
+    return f"{fmt_num(value, 0 if value.is_integer() else 1)} {m.group(2)}".strip()
+
+
+def _new_med(
+    item: Item, action: str, seg: Segment, pos: Posology, active_dose: str, active_ref: str, double: bool = False
+) -> OrderDraft:
     catalog = drugs()
-    if item.key.startswith("@"):
+    if item.key.startswith(UNKNOWN):
+        name, atc = item.term.capitalize(), ""
+    elif item.key.startswith("@"):
         name, atc = f"{item.term} (classe)", ""
     else:
         name, atc = catalog[item.key].name, catalog[item.key].atc
     dose = pos.dose
-    if action == "alterar_dose" and dose and dose.replace(",", "").isdigit() and active_dose:
+    if double and active_dose and not dose:  # "vamos dobrar a losartana": o dobro da dose da prescrição ativa
+        dose = _doubled(active_dose)
+    if action == "alterar_dose" and dose and dose.replace(",", "").replace(".", "").isdigit() and active_dose:
         unit = active_dose.split(" ", 1)[1] if " " in active_dose else ""
         dose = f"{dose} {unit}".strip()
     return OrderDraft(
@@ -649,7 +749,7 @@ def detect(segments: list[Segment], chart: ChartView) -> list[OrderDraft]:
             sentence_drafts: list[OrderDraft] = []
             conditional = False
             for clause in re.split(r"(?<!\d),(?!\d)|;|\b(?:mas|porem)\b", norm(sentence)):
-                clause = re.sub(r"[.!?]+", " ", clause).strip()
+                clause = re.sub(r"(?<!\d)[.!?]+|[.!?]+(?!\d)", " ", clause).strip()
                 if not clause:
                     continue
                 if conditional:  # "Caso tenha febre, vou pedir hemograma": a consequência de uma condição não é pedido
@@ -661,6 +761,10 @@ def detect(segments: list[Segment], chart: ChartView) -> list[OrderDraft]:
                     continue
                 items = find_items(clause)
                 intents = find_intents(clause)
+                unknown = find_unknown(clause, items, intents)
+                for u in unknown:  # grafia original (com acento) para mostrar ao profissional
+                    u.term = next((w for w in re.findall(r"\w+", sentence) if norm(w) == u.term), u.term)
+                items = sorted([*items, *unknown], key=lambda i: i.start)
                 if not items:
                     pos = parse_posology(clause)
                     if (
@@ -705,9 +809,13 @@ def detect(segments: list[Segment], chart: ChartView) -> list[OrderDraft]:
                         if intent.cls == "start":
                             made.append(put(_new_exam(item, seg, pos)))
                         continue
-                    act = {"start": "iniciar", "change": "alterar_dose", "stop": "suspender", "swap": "iniciar"}[
-                        intent.cls
-                    ]
+                    act = {
+                        "start": "iniciar",
+                        "change": "alterar_dose",
+                        "double": "alterar_dose",
+                        "stop": "suspender",
+                        "swap": "iniciar",
+                    }[intent.cls]
                     if intent.cls == "swap":
                         group = swap_group[id(intent)]
                         if len(group) == 1:
@@ -715,7 +823,19 @@ def detect(segments: list[Segment], chart: ChartView) -> list[OrderDraft]:
                         elif item is group[0]:
                             act = "suspender"
                     cur = active.get(item.key) or (by_class.get(item.key[1:]) if item.key.startswith("@") else None)
-                    made.append(put(_new_med(item, act, seg, pos, cur.dose if cur else "", cur.ref if cur else "")))
+                    made.append(
+                        put(
+                            _new_med(
+                                item,
+                                act,
+                                seg,
+                                pos,
+                                cur.dose if cur else "",
+                                cur.ref if cur else "",
+                                double=intent.cls == "double",
+                            )
+                        )
+                    )
                 if made:
                     sentence_drafts.extend(made)
                 if made:
@@ -847,6 +967,10 @@ def build(
         if d.tipo == "exame":
             d.checagens = _exam_checks(d, labs[d.chave], ctx)
         else:
+            if d.chave.startswith(UNKNOWN):  # fora do catálogo: nenhuma regra automática cobre o item
+                d.checagens = [_check("item_nao_reconhecido", "atencao", UNKNOWN_TEXT, [])]
+                _finish(d)
+                continue
             if d.chave.startswith("@"):
                 ing, cls, name = "", d.chave[1:], d.item
             else:
@@ -912,7 +1036,7 @@ def medication_request(
     """MedicationRequest em RASCUNHO (status=draft, intent=proposal): não entra na prescrição ativa nem na reconciliação
     como medicamento em uso até alguém emiti-lo."""
     cc: dict = {"text": _sentence(d)}
-    if not d.chave.startswith("@"):
+    if not d.chave.startswith(("@", UNKNOWN)):
         dr = drugs()[d.chave]
         cc["coding"] = [
             {"system": codes.INGREDIENT, "code": dr.ingredient, "display": dr.name},
@@ -922,7 +1046,9 @@ def medication_request(
     if d.dose and d.acao != "suspender":
         m = re.match(r"([\d,.]+)\s*(.*)", d.dose)
         if m:
-            quantity = {"value": float(m.group(1).replace(",", "."))} | ({"unit": m.group(2)} if m.group(2) else {})
+            number = m.group(1)
+            number = number.replace(".", "") if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", number) else number
+            quantity = {"value": float(number.replace(",", "."))} | ({"unit": m.group(2)} if m.group(2) else {})
             dosage["doseAndRate"] = [{"doseQuantity": quantity}]
     if d.periodicidade:
         repeat = {
