@@ -519,7 +519,14 @@ export function LiveConsult({
               onInsights={refreshInsights}
             />
           ) : c.insights ? (
-            <SmartAppsPanel insights={c.insights} onMainComplaint={setMainComplaint} />
+            <SmartAppsPanel
+              insights={c.insights}
+              onMainComplaint={setMainComplaint}
+              orders={{
+                consultId: c.id,
+                onInsights: (insights) => setConsultation((prev) => (prev ? { ...prev, insights: newerInsights(prev.insights, insights) } : prev)),
+              }}
+            />
           ) : null}
         </section>
       </div>

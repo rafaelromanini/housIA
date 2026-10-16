@@ -174,7 +174,7 @@ class MedItem(BaseModel):
     medicamento: str
     posologia: str
     desde: str | None = None
-    status: Literal["em_uso", "suspenso", "relatado", "planejado"]
+    status: Literal["em_uso", "suspenso", "relatado", "planejado", "proposto"]
     observacao: str | None = None
     refs: list[str]
 
@@ -424,6 +424,75 @@ class SurgicalReport(BaseModel):
     prontidao: Readiness | None = None
 
 
+# ---------- pedidos e prescrições em rascunho (ambient orders) ----------
+OrderType = Literal["medicamento", "exame"]
+OrderAction = Literal["iniciar", "alterar_dose", "suspender", "solicitar"]
+OrderCheckType = Literal[
+    "alergia",
+    "reatividade_cruzada",
+    "dose_tfg",
+    "dose_idade",
+    "interacao",
+    "duplicidade",
+    "alto_alerta",
+    "retirada_abrupta",
+    "sem_prescricao",
+    "exame_repetido",
+    "exame_pendente",
+    "item_nao_reconhecido",
+]
+
+
+class OrderCheck(BaseModel):
+    """Uma checagem de segurança feita ANTES de propor o item (alergia, dose, interação, duplicidade, repetição)."""
+
+    tipo: OrderCheckType
+    severidade: Severity
+    texto: str
+    refs: list[str]
+
+
+class OrderDecision(BaseModel):
+    """Assinatura item a item: o profissional assina ou recusa o rascunho. Item crítico exige justificativa."""
+
+    estado: Literal["pendente", "assinado", "recusado"] = "pendente"
+    justificativa: str = ""
+    por: str | None = None
+    em: str | None = None
+    editado: bool = False  # posologia corrigida pelo profissional antes de assinar
+    aviso: str = ""  # assinatura desfeita porque surgiu alerta crítico depois dela (assinar de novo, com justificativa)
+
+
+class OrderDraft(BaseModel):
+    """Rascunho de MedicationRequest (medicamento) ou ServiceRequest (exame) tirado da fala ou sugerido pelas regras."""
+
+    id: str
+    tipo: OrderType
+    acao: OrderAction
+    item: str
+    chave: str  # princípio ativo (ou @classe) / chave do catálogo de exames
+    dose: str = ""
+    via: str = ""
+    frequencia: str = ""
+    duracao: str = ""
+    dose_anterior: str = ""  # alterar_dose / suspender: a dose da prescrição ativa
+    justificativa: str = ""
+    periodicidade: dict | None = None  # {"frequencia": 3, "periodo": 1, "unidade": "d"} (FHIR Timing.repeat)
+    duracao_dias: int | None = None
+    refs: list[str]
+    checagens: list[OrderCheck] = []
+    gravidade: Severity = "info"
+    fonte_pedido: Literal["fala", "protocolo", "hipotese"] = "fala"
+    origem: Origin = "regra"
+    loinc: str = ""
+    loinc_nome: str = ""
+    categoria: str = ""  # laboratorio | imagem
+    preparo: str = ""
+    atc: str = ""
+    prescricao_ref: str = ""  # MedicationRequest ativo que o rascunho altera ou suspende
+    decisao: OrderDecision = Field(default_factory=OrderDecision)
+
+
 class Insights(BaseModel):
     tipo: ConsultKind
     especialidade: str
@@ -447,6 +516,7 @@ class Insights(BaseModel):
     anamnese: Anamnese | None = None
     alertas: list[Highlight] = []
     relatorio_cirurgico: SurgicalReport | None = None
+    pedidos: list[OrderDraft] = []
     tfg: float | None = None
     descartados: list[dict] = []
 

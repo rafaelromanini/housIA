@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { reidentify } from "@/components/ai/ai-badge";
+import { OrdersCard } from "@/components/consult/orders-card";
 import { usePatient } from "@/components/patient/patient-context";
 import { SeverityIcon } from "@/components/severity";
 import { SourceRefs } from "@/components/source-ref";
@@ -48,7 +49,8 @@ type AppKey =
   | "alergias"
   | "historico"
   | "exames"
-  | "protocolos";
+  | "protocolos"
+  | "pedidos";
 
 const APPS: { key: AppKey; label: string; tab: TabKey }[] = [
   { key: "perguntas", label: "Sugestão de perguntas", tab: "vivo" },
@@ -64,14 +66,16 @@ const APPS: { key: AppKey; label: string; tab: TabKey }[] = [
   { key: "historico", label: "Histórico médico", tab: "prontuario" },
   { key: "exames", label: "Exames", tab: "prontuario" },
   { key: "protocolos", label: "Protocolos (atenção primária)", tab: "prontuario" },
+  { key: "pedidos", label: "Pedidos em rascunho", tab: "pedidos" },
 ];
 
-type TabKey = "vivo" | "raciocinio" | "medicamentos" | "prontuario";
+type TabKey = "vivo" | "raciocinio" | "medicamentos" | "prontuario" | "pedidos";
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "vivo", label: "Ao vivo", short: "Ao vivo" },
   { key: "raciocinio", label: "Raciocínio clínico", short: "Raciocínio" },
   { key: "medicamentos", label: "Medicamentos e alergias", short: "Medicamentos" },
   { key: "prontuario", label: "Prontuário e exames", short: "Prontuário" },
+  { key: "pedidos", label: "Pedidos e receitas", short: "Pedidos" },
 ];
 const STORAGE = "housia.smartapps.ocultos";
 
@@ -238,10 +242,13 @@ function Semiologia({
 export function SmartAppsPanel({
   insights: ins,
   onMainComplaint,
+  orders,
 }: {
   insights: ConsultInsights;
   /** fixa (ou solta, com null) a queixa principal da anamnese; sem ela, a anamnese é só leitura */
   onMainComplaint?: (chave: string | null) => void;
+  /** assinatura dos pedidos em rascunho; sem ela, a aba "Pedidos" não aparece (a revisão da nota os assina) */
+  orders?: { consultId: number; onInsights: (insights: ConsultInsights) => void };
 }) {
   const { patient } = usePatient();
   const r = (t: string) => reidentify(t, patient.nome);
@@ -293,13 +300,14 @@ export function SmartAppsPanel({
     </li>
   );
 
+  const toDecide = (ins.pedidos ?? []).filter((o) => o.decisao.estado === "pendente").length;
   const negatives = ins.linha_emocional.filter((p) => p.emocoes.some((e) => NEGATIVE.has(e))).length;
 
   return (
     <section aria-label="Smart Apps" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div role="tablist" aria-label="Grupos de Smart Apps" className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
-          {TABS.map((t) => (
+          {TABS.filter((t) => orders || t.key !== "pedidos").map((t) => (
             <button
               key={t.key}
               role="tab"
@@ -316,6 +324,9 @@ export function SmartAppsPanel({
               <span className="hidden xl:inline">{t.label}</span>
               {t.key === "vivo" && ins.perguntas.length > 0 && (
                 <span className="ml-1.5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{ins.perguntas.length}</span>
+              )}
+              {t.key === "pedidos" && toDecide > 0 && (
+                <span className="ml-1.5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{toDecide}</span>
               )}
             </button>
           ))}
@@ -729,10 +740,24 @@ export function SmartAppsPanel({
                     </td>
                     <td className="py-1.5">
                       <Badge
-                        variant={m.status === "em_uso" ? "ok" : m.status === "relatado" || m.status === "planejado" ? "atencao" : "outline"}
+                        variant={
+                          m.status === "em_uso"
+                            ? "ok"
+                            : m.status === "relatado" || m.status === "planejado" || m.status === "proposto"
+                              ? "atencao"
+                              : "outline"
+                        }
                         className="text-[11px]"
                       >
-                        {{ em_uso: "Em uso", suspenso: "Suspenso", relatado: "Relatado", planejado: "A prescrever" }[m.status]}
+                        {
+                          {
+                            em_uso: "Em uso",
+                            suspenso: "Suspenso",
+                            relatado: "Relatado",
+                            planejado: "A prescrever",
+                            proposto: "Proposto (rascunho)",
+                          }[m.status]
+                        }
                       </Badge>
                     </td>
                   </tr>
@@ -862,6 +887,17 @@ export function SmartAppsPanel({
       )}
 
       {show("protocolos") && <ProtocolsCard items={ins.protocolos} patientId={pid} />}
+
+      {show("pedidos") && orders && (
+        <AppCard
+          title="Pedidos e prescrições em rascunho"
+          Icon={ClipboardList}
+          count={(ins.pedidos ?? []).length}
+          hint="Tirados da fala do profissional e checados contra alergias, função renal, interações e exames recentes antes de aparecer. Nada vai ao prontuário sem a sua assinatura."
+        >
+          <OrdersCard consultId={orders.consultId} orders={ins.pedidos ?? []} editable onInsights={orders.onInsights} />
+        </AppCard>
+      )}
     </section>
   );
 }

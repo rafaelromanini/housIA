@@ -4,6 +4,7 @@ Regras: omissão na transição, duplicidade terapêutica, interações (tabela 
 medicamentos potencialmente perigosos (dupla checagem) e alergia x prescrição.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from itertools import combinations
 from typing import Literal
@@ -354,6 +355,39 @@ def allergy_findings(record: PatientRecord, meds: list[MedInfo]) -> list[Finding
                     )
                 )
     return out
+
+
+def proposal_review(record: PatientRecord, dest_active: list[MedInfo]) -> tuple[list[dict], list[Finding]]:
+    """Prescrições propostas e assinadas na consulta com IA (MedicationRequest draft/proposal) entram na reconciliação:
+    cada uma é conferida contra alergias e contra o que já está prescrito, como se estivesse ativa."""
+    raw = {f"MedicationRequest/{r['id']}": r for r in record.resources.get("MedicationRequest", [])}
+    rows: list[dict] = []
+    findings: list[Finding] = []
+    for p in record.proposed_meds:
+        r = raw.get(p.ref, {})
+        trial = replace(p, status="active")
+        others = [m for m in dest_active if m.ref != p.prior_ref]  # a prescrição que a proposta substitui não conta
+        mine = allergy_findings(record, [trial])
+        mine += [f for f in interaction_findings([*others, trial]) if p.ref in f.refs]
+        mine += [f for f in duplicity_findings([*others, trial]) if p.ref in f.refs]
+        mine += high_alert_findings([trial], {p.ingredient})
+        findings += [f.model_copy(update={"titulo": f"Prescrição proposta — {f.titulo}"}) for f in mine]
+        rows.append(
+            {
+                "ref": p.ref,
+                "nome": p.name,
+                "classe": p.drug_class,
+                "classe_rotulo": class_label(p.drug_class),
+                "texto": p.text,
+                "acao": "substitui" if p.prior_ref else "nova",
+                "substitui": p.prior_ref,
+                "prescritor": (r.get("requester") or {}).get("display"),
+                "em": r.get("authoredOn"),
+                "justificativa": ((r.get("reasonCode") or [{}])[0]).get("text"),
+                "alertas": [f.titulo for f in mine if f.severidade == "critico"],
+            }
+        )
+    return rows, findings
 
 
 def default_transition(record: PatientRecord) -> tuple[Sector | None, Sector | None]:

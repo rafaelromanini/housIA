@@ -89,9 +89,9 @@ lactulose,Lactulose,A06AD11,laxativo
 bromoprida,Bromoprida,A03FA04,procinetico
 ampicilina,Ampicilina,J01CA01,penicilina
 oxacilina,Oxacilina,J01CF04,penicilina
-benzilpenicilina_benzatina,Benzilpenicilina benzatina,J01CE08,penicilina
+penicilina_benzatina,Penicilina benzatina,J01CE08,penicilina
 cefalexina,Cefalexina,J01DB01,cefalosporina
-cefadroxil,Cefadroxil,J01DB05,cefalosporina
+cefadroxila,Cefadroxil,J01DB05,cefalosporina
 cefaclor,Cefaclor,J01DC04,cefalosporina
 eritromicina,Eritromicina,J01FA01,macrolideo
 doxiciclina,Doxiciclina,J01AA02,tetraciclina

@@ -15,7 +15,7 @@ from app.fhir_client.client import FhirSource
 from app.llm.client import generate_structured
 from app.llm.pseudonymize import Pseudonymizer
 from app.medrec.hypotheses import MedrecLLMOutput, detect_symptoms, mock_hypotheses
-from app.medrec.rules import default_transition, resolve_sector, run_rules
+from app.medrec.rules import SEV_ORDER, default_transition, proposal_review, resolve_sector, run_rules
 from app.patients.service import load_record
 from app.timeline.events import build_timeline, window
 from app.timeline.record import Sector
@@ -57,6 +57,10 @@ def run_medrec(
         origin = None
 
     rows, findings = run_rules(record, origin, dest)
+    proposals, proposal_findings = proposal_review(
+        record, [m for m in record.meds_of_encounter(dest.encounter_id) if m.status == "active"]
+    )
+    findings = sorted(findings + proposal_findings, key=lambda f: (SEV_ORDER[f.severidade], f.tipo))
     events = build_timeline(record)
     symptoms = detect_symptoms(events, now)
     meds_by_ref = {m.ref: m for m in record.medications}
@@ -150,6 +154,7 @@ def run_medrec(
         "origem": _sector_out(origin),
         "destino": _sector_out(dest),
         "linhas": [r.model_dump() for r in rows],
+        "prescricoes_propostas": proposals,
         "achados": findings_out,
         "hipoteses": hypotheses,
         "sinais_detectados": [s.model_dump(mode="json") for s in symptoms],

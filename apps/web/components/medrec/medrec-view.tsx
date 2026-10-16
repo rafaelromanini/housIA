@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, Bot, FlaskConical, Loader2, PlayCircle, ShieldAlert, TableProperties } from "lucide-react";
+import { ArrowRight, Bot, ClipboardPen, FlaskConical, Loader2, PlayCircle, ShieldAlert, TableProperties } from "lucide-react";
 
 import { AckButton } from "@/components/ai/alert-ack";
 import { reidentify } from "@/components/ai/ai-badge";
@@ -261,6 +261,44 @@ export function MedrecView() {
             )}
             {run.meta.modo && <FeedbackButtons kind="medrec" entityId={run.id} patientId={patient.id} />}
           </section>
+
+          {(run.prescricoes_propostas?.length ?? 0) > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardPen aria-hidden className="size-5 text-primary" /> Prescrições propostas na consulta (
+                  {run.prescricoes_propostas?.length})
+                </CardTitle>
+                <CardDescription>
+                  Rascunhos assinados pelo profissional na consulta com IA (status “draft”). Ainda não estão em uso: foram conferidos
+                  contra alergias e a prescrição ativa, e os alertas entram na lista acima.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2 text-sm">
+                  {run.prescricoes_propostas?.map((p) => (
+                    <li key={p.ref} className="rounded-md border p-2.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="font-bold">{p.nome}</p>
+                        <Badge variant="outline">{p.classe_rotulo}</Badge>
+                        <Badge variant={p.acao === "substitui" ? "atencao" : "info"}>{p.acao === "substitui" ? "Altera prescrição ativa" : "Nova"}</Badge>
+                        {p.alertas.length > 0 && <Badge variant="critico">Alerta crítico</Badge>}
+                        <SourceRefs patientId={patient.id} refs={[p.ref, ...(p.substitui ? [p.substitui] : [])]} />
+                      </div>
+                      <p className="mt-1">{p.texto}</p>
+                      {(p.prescritor || p.em) && (
+                        <p className="text-xs text-muted-foreground">
+                          Proposta por {p.prescritor ?? "profissional"}
+                          {p.em ? ` em ${fmtDateTime(p.em)}` : ""}
+                          {p.justificativa ? ` · ${p.justificativa}` : ""}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           {run.origem && (
             <Card>

@@ -633,7 +633,7 @@ def test_ai_output_models_stay_small_for_the_structured_output_grammar():
 def test_prompt_versions_were_bumped():
     from app.llm.client import load_prompt
 
-    assert load_prompt("consult_live_clinica").version == "1.4.0"
+    assert load_prompt("consult_live_clinica").version == "1.5.0"
     assert load_prompt("consult_note").version == "1.1.0"
     assert load_prompt("surgical_report").version == "1.2.0"
 

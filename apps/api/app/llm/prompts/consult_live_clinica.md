@@ -1,5 +1,5 @@
 ---
-version: 1.4.0
+version: 1.5.0
 description: Consulta em tempo real — Smart Apps clínicos (hipóteses, medicamentos, alergias, cirurgia, histórico relatado, anamnese)
 ---
 # system
@@ -46,6 +46,11 @@ você cuida do RACIOCÍNIO CLÍNICO. Regras obrigatórias:
   (`Fala/N`); campo não dito fica de fora. Não invente nada. Onde as regras já têm o campo com fonte, o das regras
   prevalece. `campos_especialidade`: `{campo, valor, refs}` só do que foi dito (gestação e parto, vacinas,
   desenvolvimento na pediatria).
+- `pedidos_ia`: as regras já detectaram na fala do profissional os rascunhos de `pedidos_em_rascunho` (receitas e
+  pedidos de exame). Você NÃO cria, remove nem altera rascunhos e NÃO contradiz as checagens de segurança. Só
+  completa o que está vazio: `dose`, `via`, `frequencia`, `duracao` (somente se o profissional disse na conversa,
+  nunca inventar posologia) e `justificativa` (uma frase curta ligando o pedido ao quadro clínico). Cada item usa o
+  `id` do rascunho e `refs` existentes (`Fala/N` ou registro do prontuário). Rascunho já completo fica de fora.
 - Português do Brasil, frases curtas, sem texto fora do JSON. O paciente é [PACIENTE]; familiares são [FAMILIAR].
 
 # user

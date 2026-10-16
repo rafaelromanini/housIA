@@ -332,7 +332,17 @@ class PatientRecord:
     # ---------- medicamentos ----------
     @cached_property
     def medications(self) -> list[MedInfo]:
-        return [med_info(mr) for mr in self.resources.get("MedicationRequest", [])]
+        """Prescrições do prontuário. Rascunhos (status=draft, propostos pela consulta com IA) ficam de fora."""
+        return [med_info(mr) for mr in self.resources.get("MedicationRequest", []) if mr.get("status") != "draft"]
+
+    @cached_property
+    def proposed_meds(self) -> list[MedInfo]:
+        """Prescrições propostas e assinadas na consulta (MedicationRequest draft/proposal), ainda não emitidas."""
+        return [
+            med_info(mr)
+            for mr in self.resources.get("MedicationRequest", [])
+            if mr.get("status") == "draft" and mr.get("intent") == "proposal"
+        ]
 
     def meds_of_encounter(self, encounter_id: str) -> list[MedInfo]:
         return [m for m in self.medications if m.encounter_id == encounter_id]
