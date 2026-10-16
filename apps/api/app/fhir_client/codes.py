@@ -28,6 +28,15 @@ NOTE_NURSING = "34746-8"  # Nurse note
 SR_SURGICAL = ("387713003", "Surgical procedure")
 SR_IMAGING = ("363679005", "Imaging")
 SR_LAB = ("108252007", "Laboratory procedure")
+# Rastreio do implante (OPME): UDI com o GTIN da etiqueta GS1; registro ANVISA em identificador próprio
+GS1_ISSUER = "urn:oid:1.3.160"
+ANVISA_REGISTRO = "http://housia.dev/fhir/NamingSystem/registro-anvisa"
+CLAIM_TYPE = "http://terminology.hl7.org/CodeSystem/claim-type"
+PROCESS_PRIORITY = "http://terminology.hl7.org/CodeSystem/processpriority"
+DIAGNOSIS_TYPE = "http://terminology.hl7.org/CodeSystem/ex-diagnosistype"
+TUSS_DEMO = "http://housia.dev/fhir/CodeSystem/tuss-demo"
+SIGTAP_DEMO = "http://housia.dev/fhir/CodeSystem/sigtap-demo"
+OPME_DEMO = "http://housia.dev/fhir/CodeSystem/opme-demo"
 CONSENT_SCOPE = "http://terminology.hl7.org/CodeSystem/consentscope"
 CONSENT_LOINC = ("59284-0", "Patient Consent")
 

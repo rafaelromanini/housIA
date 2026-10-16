@@ -1,0 +1,5 @@
+regra,tipo,condicao,severidade,peso,mensagem,fonte,tipo_fonte
+auxiliares,auxiliares,,critico,8,{detalhe},"Contrato DEMO-CONV (fictício, só para demonstração)",contrato
+guia_autorizacao,guia_autorizacao,,critico,10,Autorização prévia não registrada para {procedimento}: o DEMO-CONV só paga com número de guia autorizada.,"Contrato DEMO-CONV (fictício, só para demonstração), cláusula de autorização prévia",contrato
+opme_rastreio,opme_rastreio,implantaveis,critico,6,{material} citado sem etiqueta lida: o DEMO-CONV exige lote e série de todo implante.,"Contrato DEMO-CONV (fictício, só para demonstração), cláusula de rastreabilidade de OPME",contrato
+profilaxia_ditada,campo,antibioticoprofilaxia,critico,6,Antibioticoprofilaxia não registrada: o DEMO-CONV glosa a internação cirúrgica sem o registro.,"Contrato DEMO-CONV (fictício, só para demonstração), cláusula de qualidade",contrato

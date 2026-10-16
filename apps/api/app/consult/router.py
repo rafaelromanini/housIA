@@ -1,12 +1,13 @@
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
-from app.consult import knowledge, service, stt
+from app.consult import antiglosa, knowledge, opme, service, stt
 from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
 from app.db.models import User
@@ -32,6 +33,18 @@ def config(_: User = Depends(get_current_user)) -> dict:
             for k, v in knowledge.SPECIALTIES.items()
         ],
     }
+
+
+@router.get("/consult/opme-catalog")
+def opme_catalog(q: str = Query("", max_length=80), _: User = Depends(clinician)) -> list[dict]:
+    """Autocomplete do catálogo de OPME (demonstração: códigos DEMO-OPME-*) por código, descrição ou nome dito."""
+    return opme.search(q)
+
+
+@router.get("/consult/convenios")
+def convenios(_: User = Depends(clinician)) -> list[dict]:
+    """Convênios com regras anti-glosa em dados (data/reference/glosa_rules)."""
+    return antiglosa.convenio_list()
 
 
 @router.get("/appointments")
@@ -117,6 +130,92 @@ def checklist(
     return service.mark_checklist(db, fhir, user, cid, body.etapa, body.feito)
 
 
+class OpmeItemIn(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=40)
+    quantidade: int = Field(1, ge=1, le=99)
+    descricao: str | None = Field(None, max_length=200)
+    palavras: list[str] | None = Field(None, max_length=10)
+    gtin: str | None = Field(None, max_length=14)
+
+
+class OpmeGuiaIn(BaseModel):
+    """Guia autorizada: itens manuais (autocomplete do catálogo), ClaimResponse FHIR ou XML TISS — exatamente um."""
+
+    itens: list[OpmeItemIn] | None = Field(None, max_length=60)
+    claim_response: dict | None = None
+    tiss_xml: str | None = Field(None, max_length=1_000_000)
+    numero: str | None = Field(None, max_length=60)
+
+    @model_validator(mode="after")
+    def _one_source(self):
+        if sum(x is not None for x in (self.itens, self.claim_response, self.tiss_xml)) != 1:
+            raise ValueError("Informe exatamente uma origem: itens, claim_response ou tiss_xml")
+        return self
+
+
+@router.put("/consultations/{cid}/opme-autorizado")
+def set_opme_guia(
+    cid: int,
+    body: OpmeGuiaIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Guia de OPME autorizada (entrada manual, ClaimResponse ou XML TISS): acaba a dependência do roteiro de demo."""
+    return service.set_opme_guia(db, fhir, user, cid, body)
+
+
+class OpmeConsumoIn(BaseModel):
+    """Leitura da etiqueta GS1 (DataMatrix/GS1-128) feita pela câmera do tablet, ou código com lote/série digitados."""
+
+    etiqueta: str | None = Field(None, max_length=400)
+    codigo: str | None = Field(None, max_length=40)
+    quantidade: int = Field(1, ge=1, le=99)
+    lote: str | None = Field(None, max_length=40)
+    serie: str | None = Field(None, max_length=40)
+    validade: date | None = None
+
+
+@router.post("/consultations/{cid}/opme-consumo")
+def add_opme_consumo(
+    cid: int,
+    body: OpmeConsumoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Registra o consumo de um item (etiqueta interpretada no servidor) e reconcilia com a fala e a guia."""
+    return service.add_opme_consumo(db, fhir, user, cid, body)
+
+
+@router.delete("/consultations/{cid}/opme-consumo/{item_id}")
+def remove_opme_consumo(
+    cid: int,
+    item_id: str,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return service.remove_opme_consumo(db, fhir, user, cid, item_id)
+
+
+class FaturamentoIn(BaseModel):
+    convenio: str | None = Field(None, max_length=40)
+    numero_guia: str | None = Field(None, max_length=60)
+
+
+@router.put("/consultations/{cid}/faturamento")
+def set_faturamento(
+    cid: int,
+    body: FaturamentoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Convênio e número da guia das regras anti-glosa (a prontidão para faturamento é recalculada)."""
+    return service.set_faturamento(db, fhir, user, cid, body.convenio, body.numero_guia)
+
+
 @router.post("/consultations/{cid}/audio")
 async def add_audio(
     cid: int,
@@ -170,12 +269,23 @@ def update_note(
     return service.update_note(db, user, cid, note)
 
 
+class SendIn(BaseModel):
+    justificativa: str | None = Field(None, max_length=1000)
+
+
 @router.post("/consultations/{cid}/send")
 def send(
-    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+    cid: int,
+    body: SendIn | None = Body(None),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
 ) -> dict:
-    """Envia a nota aprovada ao prontuário como FHIR DocumentReference (ou devolve o recurso para exportar)."""
-    return service.send_to_ehr(db, fhir, user, cid)
+    """Envia a nota aprovada ao prontuário como FHIR DocumentReference (ou devolve o recurso para exportar).
+
+    Na cirurgia, pendência crítica de faturamento devolve 409 até haver uma justificativa (auditada).
+    """
+    return service.send_to_ehr(db, fhir, user, cid, body.justificativa if body else None)
 
 
 @router.get("/consultations/{cid}/export")

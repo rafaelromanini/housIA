@@ -156,6 +156,15 @@ def infer_speaker(text: str) -> str:
     return "medico" if question else "paciente"
 
 
+def billing_params(extra: dict) -> dict:
+    """Convênio e número da guia da cirurgia (extra_json): entram nas regras anti-glosa."""
+    faturamento = extra.get("faturamento") or {}
+    return {
+        "convenio": faturamento.get("convenio") or "generico",
+        "numero_guia": faturamento.get("numero_guia") or (extra.get("opme_guia") or {}).get("numero"),
+    }
+
+
 class Engine:
     def __init__(
         self,
@@ -703,6 +712,8 @@ class Engine:
                 self.extra.get("opme_autorizado", []),
                 specialty=self.specialty,
                 marks=self.extra.get("checklist"),
+                consumed=self.extra.get("opme_consumo", []),
+                billing=billing_params(self.extra),
             )
             return Insights(
                 tipo="cirurgia",

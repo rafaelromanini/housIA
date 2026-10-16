@@ -88,6 +88,10 @@ class OpmeDef:
     code: str
     description: str
     words: tuple[str, ...]
+    implant: bool = False  # implantável: exige etiqueta (lote/série) e vai ao cartão do implante
+    sized: bool = False  # tamanho dito na fala ("parafuso 3,5 por 40") entra na conciliação
+    gtin: str = ""
+    anvisa: str = ""  # registro ANVISA (no catálogo de demonstração: DEMO-ANVISA-*)
 
 
 @dataclass(frozen=True)
@@ -188,7 +192,18 @@ def protocols() -> tuple[ProtocolDef, ...]:
 
 @lru_cache
 def opme_catalog() -> tuple[OpmeDef, ...]:
-    return tuple(OpmeDef(r["codigo"], r["descricao"], _words(r["palavras"])) for r in _read_csv("opme_demo.csv"))
+    return tuple(
+        OpmeDef(
+            r["codigo"],
+            r["descricao"],
+            _words(r["palavras"]),
+            implant=r.get("implantavel") == "sim",
+            sized=r.get("tamanho") == "sim",
+            gtin=r.get("gtin", ""),
+            anvisa=r.get("registro_anvisa", ""),
+        )
+        for r in _read_csv("opme_demo.csv")
+    )
 
 
 def _num(cell: str) -> float | None:

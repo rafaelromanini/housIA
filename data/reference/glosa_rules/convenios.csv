@@ -1,0 +1,4 @@
+convenio,rotulo,arquivo,codigos,observacao
+generico,Genérico (sem convênio específico),generico.csv,tuss_demo,Regras comuns a qualquer operadora; vale também como base dos demais.
+DEMO-CONV,Convênio de demonstração (DEMO-CONV),convenio_demo.csv,tuss_demo,"Convênio fictício, com exigências mais rígidas que o genérico (auxiliares, guia, rastreio do implante)."
+SUS,SUS — AIH (demonstração),sus_demo.csv,sigtap_demo,"Exige CID principal e código SIGTAP; os códigos SIGTAP deste projeto são DEMO-SIGTAP-*, não oficiais."

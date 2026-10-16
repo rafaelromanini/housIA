@@ -1,0 +1,3 @@
+regra,tipo,condicao,severidade,peso,mensagem,fonte,tipo_fonte
+cid_presente,cid_presente,,critico,10,AIH sem CID-10 principal: o SIH/SUS rejeita a internação.,Ministério da Saúde — Manual Técnico do SIH/SUS: a AIH exige diagnóstico principal (CID-10) e procedimento realizado,manual
+procedimento_codificado,procedimento_codificado,,critico,10,Procedimento sem código SIGTAP (demonstração) para a AIH.,Ministério da Saúde — Manual Técnico do SIH/SUS: a AIH exige diagnóstico principal (CID-10) e procedimento realizado,manual

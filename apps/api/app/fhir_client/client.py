@@ -31,6 +31,7 @@ PATIENT_SCOPED: dict[str, str] = {
     "ServiceRequest": "subject",
     "Appointment": "patient",
     "Consent": "patient",
+    "Device": "patient",
 }
 
 

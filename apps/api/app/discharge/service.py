@@ -297,6 +297,24 @@ def documents_out(doc: DischargeDocument) -> dict:
     }
 
 
+def implant_card(record) -> list[dict]:
+    """Cartão do implante (rastreio): vem do Device FHIR registrado na cirurgia, nunca do LLM."""
+    return [
+        {
+            "descricao": i.descricao,
+            "lote": i.lote,
+            "serie": i.serie,
+            "validade": i.validade,
+            "registro_anvisa": i.registro_anvisa,
+            "gtin": i.gtin,
+            "procedimento": i.procedimento,
+            "colocado_em": i.colocado_em.isoformat() if i.colocado_em else None,
+            "refs": i.refs,
+        }
+        for i in record.implants
+    ]
+
+
 def generate_documents(db: Session, fhir: FhirSource, user: User, patient_id: str, language: str) -> dict:
     now = clock.now()
     record = load_record(fhir, patient_id)
@@ -391,6 +409,7 @@ def generate_documents(db: Session, fhir: FhirSource, user: User, patient_id: st
                 kept.append(item)
         ori[key] = kept
     content["descartados"] = dropped
+    content["cartao_implante"] = implant_card(record)
     content["meta"] = {
         "modo": result.mode,
         "gerado_em": now.isoformat(),
