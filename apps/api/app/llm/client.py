@@ -83,7 +83,7 @@ def _anthropic() -> anthropic.Anthropic:
         return _client
 
 
-def _call(system: str, messages: list[dict], schema: dict) -> str:
+def _call(system: str, messages: list[dict], schema: dict, effort: str | None = None) -> str:
     settings = get_settings()
     try:
         response = _anthropic().beta.messages.create(
@@ -91,7 +91,10 @@ def _call(system: str, messages: list[dict], schema: dict) -> str:
             max_tokens=settings.llm_max_tokens,
             system=system,
             messages=messages,
-            output_config={"effort": settings.llm_effort, "format": {"type": "json_schema", "schema": schema}},
+            output_config={
+                "effort": effort or settings.llm_effort,
+                "format": {"type": "json_schema", "schema": schema},
+            },
             betas=[FALLBACK_BETA],
             fallbacks="default",
         )
@@ -124,7 +127,9 @@ def generate_structured[T: BaseModel](
     variables: dict[str, Any],
     schema: type[T],
     mock: Callable[[dict[str, Any]], dict[str, Any]],
+    effort: str | None = None,
 ) -> LLMResult:
+    """`effort` sobrescreve LLM_EFFORT (ex.: "low" para as análises em tempo real da consulta)."""
     settings = get_settings()
     prompt = load_prompt(prompt_name)
 
@@ -146,7 +151,7 @@ def generate_structured[T: BaseModel](
 
     json_schema = strict_schema(schema)
     messages: list[dict] = [{"role": "user", "content": user}]
-    text = _call(system, messages, json_schema)
+    text = _call(system, messages, json_schema, effort)
     try:
         return LLMResult(
             output=schema.model_validate_json(text),
@@ -167,7 +172,7 @@ def generate_structured[T: BaseModel](
                 ),
             },
         ]
-        repaired = _call(system, messages, json_schema)
+        repaired = _call(system, messages, json_schema, effort)
         try:
             return LLMResult(
                 output=schema.model_validate_json(repaired),

@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-housia-mvp-troque-em-producao"
     jwt_expires_minutes: int = 12 * 60
 
+    # Consulta com IA
+    # Transcrição no servidor (opcional): endpoint compatível com /v1/audio/transcriptions (ex.: Whisper on-premise).
+    # Sem isso, a transcrição ao vivo usa o reconhecimento de fala do navegador (ver ADR 0009).
+    stt_url: str = ""
+    stt_api_key: str = ""
+    stt_model: str = "whisper-1"
+    # Envio da nota aprovada ao prontuário (FHIR DocumentReference). Desligado por padrão; ligado no compose demo.
+    ehr_writeback: bool = False
+
     data_dir: Path = Field(default_factory=_default_data_dir)
     timezone: str = "America/Sao_Paulo"
     cors_origins: str = "http://localhost:3000"

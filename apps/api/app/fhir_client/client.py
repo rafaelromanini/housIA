@@ -44,6 +44,10 @@ class FhirSource(Protocol):
 
     def active_encounters(self) -> list[dict]: ...
 
+    def ambulatory_encounters(self) -> list[dict]: ...
+
+    def create(self, resource: dict) -> dict: ...
+
     def locations(self) -> dict[str, dict]: ...
 
 
@@ -87,6 +91,22 @@ class HapiFhirClient:
     def active_encounters(self) -> list[dict]:
         return self._search("Encounter", {"status": "in-progress"})
 
+    def ambulatory_encounters(self) -> list[dict]:
+        return self._search("Encounter", {"class": "AMB"})
+
+    def create(self, resource: dict) -> dict:
+        """Única escrita no prontuário: nota revisada e aprovada pelo profissional (EHR_WRITEBACK=true)."""
+        try:
+            r = self._client.post(
+                f"{self.base_url}/{resource['resourceType']}",
+                json=resource,
+                headers={"Content-Type": "application/fhir+json"},
+            )
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise FhirUnavailable(f"Servidor FHIR indisponível: {exc}") from exc
+        return r.json()
+
     def locations(self) -> dict[str, dict]:
         return {loc["id"]: loc for loc in self._search("Location", {})}
 
@@ -119,6 +139,15 @@ class LocalFhirStore:
 
     def active_encounters(self) -> list[dict]:
         return [e for e in self.resources["Encounter"].values() if e.get("status") == "in-progress"]
+
+    def ambulatory_encounters(self) -> list[dict]:
+        return [e for e in self.resources["Encounter"].values() if e.get("class", {}).get("code") == "AMB"]
+
+    def create(self, resource: dict) -> dict:
+        rid = resource.get("id") or f"housia-{len(self.resources[resource['resourceType']]) + 1}"
+        stored = resource | {"id": rid}
+        self.resources[resource["resourceType"]][rid] = stored
+        return stored
 
     def locations(self) -> dict[str, dict]:
         return dict(self.resources["Location"])

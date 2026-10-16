@@ -1,0 +1,13 @@
+chave,o_que_e,baixo,normal,alto
+hba1c,mostra a média do açúcar no sangue nos últimos 3 meses,,está dentro da meta para a maioria das pessoas com diabetes (abaixo de 7%),está acima da meta (para a maioria das pessoas com diabetes a meta fica abaixo de 7%)
+glicose,é o açúcar no sangue em jejum,"está baixo — açúcar baixo pode causar tremor, suor frio e tontura",está dentro do esperado,está acima do esperado em jejum
+creatinina,mostra como os rins estão filtrando o sangue,,está dentro do esperado,está acima do normal: os rins estão filtrando menos do que deveriam
+potassio,é um mineral que ajuda o coração a bater no ritmo certo,está baixo — pode dar câimbras e fraqueza,está dentro do esperado,"está acima do normal — alguns remédios de pressão e anti-inflamatórios aumentam o potássio, e em excesso ele pode afetar o ritmo do coração"
+sodio,"é o ""sal"" do sangue, que mantém o equilíbrio de água no corpo","está baixo — isso pode causar tontura, cansaço e confusão; alguns diuréticos (remédio que faz urinar) causam isso",está dentro do esperado,está acima do normal — pode indicar pouca água no corpo
+ldl,"é o ""colesterol ruim"", que pode entupir as artérias",,está dentro da meta,está acima da meta — aumenta o risco de infarto e derrame
+hemoglobina,mostra a quantidade de sangue que leva oxigênio pelo corpo,está um pouco baixa (anemia) — pode causar cansaço; na doença dos rins isso é comum,está dentro do esperado,está acima do esperado
+leucocitos,são as células de defesa do corpo,estão baixos — a defesa contra infecções pode estar menor,estão dentro do esperado,estão altos — pode indicar infecção ou inflamação
+pcr,mostra se há inflamação no corpo,,está dentro do esperado,está alta — há inflamação ou infecção em algum lugar do corpo
+ureia,é uma substância que os rins eliminam,,está dentro do esperado,está alta — os rins podem estar filtrando menos ou pode faltar água no corpo
+plaquetas,ajudam o sangue a coagular,estão baixas — risco maior de sangramento,estão dentro do esperado,estão altas
+inr,mede quanto tempo o sangue leva para coagular,,está dentro do esperado,está alto — o sangue está demorando mais para coagular (risco de sangramento)

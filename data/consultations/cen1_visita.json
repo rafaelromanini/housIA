@@ -1,0 +1,68 @@
+{
+ "patient_id": "cen1",
+ "tipo": "visita",
+ "especialidade": "clinica_medica",
+ "titulo": "Visita à beira do leito no pós-operatório (paciente e esposa)",
+ "falas": [
+  {
+   "t": 0.0,
+   "falante": "medico",
+   "texto": "Boa noite, seu Antônio. Sou a médica de plantão. Como o senhor está se sentindo?"
+  },
+  {
+   "t": 5.0,
+   "falante": "paciente",
+   "texto": "Ah, doutora, tô com uma dor de cabeça latejando desde a tarde."
+  },
+  {
+   "t": 8.9,
+   "falante": "medico",
+   "texto": "E a barriga, a cirurgia, como está?"
+  },
+  {
+   "t": 11.9,
+   "falante": "paciente",
+   "texto": "Dói um pouco perto do corte quando eu mexo. Mas o que incomoda mesmo é que não fiz xixi desde que tiraram a sonda."
+  },
+  {
+   "t": 19.0,
+   "falante": "paciente",
+   "texto": "Tô com vontade de urinar e não sai. Tô ficando nervoso com isso."
+  },
+  {
+   "t": 23.0,
+   "falante": "medico",
+   "texto": "Entendi. O senhor está enxergando bem? Alguma visão embaçada?"
+  },
+  {
+   "t": 26.8,
+   "falante": "paciente",
+   "texto": "Enxergando normal, sim."
+  },
+  {
+   "t": 29.8,
+   "falante": "acompanhante",
+   "texto": "Doutora, a pressão dele estava alta, né? Ele é hipertenso faz muitos anos."
+  },
+  {
+   "t": 34.4,
+   "falante": "medico",
+   "texto": "Estava, sim. Mediram 184 por 102 agora há pouco. Vamos ver isso com calma."
+  },
+  {
+   "t": 39.1,
+   "falante": "paciente",
+   "texto": "Fico preocupado, meu pai morreu de derrame."
+  },
+  {
+   "t": 42.1,
+   "falante": "medico",
+   "texto": "Eu entendo. Vou examinar o senhor e ajustar a medicação."
+  },
+  {
+   "t": 45.6,
+   "falante": "paciente",
+   "texto": "Tá bom, doutora. Confio na senhora."
+  }
+ ]
+}

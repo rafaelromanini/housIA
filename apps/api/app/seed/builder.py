@@ -141,6 +141,16 @@ class ScenarioBuilder:
         self.sectors: list[_Sector] = []
         self.patient_ref = ref("Patient", self.sid, scenario["paciente"]["nome"])
         self._rx_last_id: dict[str, str] = {}
+        # Paciente ambulatorial (agenda de consultas) em vez de internado
+        self.ambulatory = "ambulatorio" in scenario
+        if self.ambulatory:
+            visits = scenario["ambulatorio"]["consultas"]
+            today = next((c for c in visits if c.get("status", "finished") != "finished"), visits[-1])
+            self.start_spec: str = today["inicio"]
+            self.main_enc_id = f"{self.sid}-amb-{today['id']}"
+        else:
+            self.start_spec = scenario["internacao"]["inicio"]
+            self.main_enc_id = f"{self.sid}-int"
 
     # ---------- utilidades de tempo ----------
     def t(self, spec: str) -> datetime:
@@ -206,6 +216,9 @@ class ScenarioBuilder:
         self.out.append(resource)
 
     def _encounters(self) -> None:
+        if self.ambulatory:
+            self._ambulatory_encounters()
+            return
         it = self.s["internacao"]
         hosp_id = f"{self.sid}-int"
         start = self.t(it["inicio"])
@@ -279,6 +292,40 @@ class ScenarioBuilder:
             }
         )
 
+    def _ambulatory_encounters(self) -> None:
+        """Consultas ambulatoriais (Encounter class AMB): histórico + a consulta de hoje (agenda)."""
+        amb = self.s["ambulatorio"]
+        ward_id = self.locations.ward(amb["servico"])
+        visits = sorted(amb["consultas"], key=lambda c: self.t(c["inicio"]))
+        for n, c in enumerate(visits):
+            start = self.t(c["inicio"])
+            status = c.get("status", "finished")
+            end = start + parse_offset(c.get("duracao", "30m")) if status == "finished" else None
+            window_end = self.t(visits[n + 1]["inicio"]) if n + 1 < len(visits) else None
+            enc_id = f"{self.sid}-amb-{c['id']}"
+            self.sectors.append(
+                _Sector(c["id"], enc_id, amb["servico"], amb.get("sala", ""), ward_id, start, window_end)
+            )
+            self.out.append(
+                {
+                    "resourceType": "Encounter",
+                    "id": enc_id,
+                    "status": status,
+                    "class": {"system": codes.ACT_CODE, "code": "AMB", "display": "ambulatorial"},
+                    "serviceType": {"text": amb["servico"]},
+                    "subject": self.patient_ref,
+                    "participant": [{"individual": {"display": c.get("profissional", amb.get("profissional", ""))}}],
+                    "period": {"start": iso(start)} | ({"end": iso(end)} if end else {}),
+                    "reasonCode": [{"text": c["motivo"]}],
+                    "location": [
+                        {
+                            "location": ref("Location", ward_id, f"{amb['servico']} — {amb.get('sala', '')}".strip()),
+                            "status": "completed" if end else "active",
+                        }
+                    ],
+                }
+            )
+
     def _previous_encounters(self) -> None:
         ps_ward = self.locations.ward("Pronto-Socorro")
         for i, enc in enumerate(self.s.get("encontros_anteriores", [])):
@@ -303,9 +350,9 @@ class ScenarioBuilder:
             )
 
     def _conditions(self) -> None:
-        hosp = ref("Encounter", f"{self.sid}-int")
+        hosp = ref("Encounter", self.main_enc_id)
         for i, dx in enumerate(self.s.get("diagnosticos", [])):
-            when = self.t(dx.get("inicio", self.s["internacao"]["inicio"]))
+            when = self.t(dx.get("inicio", self.start_spec))
             self.out.append(
                 {
                     "resourceType": "Condition",
@@ -343,13 +390,13 @@ class ScenarioBuilder:
                     "subject": self.patient_ref,
                     "encounter": hosp,
                     "onsetDateTime": iso(when),
-                    "recordedDate": iso(self.t(dx.get("registro", dx.get("inicio", self.s["internacao"]["inicio"])))),
+                    "recordedDate": iso(self.t(dx.get("registro", dx.get("inicio", self.start_spec)))),
                 }
             )
 
     def _allergies(self) -> None:
         allergies = self.s.get("alergias", [])
-        recorded = iso(self.t(self.s["internacao"]["inicio"]))
+        recorded = iso(self.t(self.start_spec))
         if not allergies:
             self.out.append(
                 {
@@ -468,7 +515,7 @@ class ScenarioBuilder:
                     "text": "Pessoas que moram no domicílio (incluindo o paciente)",
                 },
                 "subject": self.patient_ref,
-                "effectiveDateTime": iso(self.t(self.s["internacao"]["inicio"])),
+                "effectiveDateTime": iso(self.t(self.start_spec)),
                 "valueInteger": social["moradores"],
             }
         )
@@ -483,8 +530,11 @@ class ScenarioBuilder:
             sector_keys = rx.get("setores") or ([rx["setor"]] if "setor" in rx else [s.key for s in self.sectors])
             for n, key in enumerate(sector_keys):
                 sec = self.sector(key)
-                start = max(med_start, sec.start) if med_start else sec.start
-                end_candidates = [d for d in (med_end, sec.end) if d is not None]
+                if self.ambulatory:  # receita de uso contínuo: vale até o fim indicado, não até a próxima consulta
+                    start, end_candidates = med_start or sec.start, [med_end] if med_end else []
+                else:
+                    start = max(med_start, sec.start) if med_start else sec.start
+                    end_candidates = [d for d in (med_end, sec.end) if d is not None]
                 end = min(end_candidates) if end_candidates else None
                 rid = fhir_id(f"{self.sid}-rx-{rx['id']}-{key}")
                 self._medication_request(rid, rx, drug, sec, start, end, is_last=n == len(sector_keys) - 1)
@@ -557,6 +607,8 @@ class ScenarioBuilder:
             resource["note"] = [{"text": rx["observacao"]}]
         self.out.append(resource)
 
+        if self.ambulatory:
+            return  # uso domiciliar: sem registro de administração pela enfermagem
         if prn or not horarios or rx.get("administrar") is False:
             for i, spec in enumerate(rx.get("administracoes", [])):
                 when = self.t(spec)

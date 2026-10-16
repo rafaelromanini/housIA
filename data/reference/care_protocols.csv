@@ -1,0 +1,14 @@
+protocolo,condicao,item,fonte,intervalo_dias,orientacao
+Diabetes tipo 2,E11,Hemoglobina glicada (HbA1c),lab:hba1c,180,A cada 3–6 meses; meta individualizada (em geral < 7%).
+Diabetes tipo 2,E11,Creatinina e TFG estimada,lab:creatinina,365,Pelo menos 1x/ano (mais vezes se DRC).
+Diabetes tipo 2,E11,Albuminúria (relação albumina/creatinina),texto:albuminuria|microalbumin|relacao albumina,365,Anual.
+Diabetes tipo 2,E11,Perfil lipídico (LDL),lab:ldl,365,Anual.
+Diabetes tipo 2,E11,Exame dos pés (monofilamento),texto:exame dos pes|monofilamento|pe diabetico,365,Anual (mais vezes se risco).
+Diabetes tipo 2,E11,Avaliação oftalmológica (fundo de olho),texto:fundo de olho|oftalmolog|retinopatia,365,Anual.
+Diabetes tipo 2,E11,Vacina contra influenza,texto:vacina influenza|vacina da gripe|influenza,365,Anual.
+Hipertensão,I10,PA no alvo na última medida,vital:pa:140/90,0,Alvo usual < 140/90 mmHg (< 130/80 em alto risco).
+Hipertensão,I10,Potássio,lab:potassio,365,"Anual e após iniciar/ajustar IECA, BRA ou diurético."
+Hipertensão,I10,Eletrocardiograma,texto:eletrocardiograma|ecg,365,Anual.
+Doença renal crônica,N18,Creatinina e TFG estimada,lab:creatinina,180,A cada 3–6 meses no estágio 3.
+Doença renal crônica,N18,Potássio,lab:potassio,180,A cada 3–6 meses.
+Doença renal crônica,N18,Hemoglobina (anemia da DRC),lab:hemoglobina,365,Anual no estágio 3.

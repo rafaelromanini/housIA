@@ -11,6 +11,7 @@ from app.audit.router import router as audit_router
 from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
 from app.config import get_settings
+from app.consult.router import router as consult_router
 from app.db import session as db_session
 from app.db.session import Base
 from app.discharge.router import router as discharge_router
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(discharge_router)
     app.include_router(audit_router)
     app.include_router(feedback_router)
+    app.include_router(consult_router)
     return app
 
 

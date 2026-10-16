@@ -1,0 +1,76 @@
+{
+ "patient_id": "cen4",
+ "tipo": "cirurgia",
+ "especialidade": "cirurgia_geral",
+ "titulo": "Ditado do relatório cirúrgico: apendicectomia videolaparoscópica",
+ "opme_autorizado": [
+  {
+   "codigo": "DEMO-OPME-001",
+   "quantidade": 1
+  },
+  {
+   "codigo": "DEMO-OPME-002",
+   "quantidade": 2
+  },
+  {
+   "codigo": "DEMO-OPME-005",
+   "quantidade": 2
+  },
+  {
+   "codigo": "DEMO-OPME-006",
+   "quantidade": 1
+  }
+ ],
+ "falas": [
+  {
+   "t": 0.0,
+   "falante": "medico",
+   "texto": "Relatório cirúrgico. Diagnóstico pré-operatório: apendicite aguda."
+  },
+  {
+   "t": 4.1,
+   "falante": "medico",
+   "texto": "Procedimento realizado: apendicectomia videolaparoscópica, sob anestesia geral, paciente em decúbito dorsal."
+  },
+  {
+   "t": 10.9,
+   "falante": "medico",
+   "texto": "Antibioticoprofilaxia com cefazolina dois gramas na indução anestésica."
+  },
+  {
+   "t": 15.3,
+   "falante": "medico",
+   "texto": "Pneumoperitônio com agulha de Veress na cicatriz umbilical. Colocado um trocarte de 10 umbilical e dois trocartes de 5, em fossa ilíaca esquerda e suprapúbico."
+  },
+  {
+   "t": 25.2,
+   "falante": "medico",
+   "texto": "Achados: apêndice cecal em fase flegmonosa, sem perfuração, com pequena quantidade de líquido seroso em fossa ilíaca direita."
+  },
+  {
+   "t": 33.1,
+   "falante": "medico",
+   "texto": "Mesoapêndice seccionado com bisturi ultrassônico. Base do apêndice ligada com dois endoloops."
+  },
+  {
+   "t": 38.9,
+   "falante": "medico",
+   "texto": "Apêndice retirado em bolsa extratora pelo portal umbilical. Aspiração do líquido e revisão da hemostasia."
+  },
+  {
+   "t": 45.4,
+   "falante": "medico",
+   "texto": "Sem intercorrências. Sangramento mínimo. Não foi deixado dreno."
+  },
+  {
+   "t": 49.4,
+   "falante": "medico",
+   "texto": "Peça enviada para exame anatomopatológico. Fechamento da aponeurose umbilical com fio absorvível e pele com náilon."
+  },
+  {
+   "t": 56.6,
+   "falante": "medico",
+   "texto": "Paciente encaminhado à recuperação pós-anestésica em boas condições."
+  }
+ ]
+}

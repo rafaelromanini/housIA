@@ -1,0 +1,50 @@
+gatilho,pergunta,motivo,ja_perguntado,prioridade,especialidade
+sintoma:tontura,"Já chegou a desmaiar, perder a consciência ou cair por causa da tontura?",Síncope ou queda mudam a urgência e a conduta.,desmai|apagou|perdeu a consciencia|perdeu os sentidos,alta,
+sintoma:tontura,A tontura é de girar (vertigem) ou uma sensação de que vai desmaiar?,Diferencia causa vestibular de pré-síncope (pressão/glicose).,girar|rodando|roda|vai desmaiar|escurece,media,
+sintoma:tontura_postural,Mediu a pressão em pé e deitada (ou sentada) em casa?,Hipotensão ortostática com diurético/anti-hipertensivo.,pressao em pe|mediu a pressao|medir a pressao|aparelho de pressao,media,
+sintoma:sintomas_hipoglicemia,Conseguiu medir a glicemia na hora do suor frio ou do tremor? Quanto deu?,Confirma hipoglicemia (< 70 mg/dL) e a gravidade.,mediu a glicemia|conseguiu medir|quanto deu na hora,alta,
+sintoma:sintomas_hipoglicemia,"Com que frequência isso acontece e em que horário (antes das refeições, de madrugada)?",Padrão de horário aponta o remédio responsável.,quantas vezes|frequencia|que horas|horario|de madrugada,media,
+sintoma:cansaco,"O cansaço vem com falta de ar, inchaço nas pernas ou palpitação?","Rastreia causa cardíaca, anemia e distúrbios eletrolíticos.",falta de ar|inchaco|incha|palpitac,media,
+sintoma:dor_joelho,"Está tomando algum remédio por conta própria para a dor, como anti-inflamatório?","AINE com DRC, BRA e diurético piora a função renal.",anti-inflamat|ibuprofeno|diclofenaco|nimesulida|remedio por conta|toma alguma coisa pra dor,alta,
+sintoma:cefaleia,"A dor de cabeça veio com visão embaçada, fraqueza de um lado do corpo, dor no peito ou dificuldade para falar?",Sinais de lesão de órgão-alvo (emergência hipertensiva).,visao|enxerg|fraqueza|dor no peito|falar,alta,
+sintoma:cefaleia,"É a pior dor de cabeça da sua vida ou começou de repente, muito forte?",Cefaleia súbita e intensa exige investigação imediata.,pior dor|de repente|subito,media,
+sintoma:retencao_urinaria,Sente a bexiga cheia ou dor acima do púbis? Quando conseguiu urinar pela última vez?,Retenção urinária pós-sonda pode causar dor e elevar a pressão.,bexiga|ultima vez|pubis|pe da barriga,alta,
+sintoma:dor_abdominal,"A dor piora ao se mexer? Tem febre, vômitos ou a ferida está vermelha ou com secreção?",Rastreia complicação da ferida operatória.,febre|vomit|ferida|vermelh|secrec,media,
+sintoma:nicturia,Está com mais sede que o normal ou ardência ao urinar?,Hiperglicemia ou infecção urinária.,sede|ardencia|arde|queima,media,
+sintoma:formigamento,Tem feridas nos pés ou perdeu a sensibilidade? Examina os pés todos os dias?,Neuropatia diabética e risco de pé diabético.,ferida|machucado|examina os pes|olha os pes,media,
+sintoma:dor_toracica,"A dor no peito aparece com esforço, irradia para braço ou mandíbula, ou vem com suor frio?",Rastreio de síndrome coronariana.,esforco|irradia|braco|mandibula,alta,
+sintoma:queda,Bateu a cabeça na queda? Está usando algum remédio que dá sono?,Queda em idoso/diabético exige avaliar trauma e medicações.,bateu a cabeca|machucou|remedio pra dormir,alta,
+condicao:E11,Como está medindo a glicemia em casa e quais valores tem visto?,Controle glicêmico domiciliar e risco de hipoglicemia.,medindo a glicemia|glicemia em casa|glicosimetro|valores|dextro,media,
+condicao:I10,Tem medido a pressão em casa? Quais valores aparecem?,Controle pressórico fora do consultório.,pressao em casa|mede a pressao|medindo a pressao|aparelho de pressao,media,
+condicao:N18,"Tem usado anti-inflamatório, chá ou suplemento sem orientação médica?",Nefrotóxicos pioram a doença renal crônica.,anti-inflamat|ibuprofeno|cha |suplement|remedio por conta,alta,
+condicao:H25,Já tem data para a cirurgia de catarata? O oftalmologista pediu algum exame?,"Planejamento pré-operatório (glicemia, pressão, medicações).",data da cirurgia|quando vai operar|exames pre|pre-operatorio,media,
+classe:sulfonilureia,Toma a {med} mesmo nos dias em que pula ou atrasa uma refeição?,Sulfonilureia sem refeição causa hipoglicemia.,pula|sem comer|nao como|nao tomei cafe|atrasa|refeic|como mais tarde|so como,alta,
+classe:diuretico_tiazidico,"Desde que começou a {med}, sente tontura ao levantar, câimbras ou fraqueza?",Tiazídico: hipotensão ortostática e hiponatremia.,caimbra|desde que comecou|depois que comecei,media,
+classe:biguanida,Tem diarreia ou desconforto na barriga com a {med}?,Efeito adverso comum; importante com a função renal reduzida.,diarreia|desconforto|barriga,baixa,
+classe:estatina,Sente dor ou fraqueza muscular desde que usa a {med}?,Miopatia por estatina.,dor muscular|musculo|fraqueza muscular,baixa,
+classe:bra,"Teve tosse seca, inchaço no rosto ou tontura com a {med}?",Efeitos adversos e hipotensão.,tosse|rosto|labio,baixa,
+alergia:*,Confirmando a alergia a {alergeno}: a reação foi {reacao}? Teve reação a outro remédio ou alimento?,Alergias atualizadas evitam prescrição perigosa.,alergi|reacao|alergic,media,
+contexto:cirurgia,Já teve algum problema com anestesia em cirurgias anteriores?,Histórico anestésico para o pré-operatório.,anestesia|anestesista,media,
+contexto:cirurgia,"O cirurgião já sabe de todos os remédios que {trat} usa, inclusive os da diabetes?",Ajuste de hipoglicemiantes e anti-hipertensivos no jejum.,cirurgiao sabe|levar a lista|lista de remedios,media,
+contexto:adesao,Como organiza os horários dos remédios? Costuma esquecer ou trocar alguma dose?,Adesão e erros de tomada.,esquece|esqueci|organiza|caixinha|horario dos remedios,media,
+contexto:queda,"Tem tapetes soltos, escadas ou pouca luz em casa? Alguém ajuda à noite?",Prevenção de quedas no domicílio.,tapete|escada|luz|ajuda a noite,media,
+contexto:emocional,O que mais preocupa {trat} em relação à saúde hoje?,Abre espaço para a principal preocupação (comunicação centrada na pessoa).,o que mais preocupa|qual sua preocupacao|o que te preocupa|o que preocupa a senhora|o que preocupa o senhor,media,
+especialidade:*,Quantas vezes acorda à noite para urinar?,Escore de sintomas urinários (IPSS): noctúria.,quantas vezes acorda|acorda a noite,media,urologia
+especialidade:*,"O jato de urina está fraco, interrompido, ou fica a sensação de que a bexiga não esvaziou?",IPSS: sintomas obstrutivos.,jato|esvaziou|esvaziar,alta,urologia
+especialidade:*,"Tem perda de urina ao tossir, ou urgência que não dá tempo de chegar ao banheiro?",Incontinência de esforço × urgência.,perda de urina|escapa|urgencia,media,urologia
+especialidade:*,Já viu sangue na urina?,Hematúria é sinal de alarme urológico.,sangue na urina|urina vermelha,alta,urologia
+especialidade:*,Teve alguma queda nos últimos 12 meses?,Rastreio de quedas no idoso.,queda|caiu|tombo,alta,geriatria
+especialidade:*,Tem notado esquecimentos ou dificuldade para fazer as tarefas do dia a dia sozinho(a)?,Rastreio cognitivo e funcional.,esquec|memoria|sozinha|sozinho,media,geriatria
+especialidade:*,"Quantos remédios toma por dia, contando os sem receita, vitaminas e chás?",Polifarmácia e automedicação.,quantos remedios|sem receita|vitamina|cha ,alta,geriatria
+especialidade:*,"Como estão o sono, o apetite e o ânimo nas últimas semanas?",Rastreio de depressão e fragilidade.,sono|apetite|animo|humor,media,geriatria
+especialidade:*,"Sente falta de ar com esforço? Com quanto esforço: subir um lance de escada, andar no plano?",Classe funcional (NYHA).,falta de ar|escada|esforco,alta,cardiologia
+especialidade:*,Precisa de mais travesseiros para dormir ou acorda sem ar à noite?,Ortopneia/dispneia paroxística noturna.,travesseiro|acorda sem ar,media,cardiologia
+especialidade:*,As pernas incham no fim do dia?,Congestão/edema periférico.,incha|inchaco,media,cardiologia
+especialidade:*,Quantas vezes teve açúcar baixo (hipoglicemia) no último mês?,Segurança do esquema hipoglicemiante.,hipoglicemia|acucar baixo|quantas vezes,alta,endocrinologia
+especialidade:*,Como é a alimentação num dia comum? Pula refeições?,"Relação entre refeições, remédios e glicemia.",alimentacao|refeic|pula|come,media,endocrinologia
+especialidade:*,Faz atividade física? Quantas vezes por semana?,Meta de atividade física (150 min/semana).,atividade fisica|caminhada|exercicio,baixa,endocrinologia
+especialidade:*,Como está a alimentação e a hidratação da criança? Está urinando normalmente?,Rastreio de desidratação.,alimentacao|hidrat|urinando|mamando,alta,pediatria
+especialidade:*,A vacinação está em dia? Trouxe a caderneta?,Calendário vacinal.,vacina|caderneta,media,pediatria
+especialidade:*,Consegue tomar os remédios sozinho(a) ou alguém ajuda? Como guarda a insulina?,Autocuidado e técnica.,sozinha|sozinho|alguem ajuda|guarda,media,enfermagem
+especialidade:*,"Como estão o sono, a alimentação, a urina e o intestino?",Necessidades humanas básicas.,sono|alimentacao|intestino|evacu,media,enfermagem
+especialidade:*,"Tem alguma ferida ou área avermelhada na pele, especialmente nos pés ou nas costas?",Integridade da pele.,ferida|pele|vermelh,media,enfermagem

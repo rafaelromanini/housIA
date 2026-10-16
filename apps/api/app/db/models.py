@@ -152,3 +152,31 @@ class DischargeDocument(Base):
     prompt_version: Mapped[str] = mapped_column(String(20))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class Consultation(Base):
+    """Consulta assistida por IA: transcrição, Smart Apps, nota revisada e envio ao prontuário.
+
+    Só texto: o áudio nunca é gravado. A transcrição fica no banco do HousIA (não vai para o audit_log).
+    """
+
+    __tablename__ = "consultations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    patient_id: Mapped[str] = mapped_column(String(64), index=True)
+    encounter_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    kind: Mapped[str] = mapped_column(String(20))  # consulta | visita | cirurgia
+    specialty: Mapped[str] = mapped_column(String(40))
+    patient_language: Mapped[str] = mapped_column(String(10), default="pt-BR")
+    status: Mapped[str] = mapped_column(String(20), default="em_andamento")  # em_andamento | finalizada | enviada
+    segments_json: Mapped[list] = mapped_column(JsonType, default=list)
+    insights_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    ai_meta_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    note_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    note_meta_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    extra_json: Mapped[dict] = mapped_column(JsonType, default=dict)
+    fhir_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

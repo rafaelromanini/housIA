@@ -1,0 +1,10 @@
+item,criterio,limite,severidade,recomendacao
+metformina,tfg,30,critico,TFG < 30: metformina contraindicada — suspender.
+metformina,tfg,45,atencao,"TFG 30–44: não iniciar; se já em uso, reduzir para no máximo 1.000 mg/dia e monitorar a função renal."
+glibenclamida,tfg,60,critico,"Evitar glibenclamida com função renal reduzida: risco de hipoglicemia prolongada. Considerar gliclazida com cautela ou outra classe (iDPP-4 com ajuste; iSGLT2 se a TFG permitir, com benefício renal) — decisão médica."
+glibenclamida,idade,65,critico,Critérios de Beers: evitar glibenclamida em idosos (hipoglicemia prolongada).
+@aine,tfg,60,critico,"Evitar anti-inflamatório (AINE) na doença renal crônica: piora a função renal e eleva o potássio, sobretudo com IECA/BRA e diurético. Preferir paracetamol."
+hidroclorotiazida,tfg,30,atencao,Com TFG < 30 o tiazídico perde eficácia; considerar diurético de alça.
+enoxaparina,tfg,30,critico,TFG < 30: ajustar enoxaparina (ex.: 1 mg/kg 1x/dia na dose terapêutica) — conferir protocolo.
+@benzodiazepinico,idade,65,atencao,"Critérios de Beers: benzodiazepínicos em idosos aumentam quedas, sedação e confusão."
+@opioide,idade,65,atencao,"Idoso: iniciar opioide em dose baixa e monitorar sedação, FR e constipação."

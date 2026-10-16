@@ -53,3 +53,4 @@ vancomicina,piperacilina_tazobactam,atencao,Vancomicina + piperacilina-tazobacta
 vancomicina,@aine,atencao,Vancomicina + AINE: nefrotoxicidade,Evitar AINE e monitorar creatinina
 clopidogrel,omeprazol,atencao,Omeprazol reduz a ativação do clopidogrel,Preferir pantoprazol
 aas,@aine,atencao,AAS + AINE: sangramento GI e redução do efeito antiagregante,Evitar AINE
+@diuretico_tiazidico,@aine,atencao,Tiazídico + AINE: menor efeito anti-hipertensivo e risco renal,Evitar AINE; monitorar pressão e função renal

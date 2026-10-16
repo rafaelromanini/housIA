@@ -49,3 +49,6 @@ medicamento,tipo,sinal,descricao
 @beta2_agonista,efeito_adverso,taquicardia,Taquicardia compatível com beta-2 agonista
 @beta2_agonista,efeito_adverso,hipocalemia,Hipocalemia compatível com beta-2 agonista
 metoclopramida,efeito_adverso,agitacao,Acatisia/agitação compatível com metoclopramida
+@diuretico_tiazidico,efeito_adverso,hipotensao,Tontura/hipotensão ortostática compatível com diurético tiazídico
+@diuretico_tiazidico,efeito_adverso,hiponatremia,Hiponatremia compatível com diurético tiazídico
+@aine,efeito_adverso,hipercalemia,Hipercalemia/piora renal compatível com AINE (sobretudo com IECA/BRA e diurético)

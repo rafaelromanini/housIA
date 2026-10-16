@@ -81,6 +81,7 @@ LABS: dict[str, Measure] = {
         Measure("troponina", LOINC, "10839-9", "Troponina I", "ng/mL", None, 0.04, None, 1.0, 2),
         Measure("bnp", LOINC, "30934-4", "BNP", "pg/mL", None, 100, None, 1000),
         Measure("hba1c", LOINC, "4548-4", "Hemoglobina glicada", "%", None, 5.7, None, None, 1),
+        Measure("ldl", LOINC, "13457-7", "Colesterol LDL", "mg/dL", None, 130, None, None),
     ]
 }
 
