@@ -65,8 +65,8 @@ def test_negation_and_drug_mentions():
     assert keyword_status("Não, dor no peito eu não tenho.", ("dor no peito",)) == "negado"
     assert keyword_status("Falta de ar também não.", ("falta de ar",)) == "negado"
     assert keyword_status("Não fiz xixi desde que tiraram a sonda", ("nao fiz xixi",)) == "presente"
-    assert ("ibuprofeno", "Ibuprofeno") in mentioned_drugs("Comprei um ibuprofeno na farmácia")
-    assert ("@aine", "anti-inflamatório") in mentioned_drugs("tomei um anti-inflamatório")
+    assert ("ibuprofeno", "Ibuprofeno", "em_uso") in mentioned_drugs("Comprei um ibuprofeno na farmácia")
+    assert ("@aine", "anti-inflamatório", "em_uso") in mentioned_drugs("tomei um anti-inflamatório")
 
 
 # ---------- fluxo completo (cenário 6) ----------

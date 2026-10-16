@@ -1,0 +1,1308 @@
+{
+ "descricao": "Corpus de regressão das regras da Consulta com IA: frases de consulta real (sem pontuação, com vocativo, negação, passado e pergunta sem '?'), com o que as regras devem e NÃO devem extrair. Mede falso positivo e falso negativo a cada build (apps/api/tests/test_consult_regressao.py). Dados sintéticos.",
+ "versao": "1.0.0",
+ "paciente_padrao": "cen6",
+ "campos": {
+  "frase": "texto como chega da captura (microfone, digitado ou servidor)",
+  "falante": "medico | paciente | acompanhante | desconhecido (= botão Automático: a heurística decide)",
+  "esperado.falante": "quem as regras devem considerar que falou",
+  "esperado.queixas": "rótulo → presente | negado; ausente = nenhuma tag",
+  "esperado.emocoes": "emoções detectadas; ausente = nenhuma",
+  "esperado.medicamentos": "princípio ativo (ou @classe) → em_uso | suspenso_relatado | negado",
+  "esperado.alertas": "alertas de medicamento NOVOS em relação ao prontuário: tipo da sugestão (suspender, ajuste_dose, alternativa, interacao, registrar, adesao, alergia) ou 'triplice' (tríplice ameaça renal)",
+  "esperado.cirurgia": "itens de cirurgia vindos da conversa: planejada | historico",
+  "esperado.antecedente_familiar": "true se deve gerar antecedente familiar relatado",
+  "paciente": "opcional: outro paciente do cenário (padrão cen6, com BRA + tiazídico e TFG ~40)",
+  "limitacao": "opcional: limitação conhecida (teste xfail estrito); ao corrigir, remova o campo"
+ },
+ "frases": [
+  {
+   "id": "pergunta-sem-interrogacao-dor-peito",
+   "categoria": "falante",
+   "frase": "a senhora tem sentido dor no peito",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-falta-de-ar-escada",
+   "categoria": "falante",
+   "frase": "o senhor sente falta de ar quando sobe escada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-tem-tido-febre",
+   "categoria": "falante",
+   "frase": "tem tido febre essa semana",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-quando-comecou",
+   "categoria": "falante",
+   "frase": "quando começou essa tontura",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-desde-quando",
+   "categoria": "falante",
+   "frase": "desde quando a senhora está assim",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-como-se-sente",
+   "categoria": "falante",
+   "frase": "como o senhor está se sentindo hoje",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "medida-ditada-pa",
+   "categoria": "falante",
+   "frase": "hoje a pressão sentada está 118 por 72 e em pé caiu para 98",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "conduta-vamos-ajustar",
+   "categoria": "falante",
+   "frase": "vamos ajustar o remédio da pressão e repetir os exames",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "cooperar-nao-e-operar",
+   "categoria": "cirurgia",
+   "frase": "a senhora precisa cooperar com o tratamento",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "primeira-pessoa-tontura",
+   "categoria": "falante",
+   "frase": "eu sinto uma tontura quando levanto",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "presente",
+     "Tontura ao levantar": "presente"
+    }
+   }
+  },
+  {
+   "id": "to-com-dor-de-cabeca-que-nao-passa",
+   "categoria": "negacao",
+   "frase": "tô com uma dor de cabeça que não passa",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dor de cabeça": "presente"
+    }
+   }
+  },
+  {
+   "id": "vocativo-cansada",
+   "categoria": "falante",
+   "frase": "bom dia doutora eu ando muito cansada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Cansaço": "presente"
+    }
+   }
+  },
+  {
+   "id": "acompanhante-quase-caiu",
+   "categoria": "falante",
+   "frase": "doutora ela quase caiu no banheiro ontem",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "acompanhante",
+    "queixas": {
+     "Queda ou quase queda": "presente"
+    }
+   }
+  },
+  {
+   "id": "acompanhante-pressao-dele",
+   "categoria": "falante",
+   "frase": "a pressão dele estava alta doutora",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "acompanhante"
+   }
+  },
+  {
+   "id": "vocativo-com-senhora-nao-e-pergunta",
+   "categoria": "falante",
+   "frase": "doutora a senhora acha que essa tontura é da pressão",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "presente"
+    }
+   }
+  },
+  {
+   "id": "posso-operar",
+   "categoria": "cirurgia",
+   "frase": "posso operar a catarata com essa diabetes",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "cirurgia": [
+     "planejada"
+    ]
+   }
+  },
+  {
+   "id": "nao-doutora-so-tontura",
+   "categoria": "sem_pontuacao",
+   "frase": "não doutora só tontura quando levanto",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "presente",
+     "Tontura ao levantar": "presente"
+    }
+   }
+  },
+  {
+   "id": "febre-nao-mas-tosse",
+   "categoria": "sem_pontuacao",
+   "frase": "não tenho febre mas tô com tosse",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Febre": "negado",
+     "Tosse": "presente"
+    }
+   }
+  },
+  {
+   "id": "dor-peito-nao-so-cansaco",
+   "categoria": "sem_pontuacao",
+   "frase": "dor no peito não só um cansaço",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dor no peito": "negado",
+     "Cansaço": "presente"
+    }
+   }
+  },
+  {
+   "id": "agora-nao-tenho-mais-tontura",
+   "categoria": "sem_pontuacao",
+   "frase": "agora não tenho mais tontura",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "negado"
+    }
+   }
+  },
+  {
+   "id": "nao-sinto-mais-aquela-tontura",
+   "categoria": "negacao",
+   "frase": "não sinto mais aquela tontura",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "negado"
+    }
+   }
+  },
+  {
+   "id": "nao-consigo-dormir-com-tosse",
+   "categoria": "negacao",
+   "frase": "não consigo dormir com essa tosse",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dificuldade para dormir": "presente",
+     "Tosse": "presente"
+    }
+   }
+  },
+  {
+   "id": "nao-sei-se-e-tontura",
+   "categoria": "negacao",
+   "frase": "não sei se é tontura ou fraqueza",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "presente",
+     "Cansaço": "presente"
+    },
+    "emocoes": [
+     "confusao"
+    ]
+   }
+  },
+  {
+   "id": "tontura-nao-melhora",
+   "categoria": "negacao",
+   "frase": "a tontura não melhora de jeito nenhum",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "presente"
+    }
+   }
+  },
+  {
+   "id": "falta-de-ar-gracas-a-deus-nao",
+   "categoria": "negacao",
+   "frase": "falta de ar graças a deus não",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Falta de ar": "negado"
+    },
+    "emocoes": [
+     "alivio"
+    ]
+   }
+  },
+  {
+   "id": "tontura-nenhuma",
+   "categoria": "negacao",
+   "frase": "tontura nenhuma doutora",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "negado"
+    }
+   }
+  },
+  {
+   "id": "toda-vez-que-levanto",
+   "categoria": "sem_pontuacao",
+   "frase": "fico tonta toda vez que levanto da cama",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Tontura": "presente",
+     "Tontura ao levantar": "presente"
+    }
+   }
+  },
+  {
+   "id": "sem-febre-desde-ontem",
+   "categoria": "negacao",
+   "frase": "tô sem febre desde ontem",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Febre": "negado"
+    }
+   }
+  },
+  {
+   "id": "pressao-caiu-nao-e-queda",
+   "categoria": "falso_positivo",
+   "frase": "a minha pressão caiu ontem na farmácia",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "cabelo-caiu-nao-e-queda",
+   "categoria": "falso_positivo",
+   "frase": "o cabelo caiu muito depois do remédio novo",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "cai-no-banheiro",
+   "categoria": "controle",
+   "frase": "semana passada eu caí no banheiro",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Queda ou quase queda": "presente"
+    }
+   }
+  },
+  {
+   "id": "operar-joelho-nao-e-dor",
+   "categoria": "falso_positivo",
+   "frase": "o ortopedista disse que não vai precisar operar o joelho",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "falta-de-ar-escada",
+   "categoria": "controle",
+   "frase": "estou com falta de ar quando subo escada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Falta de ar": "presente"
+    }
+   }
+  },
+  {
+   "id": "coracao-dispara",
+   "categoria": "controle",
+   "frase": "meu coração dispara de noite",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Palpitação": "presente"
+    }
+   }
+  },
+  {
+   "id": "vista-embacada",
+   "categoria": "controle",
+   "frase": "minha vista está embaçada",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Visão embaçada": "presente"
+    }
+   }
+  },
+  {
+   "id": "pe-dormente",
+   "categoria": "controle",
+   "frase": "tô com o pé dormente",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Formigamento nos pés": "presente"
+    }
+   }
+  },
+  {
+   "id": "pergunta-marcada-como-paciente",
+   "categoria": "pergunta",
+   "frase": "a senhora tem sentido dor no peito",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "pergunta-teve-febre-como-paciente",
+   "categoria": "pergunta",
+   "frase": "o senhor teve febre essa semana",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "pergunta-tem-tido-como-paciente",
+   "categoria": "pergunta",
+   "frase": "tem tido falta de ar",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "antecedente-familiar",
+   "categoria": "controle",
+   "frase": "minha mãe tinha diabetes e pressão alta",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "antecedente_familiar": true
+   }
+  },
+  {
+   "id": "primeiro-nao-e-rim",
+   "categoria": "falso_positivo",
+   "frase": "minha mãe veio comigo hoje primeiro",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nao-tomo-mais-ibuprofeno",
+   "categoria": "medicamento",
+   "frase": "Não tomo mais ibuprofeno, parei faz um mês",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado"
+    }
+   }
+  },
+  {
+   "id": "nunca-tomei-anti-inflamatorio",
+   "categoria": "medicamento",
+   "frase": "Nunca tomei anti-inflamatório",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "@aine": "negado"
+    }
+   }
+  },
+  {
+   "id": "comprei-ibuprofeno",
+   "categoria": "controle",
+   "frase": "Comprei um ibuprofeno na farmácia e tomo duas vezes por dia",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "ibuprofeno-parei-pergunta",
+   "categoria": "medicamento",
+   "frase": "O ibuprofeno? Parei faz um mês.",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado"
+    }
+   }
+  },
+  {
+   "id": "ibuprofeno-nunca-tomei",
+   "categoria": "medicamento",
+   "frase": "Ibuprofeno? Não, doutora, nunca tomei.",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "negado"
+    }
+   }
+  },
+  {
+   "id": "ibuprofeno-nao-adianta",
+   "categoria": "controle",
+   "frase": "o ibuprofeno não tá adiantando nada",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "parei-de-sentir-dor",
+   "categoria": "controle",
+   "frase": "parei de sentir dor depois que tomei ibuprofeno",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "tomava-agora-tomo",
+   "categoria": "medicamento",
+   "frase": "eu tomava ibuprofeno agora tomo dipirona",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado",
+     "dipirona": "em_uso"
+    },
+    "alertas": [
+     "registrar"
+    ]
+   }
+  },
+  {
+   "id": "nao-posso-anti-inflamatorio",
+   "categoria": "medicamento",
+   "frase": "não posso tomar anti-inflamatório por causa do rim",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "@aine": "negado"
+    }
+   }
+  },
+  {
+   "id": "diclofenaco-quando-joelho-doi",
+   "categoria": "controle",
+   "frase": "tomo diclofenaco quando o joelho dói",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "diclofenaco": "em_uso"
+    },
+    "queixas": {
+     "Dor no joelho": "presente"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "advil-marca",
+   "categoria": "controle",
+   "frase": "tomei um advil ontem pra dor de cabeça",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "queixas": {
+     "Dor de cabeça": "presente"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "parei-losartana-adesao",
+   "categoria": "medicamento",
+   "frase": "parei de tomar a losartana porque me dava tontura",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "losartana": "suspenso_relatado"
+    },
+    "queixas": {
+     "Tontura": "presente"
+    },
+    "alertas": [
+     "adesao"
+    ]
+   }
+  },
+  {
+   "id": "esqueco-remedio",
+   "categoria": "controle",
+   "frase": "esqueço de tomar o remédio da pressão às vezes",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "alertas": [
+     "adesao"
+    ]
+   }
+  },
+  {
+   "id": "nao-esqueco-nunca",
+   "categoria": "negacao",
+   "frase": "não esqueço nunca de tomar os remédios",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nenhum-remedio-por-conta",
+   "categoria": "medicamento",
+   "frase": "não tomo nenhum remédio por conta própria",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "dipirona-e-nao-ibuprofeno",
+   "categoria": "medicamento",
+   "frase": "tomo dipirona e não ibuprofeno",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "dipirona": "em_uso",
+     "ibuprofeno": "negado"
+    },
+    "alertas": [
+     "registrar"
+    ]
+   }
+  },
+  {
+   "id": "medico-tirou-ibuprofeno",
+   "categoria": "medicamento",
+   "frase": "o médico tirou o ibuprofeno na última consulta",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado"
+    }
+   }
+  },
+  {
+   "id": "deixei-de-tomar-ibuprofeno",
+   "categoria": "medicamento",
+   "frase": "deixei de tomar o ibuprofeno semana passada",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado"
+    }
+   }
+  },
+  {
+   "id": "nao-estou-preocupada",
+   "categoria": "emocao",
+   "frase": "Não estou preocupada, não",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nao-tenho-medo-nenhum",
+   "categoria": "emocao",
+   "frase": "Não tenho medo nenhum",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nao-entendi-doutora",
+   "categoria": "emocao",
+   "frase": "Não entendi, doutora",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "confusao"
+    ]
+   }
+  },
+  {
+   "id": "e-se-insulina",
+   "categoria": "emocao",
+   "frase": "e se eu tiver que tomar insulina",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "confusao"
+    ]
+   }
+  },
+  {
+   "id": "sera-que-remedio-novo",
+   "categoria": "emocao",
+   "frase": "será que é o remédio novo da pressão",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "confusao"
+    ]
+   }
+  },
+  {
+   "id": "preocupada-com-pressao",
+   "categoria": "controle",
+   "frase": "estou muito preocupada com a minha pressão",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "preocupacao"
+    ]
+   }
+  },
+  {
+   "id": "medo-insulina",
+   "categoria": "controle",
+   "frase": "tenho medo de ter que tomar insulina",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "ansiedade"
+    ]
+   }
+  },
+  {
+   "id": "entendi-tudo",
+   "categoria": "controle",
+   "frase": "entendi tudo vou fazer direitinho",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "confianca"
+    ]
+   }
+  },
+  {
+   "id": "nao-ta-bom-doutora",
+   "categoria": "emocao",
+   "frase": "não tá bom doutora",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "toda-vez-mesma-coisa",
+   "categoria": "controle",
+   "frase": "toda vez que venho aqui é a mesma coisa ninguém explica",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "frustracao"
+    ]
+   }
+  },
+  {
+   "id": "nervosa-medico",
+   "categoria": "controle",
+   "frase": "fico nervosa quando venho ao médico",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "ansiedade"
+    ]
+   }
+  },
+  {
+   "id": "nao-fiquei-nervosa",
+   "categoria": "emocao",
+   "frase": "não fiquei nervosa não",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "ainda-bem-nada-grave",
+   "categoria": "controle",
+   "frase": "ainda bem que não é nada grave",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "alivio"
+    ]
+   }
+  },
+  {
+   "id": "nao-vai-precisar-operar",
+   "categoria": "cirurgia",
+   "frase": "Não vai precisar operar o joelho",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "oftalmo-quer-operar",
+   "categoria": "controle",
+   "frase": "o oftalmologista quer operar a catarata do olho direito",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "cirurgia": [
+     "planejada"
+    ]
+   }
+  },
+  {
+   "id": "nunca-fui-operada",
+   "categoria": "cirurgia",
+   "frase": "nunca fui operada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "ja-fiz-cirurgia",
+   "categoria": "controle",
+   "frase": "já fiz uma cirurgia de vesícula",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "cirurgia": [
+     "historico"
+    ]
+   }
+  },
+  {
+   "id": "dor-peito-andando-rapido",
+   "categoria": "controle",
+   "frase": "doutora eu tô sentindo uma dor no peito quando ando rápido",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dor no peito": "presente"
+    }
+   }
+  },
+  {
+   "id": "pergunta-fuma",
+   "categoria": "falante",
+   "frase": "o senhor fuma",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "fumo-um-maco",
+   "categoria": "controle",
+   "frase": "fumo um maço por dia",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "acucar-como-ta",
+   "categoria": "falante",
+   "frase": "e o açúcar como tá",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "acompanhante-nao-ta-comendo",
+   "categoria": "falante",
+   "frase": "ela não tá comendo direito doutora",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "acompanhante"
+   }
+  },
+  {
+   "id": "nao-sinto-nada-diferente",
+   "categoria": "negacao",
+   "frase": "não sinto nada de diferente",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nunca-tive-pressao-alta",
+   "categoria": "negacao",
+   "frase": "nunca tive pressão alta",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "pai-infarto",
+   "categoria": "controle",
+   "frase": "meu pai teve infarto com cinquenta anos",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "antecedente_familiar": true
+   }
+  },
+  {
+   "id": "ibuprofeno-da-vizinha",
+   "categoria": "controle",
+   "frase": "tô tomando o ibuprofeno que a vizinha me deu",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "nada-pra-dor",
+   "categoria": "medicamento",
+   "frase": "não tô tomando nada pra dor",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "mandou-parar-ibuprofeno",
+   "categoria": "medicamento",
+   "frase": "a doutora do posto mandou eu parar o ibuprofeno",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado"
+    }
+   }
+  },
+  {
+   "id": "dipirona-tenho-tomado",
+   "categoria": "controle",
+   "frase": "tenho tomado dois comprimidos de dipirona por dia",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "dipirona": "em_uso"
+    },
+    "alertas": [
+     "registrar"
+    ]
+   }
+  },
+  {
+   "id": "sem-dor-de-cabeca-gracas-a-deus",
+   "categoria": "negacao",
+   "frase": "tô sem dor de cabeça hoje graças a deus",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dor de cabeça": "negado"
+    },
+    "emocoes": [
+     "alivio"
+    ]
+   }
+  },
+  {
+   "id": "nao-sinto-falta-de-ar-nao",
+   "categoria": "negacao",
+   "frase": "eu não sinto falta de ar não",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Falta de ar": "negado"
+    }
+   }
+  },
+  {
+   "id": "coracao-acelerado",
+   "categoria": "controle",
+   "frase": "às vezes sinto o coração acelerado",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Palpitação": "presente"
+    }
+   }
+  },
+  {
+   "id": "quase-cai-escada",
+   "categoria": "controle",
+   "frase": "quase caí ontem na escada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Queda ou quase queda": "presente"
+    }
+   }
+  },
+  {
+   "id": "medico-indica-cirurgia",
+   "categoria": "controle",
+   "frase": "a senhora vai precisar fazer a cirurgia da catarata",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico",
+    "cirurgia": [
+     "planejada"
+    ]
+   }
+  },
+  {
+   "id": "sem-alergia",
+   "categoria": "negacao",
+   "frase": "não tenho alergia a nada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "vou-ser-operada",
+   "categoria": "controle",
+   "frase": "vou ser operada mês que vem",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "cirurgia": [
+     "planejada"
+    ]
+   }
+  },
+  {
+   "id": "medo-da-cirurgia",
+   "categoria": "controle",
+   "frase": "estou com medo da cirurgia",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "ansiedade"
+    ]
+   }
+  },
+  {
+   "id": "parei-de-fumar",
+   "categoria": "falso_positivo",
+   "frase": "parei de fumar faz dois anos",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente"
+   }
+  },
+  {
+   "id": "nao-consigo-urinar",
+   "categoria": "controle",
+   "frase": "não consigo urinar desde ontem",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Não consegue urinar": "presente"
+    }
+   }
+  },
+  {
+   "id": "metformina-prescrita",
+   "categoria": "medicamento",
+   "frase": "tomo metformina de manhã e de noite",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "metformina": "em_uso"
+    }
+   }
+  },
+  {
+   "id": "esquecendo-remedios",
+   "categoria": "controle",
+   "frase": "minha filha disse que eu ando esquecendo os remédios",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "alertas": [
+     "adesao"
+    ]
+   }
+  },
+  {
+   "id": "doi-muito-o-joelho",
+   "categoria": "controle",
+   "frase": "dói muito o joelho quando subo escada",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dor no joelho": "presente"
+    },
+    "emocoes": [
+     "dor"
+    ]
+   }
+  },
+  {
+   "id": "joelho-nao-doi-mais",
+   "categoria": "negacao",
+   "frase": "o joelho não dói mais",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Dor no joelho": "negado"
+    }
+   }
+  },
+  {
+   "id": "nao-tomo-todo-dia",
+   "categoria": "medicamento",
+   "frase": "não tomo o ibuprofeno todo dia só quando dói",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "nao-tomo-mais-que-dois",
+   "categoria": "medicamento",
+   "frase": "não tomo mais que dois ibuprofenos por dia",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "em_uso"
+    },
+    "alertas": [
+     "interacao",
+     "registrar",
+     "suspender",
+     "triplice"
+    ]
+   }
+  },
+  {
+   "id": "faz-uma-semana-que-nao-tomo",
+   "categoria": "medicamento",
+   "frase": "faz uma semana que não tomo o ibuprofeno",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "medicamentos": {
+     "ibuprofeno": "suspenso_relatado"
+    }
+   }
+  },
+  {
+   "id": "medo-de-cair-de-novo",
+   "categoria": "emocao",
+   "frase": "tô com medo de cair de novo",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "paciente",
+    "emocoes": [
+     "ansiedade"
+    ]
+   }
+  },
+  {
+   "id": "pra-eu-examinar",
+   "categoria": "falante",
+   "frase": "pode tirar a blusa pra eu examinar",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   }
+  },
+  {
+   "id": "pergunta-sem-pronome-nem-interrogacao",
+   "categoria": "falante",
+   "frase": "e dor no peito falta de ar",
+   "falante": "desconhecido",
+   "esperado": {
+    "falante": "medico"
+   },
+   "limitacao": "Pergunta do profissional sem pronome, sem verbo e sem '?' (fala do microfone): sem pista lexical, a heurística atribui ao paciente e as tags viram queixa. A IA corrige o falante no ciclo seguinte."
+  },
+  {
+   "id": "sintoma-no-passado-resolvido",
+   "categoria": "negacao",
+   "frase": "antes eu tinha falta de ar agora não tenho mais",
+   "falante": "paciente",
+   "esperado": {
+    "falante": "paciente",
+    "queixas": {
+     "Falta de ar": "negado"
+    }
+   },
+   "limitacao": "Sintoma no passado já resolvido: a oração 'antes eu tinha falta de ar' marca presente; falta tratar o tempo verbal."
+  }
+ ]
+}

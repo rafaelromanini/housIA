@@ -32,7 +32,15 @@ from app.consult.schemas import (
     fala_ref,
 )
 from app.consult.surgical import surgical_report
-from app.consult.text import contains, keyword_status, mentioned_drugs, norm
+from app.consult.text import (
+    clauses,
+    contains,
+    has_vocative,
+    keyword_status,
+    listener_question,
+    mentioned_drugs,
+    norm,
+)
 from app.reference import drugs, interactions, matches
 from app.timeline.context import PatientContext
 from app.timeline.events import ClinicalEvent
@@ -40,7 +48,39 @@ from app.timeline.record import PatientRecord
 
 PATIENT_SIDE = ("paciente", "acompanhante")
 OPEN_MARKERS = ("como ", "o que", "me conta", "me fala", "qual ", "quais ", "por que", "de que forma", "o senhor sente")
-DOCTOR_MARKERS = ("o senhor", "a senhora", "vamos ", "me conta", "voce tem", "voce sente", "doutor", "sou a medica")
+# quem falou (modo automático): pistas lexicais, porque a fala do microfone chega sem "?" e sem vírgula
+DOCTOR_MARKERS = tuple(
+    (
+        "me conta|me fala|me diga|me mostra|vamos |vou examinar|vou pedir|vou passar|vou trocar|"
+        "vou prescrever|vou ajustar|vou suspender|vou receitar|vou solicitar|sou a medica|sou o medico|"
+        "sou a enfermeira|sou o enfermeiro|sou a doutora|sou o doutor|respira fundo|pode deitar|pode sentar|"
+        "abre a boca|seus exames|sua pressao|sua glicemia|seu exame|o exame mostrou|o resultado|recomendo|"
+        "a gente vai|a gente precisa|precisa tomar|vai precisar|dona |que bom ver|entendo o medo|"
+        "fique tranquila|fique tranquilo|isso explica|quero que a senhora|quero que o senhor|como ta|como esta|"
+        "como vai|como anda|como tem passado|pra eu examinar|deixa eu examinar|deixa eu ver|vou medir|vou te examinar"
+    ).split("|")
+)
+PATIENT_MARKERS = tuple(
+    (
+        "eu sinto|sinto |senti |to com|tou com|estou com|estou sentindo|to sentindo|tenho sentido|eu tenho|"
+        "tenho |eu tive|tive |me da |me deu|me doi|eu fico|fico |fiquei|eu ando|ando |minha cabeca|meu peito|"
+        "minha barriga|minha perna|meu joelho|minha pressao|eu tomo|tomo |tomei|eu uso|comprei|comecei|parei|"
+        "esqueco|esqueci|posso |eu queria|eu acho|sei la|eu nao sei|eu moro|moro |eu trabalho|eu levanto|"
+        "levanto|eu nunca|comigo|eu estou|estou |to |o que significa|e grave|sera que|vou precisar|tem cura|nao sei"
+    ).split("|")
+)
+# 1ª pessoa com sintoma: quem fala é o próprio paciente (decide entre paciente e acompanhante)
+FIRST_PERSON_SYMPTOM = tuple(
+    (
+        "eu sinto|sinto |senti |to com|tou com|estou com|estou sentindo|to sentindo|tenho sentido|me da |"
+        "me deu|me doi|minha cabeca|meu peito|minha barriga|eu ando"
+    ).split("|")
+)
+THIRD_PERSON = re.compile(
+    r"(?<!\w)(ela|ele)( nao| ja| quase| tambem| sempre| nunca)? (tem|teve|esta|ta|anda|andou|caiu|cai|sente|sentiu"
+    r"|reclama|reclamou|fica|ficou|toma|tomou|e|era|estava|vem|veio|nao)(?!\w)|(?<!\w)(dele|dela)(?!\w)"
+)
+MEASUREMENT = re.compile(r"\d+ (por|x) \d+|(deu|esta|ta|foi) \d+")
 FAMILY_RE = re.compile(r"(minha|meu) (mae|pai|irma|irmao|avo|avô|tia|tio|filha|filho)")
 FAMILY_DISEASE = (
     "diabet",
@@ -52,9 +92,10 @@ FAMILY_DISEASE = (
     "pressao alta",
     "hipertens",
     "rim",
+    "rins",
     "dialise",
 )
-# cirurgia a fazer (não a que já aconteceu na internação)
+# cirurgia a fazer (não a que já aconteceu na internação); "não vai precisar operar" é negativa
 SURGERY_PLAN_WORDS = (
     "operar",
     "vou ser operad",
@@ -65,19 +106,45 @@ SURGERY_PLAN_WORDS = (
     "fazer cirurgia",
 )
 SURGERY_PAST_WORDS = ("operei", "fui operad", "ja fiz cirurgia", "fiz uma cirurgia")
+FORGET_WORDS = (
+    "esqueco",
+    "esqueci",
+    "esquecendo de tomar",
+    "esquecendo os remedios",
+    "esquecendo o remedio",
+    "pulo o remedio",
+    "tomo quando lembro",
+)  # sinais de dificuldade de adesão
+STOP_WORDS = ("parei de tomar", "deixei de tomar")
 CONTEXT_WORDS = ("moro ", "sozinh", "fumo", "cigarro", "bebo", "bebida", "alcool", "caminhada", "trabalho", "aposentad")
 PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
 SEVERITY = {"critico": 0, "atencao": 1, "info": 2}
 
 
+def _cues(text: str, markers: tuple[str, ...]) -> int:
+    padded = f" {text} "
+    return sum(1 for m in markers if contains(padded, (m,)))
+
+
 def infer_speaker(text: str) -> str:
-    """Quem falou, quando a captura não informou (heurística; a IA corrige depois)."""
+    """Quem falou, quando a captura não informou (heurística; a IA corrige depois).
+
+    Pontua pistas de profissional (pergunta em 2ª pessoa mesmo sem "?", "vamos", medidas ditadas) e de paciente
+    (vocativo "doutora", 1ª pessoa com sintoma). Empate: pergunta é do profissional, afirmação é do paciente.
+    """
     t = norm(text)
-    if text.strip().endswith("?") and any(m in t for m in DOCTOR_MARKERS):
-        return "medico"
-    if any(m in t for m in ("doutora", "doutor")):
-        return "paciente"
-    return "medico" if text.strip().endswith("?") else "paciente"
+    question = text.strip().endswith("?")
+    vocative = has_vocative(text)
+    doctor = 3 * sum(listener_question(c) for c in clauses(text)) + 2 * _cues(t, DOCTOR_MARKERS)
+    doctor += 2 * bool(MEASUREMENT.search(t)) + bool(re.search(r"(?<!\w)(a senhora|o senhor|voce)(?!\w)", t))
+    patient = 3 * vocative + 2 * _cues(t, PATIENT_MARKERS)
+    if not question and any(keyword_status(text, d.words, skip_questions=True) for d in knowledge.symptoms()):
+        patient += 1
+    if patient > doctor and vocative and THIRD_PERSON.search(t) and not _cues(t, FIRST_PERSON_SYMPTOM):
+        return "acompanhante"  # "doutora, ela quase caiu no banheiro"
+    if doctor != patient:
+        return "medico" if doctor > patient else "paciente"
+    return "medico" if question else "paciente"
 
 
 class Engine:
@@ -120,7 +187,8 @@ class Engine:
         labels = {d.key: d.label for d in knowledge.symptoms()}
         for s in self.patient_segments:
             for d in knowledge.symptoms():
-                status = keyword_status(s.texto, d.words)
+                # pergunta em 2ª pessoa ("a senhora tem sentido dor no peito") não é queixa de quem fala
+                status = keyword_status(s.texto, d.words, skip_questions=True, excludes=d.excludes)
                 if status is None:
                     continue
                 bucket = present if status == "presente" else denied
@@ -141,7 +209,13 @@ class Engine:
         timeline: list[EmotionPoint] = []
         defs = knowledge.emotions()
         for s in self.patient_segments:
-            found = [d for d in defs if contains(self.norm[s.n], d.words)]
+            # negação vale para emoção ("não estou preocupada") e uma pista anula outra ("não entendi" ≠ confiança)
+            found = [
+                d
+                for d in defs
+                if keyword_status(s.texto, d.words, trailing_negation=False) == "presente"
+                and not contains(self.norm[s.n], d.excludes)
+            ]
             for d in found:
                 hits.setdefault((d.key, s.falante), []).append(s)
             timeline.append(EmotionPoint(n=s.n, falante=s.falante, emocoes=[d.key for d in found]))
@@ -187,12 +261,22 @@ class Engine:
         return out, timeline, metrics
 
     # ---------- medicamentos citados ----------
-    def reported_meds(self) -> list[tuple[str, str, str]]:
+    def _mentions(self, status: str) -> list[tuple[str, str, str]]:
         out = []
         for s in self.patient_segments:
-            for ing, term in mentioned_drugs(s.texto):
-                out.append((ing, term, fala_ref(s.n)))
+            for ing, term, st in mentioned_drugs(s.texto):
+                if st == status:
+                    out.append((ing, term, fala_ref(s.n)))
         return out
+
+    def reported_meds(self) -> list[tuple[str, str, str]]:
+        """(princípio ou @classe, termo, ref) do que o paciente diz que USA. Negado ("nunca tomei") fica de fora."""
+        return self._mentions("em_uso")
+
+    def suspended_meds(self) -> list[tuple[str, str, str]]:
+        """O que o paciente diz que parou ("não tomo mais", "parei"): histórico, não entra nos alertas de uso."""
+        in_use = {ing for ing, _, _ in self.reported_meds()}
+        return [m for m in self._mentions("suspenso_relatado") if m[0] not in in_use]
 
     def _med_classes(self, reported: list[tuple[str, str, str]]) -> list[tuple[str, str, str, str]]:
         """(princípio, classe, nome, ref) do que está em uso + relatado."""
@@ -425,9 +509,28 @@ class Engine:
                         refs=[ref],
                     )
                 )
-        adherence = self.said(
-            ("esqueco", "esqueci", "parei de tomar", "pulo o remedio", "tomo quando lembro"), PATIENT_SIDE
-        )
+        prescribed = {m.ingredient: m for m in self.chart.active_meds}
+        for ing, _term, ref in self.suspended_meds():
+            if ing in prescribed:
+                m = prescribed[ing]
+                out.append(
+                    MedSuggestion(
+                        texto=f"Relata ter parado {m.name}, que segue ativo na prescrição: confirmar adesão, motivo "
+                        "e registrar.",
+                        tipo="adesao",
+                        severidade="atencao",
+                        refs=[ref, m.ref],
+                    )
+                )
+        adherence = []
+        for s in self.patient_segments:
+            if keyword_status(s.texto, FORGET_WORDS) == "presente":  # "não esqueço nunca" não conta
+                adherence.append(s)
+            elif keyword_status(s.texto, STOP_WORDS) == "presente":
+                # com remédio citado, o alerta específico acima (prescrito) basta; "parei de tomar o ibuprofeno"
+                # (por conta própria) não é falha de adesão ao tratamento
+                if not any(m.status != "negado" for m in mentioned_drugs(s.texto)):
+                    adherence.append(s)
         if adherence:
             out.append(
                 MedSuggestion(
@@ -477,7 +580,7 @@ class Engine:
         for s in self.patient_segments:
             t = self.norm[s.n]
             m = FAMILY_RE.search(t)
-            if m and any(w in t for w in FAMILY_DISEASE):
+            if m and contains(t, FAMILY_DISEASE):  # palavra inteira: "rim" não casa com "primeiro"
                 out.append(
                     HistoryItem(
                         texto=f"Antecedente familiar relatado: {self.quote(s, 90)}",
@@ -485,15 +588,23 @@ class Engine:
                         refs=[fala_ref(s.n)],
                     )
                 )
+        catalog = drugs()
+        for ing, term, ref in self.suspended_meds():
+            name = catalog[ing].name if ing in catalog else term
+            out.append(HistoryItem(texto=f"Uso prévio relatado (suspenso): {name}", tipo="relatado", refs=[ref]))
         return out
 
     def surgery(self) -> tuple[list[SurgeryItem], list[str]]:
         items = self.chart.surgical_history()
-        for s in self.said(SURGERY_PLAN_WORDS):
+        for s in self.segments:
+            if keyword_status(s.texto, SURGERY_PLAN_WORDS) != "presente":  # "não vai precisar operar"
+                continue
             items.append(
                 SurgeryItem(texto=f"Citado na consulta: {self.quote(s, 110)}", tipo="planejada", refs=[fala_ref(s.n)])
             )
-        for s in self.said(SURGERY_PAST_WORDS, PATIENT_SIDE):
+        for s in self.patient_segments:
+            if keyword_status(s.texto, SURGERY_PAST_WORDS) != "presente":  # "nunca fui operada"
+                continue
             items.append(
                 SurgeryItem(
                     texto=f"Cirurgia prévia relatada: {self.quote(s, 110)}", tipo="historico", refs=[fala_ref(s.n)]
@@ -555,10 +666,15 @@ class Engine:
         ]
         context = [self.quote(s, 120) for s in self.patient_segments if contains(self.norm[s.n], CONTEXT_WORDS)]
         refs = [fala_ref(s.n) for s in complaint_segs[:6]]
+        catalog = drugs()
+        previous = [
+            f"Uso prévio de {catalog[ing].name if ing in catalog else term} (relatado, suspenso)"
+            for ing, term, _ in self.suspended_meds()
+        ]
         return Anamnese(
             queixa_principal=qp,
             hda=hda,
-            antecedentes=[h.texto for h in self.chart.history() if h.tipo in ("diagnostico", "cirurgia")],
+            antecedentes=[h.texto for h in self.chart.history() if h.tipo in ("diagnostico", "cirurgia")] + previous,
             medicacoes_em_uso=meds,
             alergias=[f"{a.alergeno} — {a.reacao}" for a in allergies]
             or (["Nega alergias conhecidas"] if self.chart.ctx.nega_alergias else ["Sem registro"]),
@@ -611,7 +727,7 @@ class Engine:
             historico=history,
             alergias=allergies,
             exames=exams,
-            medicamentos=self.chart.meds(reported),
+            medicamentos=self.chart.meds(reported, self.suspended_meds()),
             sugestoes_medicamentos=meds_safety,
             cirurgia=surgery_items,
             protocolos=self.chart.protocols(),

@@ -174,9 +174,9 @@ def surgical_report(segments: list[Segment], chart: ChartView, authorized: list[
 
     catalog_drugs = drugs()
     for s in segments:
-        for ing, _term in mentioned_drugs(s.texto):
+        for ing, _term, status in mentioned_drugs(s.texto):
             d = catalog_drugs.get(ing)
-            if d is None:
+            if d is None or status == "negado":  # "não foi usada cefazolina" não conflita com a alergia
                 continue
             for a in chart.ctx.alergias:
                 detail = a.detail or {}

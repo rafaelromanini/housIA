@@ -248,16 +248,22 @@ class ChartView:
         return out
 
     # ---------- Medicamentos ----------
-    def meds(self, reported: list[tuple[str, str, str]]) -> list[MedItem]:
-        """`reported`: (princípio ativo ou @classe, termo dito, ref da fala)."""
+    def meds(
+        self, reported: list[tuple[str, str, str]], suspended: list[tuple[str, str, str]] | None = None
+    ) -> list[MedItem]:
+        """`reported`/`suspended`: (princípio ativo ou @classe, termo dito, ref da fala) do que o paciente diz usar /
+        diz ter parado."""
+        stopped = {ing: ref for ing, _, ref in suspended or []}
         out = [
             MedItem(
                 medicamento=m.name,
                 posologia=m.text,
                 desde=fmt_date(m.start),
                 status="em_uso",
-                observacao=self._replaced(m),
-                refs=[m.ref],
+                observacao="Paciente relata que parou de tomar — confirmar adesão."
+                if m.ingredient in stopped
+                else self._replaced(m),
+                refs=[m.ref] + ([stopped[m.ingredient]] if m.ingredient in stopped else []),
             )
             for m in self.active_meds
         ]
@@ -286,6 +292,19 @@ class ChartView:
                     posologia="Relatado na consulta (sem prescrição no prontuário)",
                     status="relatado",
                     observacao="Uso por conta própria — confirmar dose e frequência e registrar.",
+                    refs=[ref],
+                )
+            )
+        for ing, term, ref in suspended or []:
+            if ing in active_ings or ing in seen:
+                continue
+            seen.add(ing)
+            out.append(
+                MedItem(
+                    medicamento=drugs()[ing].name if ing in drugs() else term,
+                    posologia="Relatado na consulta (sem prescrição no prontuário)",
+                    status="suspenso",
+                    observacao="Paciente relata que parou — registrar no histórico de medicamentos.",
                     refs=[ref],
                 )
             )

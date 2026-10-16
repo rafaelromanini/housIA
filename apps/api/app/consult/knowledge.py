@@ -21,6 +21,7 @@ class SymptomDef:
     key: str
     label: str
     words: tuple[str, ...]
+    excludes: tuple[str, ...] = ()  # na mesma oração, anulam o sintoma ("a pressão caiu" não é queda)
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class EmotionDef:
     label: str
     words: tuple[str, ...]
     approach: str
+    excludes: tuple[str, ...] = ()  # pistas que anulam esta emoção na mesma fala ("não entendi" anula confiança)
 
 
 @dataclass(frozen=True)
@@ -90,13 +92,16 @@ class OpmeDef:
 
 @lru_cache
 def symptoms() -> tuple[SymptomDef, ...]:
-    return tuple(SymptomDef(r["chave"], r["rotulo"], _words(r["palavras"])) for r in _read_csv("consult_symptoms.csv"))
+    return tuple(
+        SymptomDef(r["chave"], r["rotulo"], _words(r["palavras"]), _words(r.get("exclui", "")))
+        for r in _read_csv("consult_symptoms.csv")
+    )
 
 
 @lru_cache
 def emotions() -> tuple[EmotionDef, ...]:
     return tuple(
-        EmotionDef(r["emocao"], r["rotulo"], _words(r["palavras"]), r["abordagem"])
+        EmotionDef(r["emocao"], r["rotulo"], _words(r["palavras"]), r["abordagem"], _words(r.get("exclui", "")))
         for r in _read_csv("consult_emotions.csv")
     )
 
@@ -170,13 +175,25 @@ def opme_catalog() -> tuple[OpmeDef, ...]:
 
 @lru_cache
 def demo_scripts() -> dict[str, dict]:
-    """Roteiros de demonstração (data/consultations/*.json), por id do arquivo."""
+    """Roteiros de demonstração (data/consultations/*.json), por id do arquivo.
+
+    Só arquivos com `falas`: o corpus de regressão (`regressao_falas.json`) mora na mesma pasta e não é roteiro.
+    """
     folder = get_settings().data_dir / "consultations"
     out: dict[str, dict] = {}
     for path in sorted(folder.glob("*.json")):
         with open(path, encoding="utf-8") as fh:
-            out[path.stem] = json.load(fh) | {"id": path.stem}
+            data = json.load(fh)
+        if "falas" in data:
+            out[path.stem] = data | {"id": path.stem}
     return out
+
+
+@lru_cache
+def regression_corpus() -> dict:
+    """Corpus de regressão das regras (data/consultations/regressao_falas.json)."""
+    with open(get_settings().data_dir / "consultations" / "regressao_falas.json", encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 SPECIALTIES: dict[str, str] = {
