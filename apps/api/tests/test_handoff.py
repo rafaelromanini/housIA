@@ -223,3 +223,48 @@ def test_handoff_cache_force_alerts_and_audit(client, auth):
 
     latest = client.get("/patients/cen1/handoff/latest?audience=enfermagem", headers=h).json()
     assert latest["id"] == forced["id"]
+
+
+def test_reseed_and_rewording_do_not_duplicate_alerts(client, auth):
+    """Recarregar os cenários muda os horários no texto dos riscos, mas não as fontes: o alerta é o mesmo."""
+    from datetime import timedelta
+
+    from app.fhir_client.client import LocalFhirStore, set_fhir
+    from app.seed.scenarios import build_demo_resources
+
+    from .conftest import ANCHOR
+
+    h = auth("medico")
+    client.post("/patients/cen1/handoff", json={"audience": "medico"}, headers=h)
+    with db_session.SessionLocal() as db:
+        before = {(a.id, a.title) for a in db.scalars(select(Alert).where(Alert.patient_id == "cen1"))}
+    assert before
+
+    set_fhir(LocalFhirStore.from_resources(build_demo_resources(anchor=ANCHOR - timedelta(minutes=23))))
+    again = client.post("/patients/cen1/handoff", json={"audience": "medico", "force": True}, headers=h).json()
+    with db_session.SessionLocal() as db:
+        after = {(a.id, a.title) for a in db.scalars(select(Alert).where(Alert.patient_id == "cen1"))}
+    assert {i for i, _ in after} == {i for i, _ in before}  # nenhum alerta novo
+    assert after != before  # texto atualizado com os horários da nova carga
+    ids = [r["alert_id"] for r in again["content"]["riscos_proximas_horas"] if r.get("alert_id")]
+    assert len(ids) == len(set(ids))  # riscos distintos da mesma geração não se fundem
+
+
+def test_upsert_alert_matches_by_sources_and_reopens_on_escalation(client):
+    from app.alerts.service import upsert_alert
+
+    with db_session.SessionLocal() as db:
+        kw = dict(patient_id="p1", source="handoff")
+        a = upsert_alert(db, **kw, severity="atencao", title="Glicose 164 às 18:54", refs=["Observation/g1"])
+        a.status = "reconhecido"
+        b = upsert_alert(db, **kw, severity="atencao", title="Glicose 164 às 18:31", refs=["Observation/g1"])
+        assert b.id == a.id and b.title.endswith("18:31") and b.status == "reconhecido"
+        other = upsert_alert(db, **kw, severity="atencao", title="Hemoglobina em queda", refs=["Observation/hb"])
+        assert other.id != a.id
+        claimed = {a.id}
+        twin = upsert_alert(db, **kw, severity="atencao", title="Outro risco", refs=["Observation/g1"], claimed=claimed)
+        assert twin.id != a.id
+        worse = upsert_alert(db, **kw, severity="critico", title="Glicose 320", refs=["Observation/g1"])
+        assert worse.id == a.id and worse.status == "aberto" and worse.severity == "critico"
+        db.flush()
+        assert db.scalar(select(AuditLog).where(AuditLog.action == "alerta.reaberto"))

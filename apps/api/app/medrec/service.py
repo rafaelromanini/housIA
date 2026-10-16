@@ -129,6 +129,7 @@ def run_medrec(
         llm_meta = {"modo": result.mode, "modelo": result.model, "prompt_version": result.prompt_version}
 
     findings_out = []
+    claimed: set[int] = set()
     for f in findings:
         item = f.model_dump()
         if f.severidade in ("critico", "atencao"):
@@ -140,6 +141,7 @@ def run_medrec(
                 title=f.titulo,
                 detail=f.detalhe,
                 refs=f.refs,
+                claimed=claimed,
             )
             item["alert_id"] = alert.id
         findings_out.append(item)

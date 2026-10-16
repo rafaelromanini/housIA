@@ -208,6 +208,7 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
     output, dropped = validate_refs(result.output, valid_refs)
 
     content = output.model_dump()
+    claimed: set[int] = set()
     for risk in content["riscos_proximas_horas"]:
         if risk["severidade"] in ("critico", "atencao"):
             alert = upsert_alert(
@@ -218,6 +219,7 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
                 title=risk["texto"],
                 detail=f"Passagem de plantão ({req.audience})",
                 refs=risk["refs"],
+                claimed=claimed,
             )
             risk["alert_id"] = alert.id
     content |= {
