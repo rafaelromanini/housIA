@@ -88,6 +88,13 @@ GENERIC_CLASSES = {"anti-inflamatorio": "aine", "antiinflamatorio": "aine", "ant
 # classes que só valem como intenção do profissional ("vou passar um corticoide"): na fala do paciente, "corticoide"
 # solto não diz que ele usa o medicamento
 PLANNED_CLASSES = GENERIC_CLASSES | {
+    "penicilina": "penicilina",
+    "cefalosporina": "cefalosporina",
+    "macrolideo": "macrolideo",
+    "quinolona": "fluoroquinolona",
+    "fluoroquinolona": "fluoroquinolona",
+    "tetraciclina": "tetraciclina",
+    "sulfonamida": "sulfonamida",
     "corticoide": "corticoide",
     "anticoagulante": "anticoagulante_oral",
     "opioide": "opioide",
@@ -160,6 +167,12 @@ BARE_RESUMED = re.compile(
 BARE_NEGATED = re.compile(
     r"^((eu|ja|e) )*(nao|nunca|nem)( ((eu|ja|nunca|tambem) )*(tomo|tomei|uso|usei))?"
     r"( (nao|nunca|na vida|sim|doutora|doutor|senhora|senhor))?$"
+)
+# o paciente pergunta ou espera que o profissional prescreva: não é remédio em uso
+ASKS_PRESCRIPTION = re.compile(
+    r"(?<!\w)(?:vai|vao|pode|poderia|podia|ia|quer|queria|consegue) (?:(?:me|nos|lhe|a gente) )?"
+    r"(?:passar|receitar|prescrever|dar|indicar|mandar|trocar)(?!\w)"
+    r"|(?<!\w)(?:me|nos) (?:passa|receita|prescreve|indica)(?!\w)"
 )
 _STATUS_RANK = {"em_uso": 0, "suspenso_relatado": 1, "negado": 2}
 
@@ -345,7 +358,16 @@ def keyword_status(
 @lru_cache
 def _catalog_names() -> tuple[tuple[str, str, str], ...]:
     """(nome normalizado, princípio ativo, nome) do catálogo; nomes curtos (< 5 letras) geram falso positivo."""
-    return tuple((norm(d.name), ing, d.name) for ing, d in drugs().items() if len(norm(d.name)) >= 5)
+    catalog = drugs()
+    names = {norm(d.name) for d in catalog.values()}
+    out = [(norm(d.name), ing, d.name) for ing, d in catalog.items() if len(norm(d.name)) >= 5]
+    # associação dita sem o sinal de "+": "sulfametoxazol com trimetoprima" é citada pelo primeiro componente, desde que
+    # ele não seja um medicamento do catálogo por si só ("amoxicilina com clavulanato" continua sendo a amoxicilina)
+    for ing, d in catalog.items():
+        first = norm(d.name.partition("+")[0])
+        if "+" in d.name and len(first) >= 5 and first not in names:
+            out.append((first, ing, d.name))
+    return tuple(out)
 
 
 def _drug_hits(clause: str, classes: dict[str, str] | None = None) -> list[tuple[int, int, str, str]]:
@@ -395,6 +417,9 @@ def mentioned_drugs(text: str) -> tuple[DrugMention, ...]:
     last: list[str] = []
     for clause in clauses(text):
         t = f" {clause} "
+        if ASKS_PRESCRIPTION.search(t):  # "o senhor vai me passar amoxicilina?": pede a receita, não toma o remédio
+            last = []
+            continue
         hits = _drug_hits(clause)
         if not hits:
             if BARE_RESUMED.search(clause):  # "mandou parar o ibuprofeno, mas eu continuo tomando"
@@ -432,15 +457,16 @@ def mentioned_drugs(text: str) -> tuple[DrugMention, ...]:
 
 
 # ---------- medicamentos que o profissional diz que vai prescrever ----------
-PLAN_VERBS = (
-    "passar|prescrever|receitar|iniciar|comecar|introduzir|associar|colocar|dar|trocar|mudar|substituir|aumentar"
-    "|reiniciar|retomar|adicionar|acrescentar|indicar|ministrar|usar|tentar|incluir|reforcar|dobrar"
+PLAN_VERBS = (  # o "r" final é opcional: "vou passa amoxicilina" (fala corrida) também é intenção
+    "passar?|prescrever?|receitar?|iniciar?|comecar?|introduzir?|associar?|colocar?|dar|trocar?|mudar?|substituir?"
+    "|aumentar?|reiniciar?|retomar?|adicionar?|acrescentar?|indicar?|ministrar?|usar?|tentar?|incluir?|reforcar?|dobrar?"
 )
 PLAN_INTENT = re.compile(
-    r"(?<!\w)(?:vou|vamos|iremos|irei|pretendo|podemos|gostaria de)"
+    r"(?<!\w)(?:vou|vamos|iremos|irei|pretendo|podemos|posso|devo|devemos|quero|queremos|gostaria de"
+    r"|estou pensando em|pensando em|penso em|pensei em|a ideia e)"
     rf"(?: (?:te|lhe|ja|entao|tambem|agora|logo|ter|que|precisar|so|primeiro))* ({PLAN_VERBS})(?!\w)"
     r"|(?<!\w)(prescrevo|receito|indico|introduzo|associo|acrescento|adiciono|troco|aumento)(?!\w)"
-    r"|(?<!\w)(?:vai|deve|precisa|tem que|vai ter que|vai precisar|a senhora vai|o senhor vai)"
+    r"|(?<!\w)(?:vai|deve|precisa|pode|podera|tem que|vai ter que|vai precisar|a senhora vai|o senhor vai)"
     r" (tomar|usar|iniciar|comecar)(?!\w)"
     r"|(?<![\w-])(tome|use|comece|inicie)(?!\w)"
 )
@@ -450,7 +476,7 @@ CONTRAST_EXAM = re.compile(
     r"(?=.*(tomografia|angiotomografia|cateterismo|urografia|arteriografia|angiografia|exame)(?!\w))"
     r".*(?<!sem )(?<!\w)com contraste(?!\w)"
 )
-SWAP_VERBS = {"trocar", "mudar", "substituir", "troco"}
+SWAP_VERBS = {"troca", "muda", "substitui", "troco"}  # sem o "r" final: o verbo é comparado sem ele
 SWAP_TO = {"por", "pelo", "pela", "para", "pra"}
 PLAN_STOP = {"nao", "nunca", "sem", "nenhum", "nenhuma"}
 PLAN_INSTEAD = re.compile(r"(?<!\w)(em vez d[eoa]|no lugar d[eoa]|ao inves d[eoa]|alem d[eoa])(?!\w)")
@@ -490,9 +516,10 @@ def planned_drugs(text: str) -> tuple[PlannedDrug, ...]:
         hits = _drug_hits(clause, PLANNED_CLASSES)
         intents = list(PLAN_INTENT.finditer(t))
         if not hits:
-            carry = (
-                next((g for g in intents[-1].groups() if g), "") if intents else (carry if not clause.strip() else "")
-            )
+            if intents:
+                carry = next(g for g in intents[-1].groups() if g)
+            elif len(t.split()) > 2:  # "Vou passar, então, amoxicilina": uma oração curta no meio não quebra o fio
+                carry = ""
             continue
         listing = not intents and carry and PLAN_LISTING.fullmatch(" ".join(_outside(t, hits)))
         for start, _end, ing, term in hits:
@@ -513,7 +540,7 @@ def planned_drugs(text: str) -> tuple[PlannedDrug, ...]:
                 or PLAN_INSTEAD.search(" ".join(gap))
             ):
                 continue
-            if verb in SWAP_VERBS and not SWAP_TO & set(gap):
+            if verb.removesuffix("r") in SWAP_VERBS and not SWAP_TO & set(gap):
                 continue  # "trocar a glibenclamida": é o que sai, não o que entra
             if ing not in found:
                 found[ing] = PlannedDrug(ing, term, verb)

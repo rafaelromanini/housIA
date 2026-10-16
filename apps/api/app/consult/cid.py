@@ -28,8 +28,9 @@ def screen(
     kept, dropped = [], []
     for it in items:
         raw = getattr(it, code)
-        if norm_icd(raw) in trusted:
-            kept.append(it)
+        normalized = norm_icd(raw)
+        if normalized and normalized in trusted:  # "" (código sem formato de CID) nunca é confiável
+            kept.append(it.model_copy(update={code: normalized}) if normalized != raw else it)
             continue
         is_primary = primary(it) if callable(primary) else primary
         problem = icd_problem(raw, sex, is_primary)

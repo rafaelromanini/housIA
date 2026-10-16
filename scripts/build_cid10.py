@@ -27,6 +27,9 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "data" / "reference" / "cid10.csv"
 SEX = {"M": "M", "F": "F", "male": "M", "female": "F"}
+# Descrições erradas na origem (conferidas contra a CID-10 da OMS): a origem repete a de J20.9 em J21.9. O código existe
+# e vale; só o texto mostrado ao profissional é corrigido.
+CORRECOES = {"J21.9": "Bronquiolite aguda não especificada"}
 
 
 def dotted(code: str) -> str:
@@ -69,6 +72,7 @@ def main() -> None:
     ap.add_argument("--saida", type=Path, default=OUT)
     args = ap.parse_args()
     rows = from_zip(args.zip) if args.zip else from_json(args.json)
+    rows = [(c, CORRECOES.get(c, d), t, x) for c, d, t, x in rows]
     rows = sorted(set(rows), key=lambda r: r[0])
     codes = [r[0] for r in rows]
     if len(codes) != len(set(codes)):

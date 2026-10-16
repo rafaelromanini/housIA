@@ -35,6 +35,7 @@ import {
   type ConsultInsights,
   type Consultation,
   type DemoScript,
+  type HypothesisDecision,
   type Segment,
   type Speaker,
 } from "@/lib/api";
@@ -260,6 +261,23 @@ export function LiveConsult({
         apply([], res.insights);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao fixar a queixa principal");
+      }
+    },
+    [apply, c.id],
+  );
+
+  // o profissional confirma, deixa provisória ou descarta uma hipótese diagnóstica
+  const decideHypothesis = useCallback(
+    async (cidCode: string, decisao: HypothesisDecision, motivo?: string) => {
+      await queue.current;
+      try {
+        const res = await api<{ insights: ConsultInsights }>(`/consultations/${c.id}/hipoteses`, {
+          method: "PUT",
+          json: { cid: cidCode, decisao, motivo: motivo ?? "" },
+        });
+        apply([], res.insights);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Erro ao registrar a decisão sobre a hipótese");
       }
     },
     [apply, c.id],
@@ -519,7 +537,7 @@ export function LiveConsult({
               onInsights={refreshInsights}
             />
           ) : c.insights ? (
-            <SmartAppsPanel insights={c.insights} onMainComplaint={setMainComplaint} />
+            <SmartAppsPanel insights={c.insights} onMainComplaint={setMainComplaint} onHypothesisDecision={decideHypothesis} />
           ) : null}
         </section>
       </div>

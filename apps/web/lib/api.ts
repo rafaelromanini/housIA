@@ -531,6 +531,18 @@ export interface ConsultHypothesis {
   pergunta_discriminante?: string;
   exame_discriminante?: string;
   fonte?: string;
+  /** decisão do profissional: confirmada e provisória viram proposta de Condition; descartada vira negativa pertinente */
+  decisao?: HypothesisDecision;
+  decisao_motivo?: string;
+}
+export type HypothesisDecision = "pendente" | "confirmada" | "provisoria" | "descartada";
+export interface ProposedCondition {
+  codigo: string;
+  descricao: string;
+  hipotese: string;
+  verificacao: "confirmed" | "provisional";
+  motivo: string;
+  refs: string[];
 }
 export interface HistoryItem {
   texto: string;
@@ -854,6 +866,8 @@ export interface ConsultNote {
   cronologia: { quando: string; texto: string; refs: string[] }[];
   pendencias: NoteSection[];
   orientacoes_paciente: string[];
+  /** propostas de Condition das hipóteses confirmadas ou provisórias (o servidor as mantém) */
+  condicoes_propostas?: ProposedCondition[];
 }
 export interface Consultation {
   id: number;
