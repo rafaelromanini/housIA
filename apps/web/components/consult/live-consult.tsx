@@ -80,10 +80,11 @@ export function LiveConsult({
   const speakers = surgical ? SURGICAL_SPEAKERS : CONSULT_SPEAKERS;
   const [mode, setMode] = useState<Mode>(() => (c.roteiro_demo ? "demo" : speechSupported() ? "microfone" : "digitar"));
   // no microfone a fala chega contínua: começa em "Automático" (as regras atribuem quem falou e a IA corrige). Com
-  // paciente em outro idioma, quem fala escolhe o idioma do reconhecimento, então o falante continua manual.
+  // paciente em outro idioma, quem fala escolhe o idioma do reconhecimento, então o falante continua manual. No ditado
+  // cirúrgico quem dita é a equipe: começa em "Profissional" (a heurística chamaria a afirmação solta de paciente).
   const startSpeaker = useCallback(
-    (m: Mode): Speaker => (m === "microfone" && c.idioma_paciente === "pt-BR" ? "desconhecido" : "medico"),
-    [c.idioma_paciente],
+    (m: Mode): Speaker => (m === "microfone" && !surgical && c.idioma_paciente === "pt-BR" ? "desconhecido" : "medico"),
+    [c.idioma_paciente, surgical],
   );
   const [speaker, setSpeaker] = useState<Speaker>(() => startSpeaker(mode));
   const [typed, setTyped] = useState("");

@@ -423,3 +423,71 @@ def test_negation_needs_to_be_close_to_the_keyword():
     assert not negated("radioscopia sem intercorrencias", words)
     assert not negated("nao houve intercorrencias e a radioscopia mostrou boa reducao", words)
     assert negated("nao foi realizado o time-out", ("time-out",))
+
+
+def test_only_the_team_registers_steps_and_changes_the_template(client, auth):
+    """Paciente ou acompanhante identificados à mão não marcam etapa, nem escolhem o modelo, nem lateralidade."""
+    h = auth("medico")
+    c = start(client, h)
+    out = dictate(
+        client,
+        h,
+        c["id"],
+        [
+            ("paciente", "O time-out foi feito sim doutor, a contagem confere."),
+            ("paciente", "Fiz uma colecistectomia em 2015."),
+            ("paciente", "Doutor, é o joelho esquerdo que dói."),
+            ("acompanhante", "Ele tomou cefazolina 2 g às 8h, a incisão foi às 9h30."),
+        ],
+    )
+    rep = report_of(out["insights"])
+    assert rep["modelo"]["id"] == "artroplastia_joelho" and rep["modelo"]["origem"] == "agendamento"
+    assert check(rep, "time_out")["status"] == "pendente" and check(rep, "contagem")["status"] == "pendente"
+    assert check(rep, "lateralidade")["status"] == "pendente"
+    assert not any(v["chave"].startswith("profilaxia_dose") for v in rep["verificacoes"])
+    # o termo ausente vale dito por quem for; o falante automático conta como equipe
+    rep = report_of(
+        dictate(client, h, c["id"], [("paciente", "Não assinei nenhum termo de consentimento.")])["insights"]
+    )
+    assert check(rep, "consentimento")["status"] == "critico"
+    c2 = start(client, h)
+    rep = report_of(
+        dictate(client, h, c2["id"], [("desconhecido", "Time-out realizado. Contagem não confere.")])["insights"]
+    )
+    assert check(rep, "time_out")["status"] == "ok" and check(rep, "contagem")["status"] == "critico"
+
+
+def test_side_negated_or_in_the_past_is_not_the_operated_side(client, auth):
+    h = auth("medico")
+    for text, expected in (
+        ("Não foi feita artroplastia no joelho esquerdo, só no direito.", "pendente"),
+        ("Não é o esquerdo, é o joelho direito.", "ok"),
+        ("Joelho esquerdo não, joelho direito.", "ok"),
+        ("Paciente com colecistectomia em 2015, hoje artroplastia total de joelho direito.", "ok"),
+        ("Artroplastia total de joelho esquerdo sem intercorrências.", "critico"),
+    ):
+        c = start(client, h)
+        rep = report_of(dictate(client, h, c["id"], [("medico", text)])["insights"])
+        assert check(rep, "lateralidade")["status"] == expected, text
+        assert rep["modelo"]["id"] == "artroplastia_joelho", text
+
+
+def test_pediatric_prophylaxis_dose_uses_mg_per_kg(client, auth, monkeypatch):
+    from app.consult.chart import ChartView
+    from app.timeline.record import PatientRecord
+
+    monkeypatch.setattr(PatientRecord, "age", property(lambda self: 6))
+    monkeypatch.setattr(ChartView, "weight", lambda self: (20.0, "Observation/peso-demo"))
+    h = auth("medico")
+    c = start(client, h)
+    rep = report_of(dictate(client, h, c["id"], [("anestesista", "Cefazolina 600 mg às 8h.")])["insights"])
+    dose = check(rep, "profilaxia_dose_cefazolina")
+    assert (
+        dose["status"] == "ok" and "30 mg/kg em pediatria" in dose["texto"] and "Observation/peso-demo" in dose["refs"]
+    )
+    c2 = start(client, h)
+    rep = report_of(dictate(client, h, c2["id"], [("anestesista", "Cefazolina 2 g às 8h.")])["insights"])
+    assert check(rep, "profilaxia_dose_cefazolina")["status"] == "atencao"
+    c3 = start(client, h)
+    rep = report_of(dictate(client, h, c3["id"], [("anestesista", "Cefazolina 100 mg às 8h.")])["insights"])
+    assert "Subdose" in check(rep, "profilaxia_dose_cefazolina")["texto"]

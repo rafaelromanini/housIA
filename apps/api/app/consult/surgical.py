@@ -28,6 +28,7 @@ from app.consult.schemas import (
     fala_ref,
 )
 from app.consult.surgical_checks import (
+    PATIENT_VOICES,
     Scheduled,
     affirmative,
     clauses,
@@ -202,6 +203,11 @@ def surgical_report(
     specialty: str = "cirurgia_geral",
     marks: dict | None = None,
 ) -> SurgicalReport:
+    # o relatório e as verificações vêm da equipe: paciente ou acompanhante identificados à mão ("fiz uma
+    # colecistectomia em 2015", "o time-out foi feito") não escolhem o modelo nem registram etapa. O falante
+    # automático conta como equipe: a heurística da consulta chama de paciente a afirmação solta, e o ditado
+    # cirúrgico quase só tem afirmações.
+    everyone, segments = segments, [s for s in segments if s.falante not in PATIENT_VOICES or s.falante_auto]
     scheduled = scheduled_surgery(chart.r)
     tpl, origin, origin_refs, dictated = choose_template(segments, scheduled, specialty)
     fields = extract_fields(segments, tpl)
@@ -265,7 +271,7 @@ def surgical_report(
             )
 
     catalog_drugs = drugs()
-    for s in segments:
+    for s in everyone:  # alergia: qualquer fala que cite o fármaco alérgico alerta
         for ing, _term, status in mentioned_drugs(s.texto):
             d = catalog_drugs.get(ing)
             if d is None or status == "negado":  # "não foi usada cefazolina" não conflita com a alergia
@@ -283,7 +289,7 @@ def surgical_report(
                         )
                     )
 
-    checks, check_alerts = run_checks(segments, tpl, chart, scheduled, marks, dictated)
+    checks, check_alerts = run_checks(segments, tpl, chart, scheduled, marks, dictated, everyone)
     pending += check_alerts
 
     cids = []

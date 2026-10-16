@@ -67,7 +67,7 @@ SIDE_RE = re.compile(r"(?<![a-z])(direit[oa]s?|esquerd[oa]s?|bilateral|bilaterai
 # antecedente ("colecistectomia prévia", "artroplastia do joelho esquerdo há 3 anos"): não é o que está sendo operado
 HISTORY = re.compile(
     r"(?<![a-z])(?:previ[ao]s?|antecedentes?|anteriormente|pregress[ao]s?|historia de|historico de|"
-    r"ja (?:fez|foi|teve|realizou|operou|operad[ao]|submetid[ao])|"
+    r"ja (?:fez|foi|teve|realizou|operou|operad[ao]|submetid[ao])|em (?:19|20)\d\d|ano passado|anos atras|"
     r"ha (?:\d+|" + "|".join(WORD_NUMBERS) + r") (?:anos?|mes|meses))(?![a-z])"
 )
 _MINUTE = r"(\d{2}|" + "|".join(MINUTE_WORDS) + r")(?:\s+e\s+(cinco))?"
@@ -170,6 +170,8 @@ SOURCE_RSI = "aorn_rsi"
 SOURCE_TOURNIQUET = "aorn_garrote"
 SOURCE_ATB = "ashp_2013"
 TOURNIQUET_MAX_MIN = 120
+PATIENT_VOICES = ("paciente", "acompanhante")  # quem fala de fora da equipe: não registra etapa, dose nem horário
+SIDE_NEG_REACH = 40  # a negação do lado ("não foi o esquerdo") pode estar mais longe que a de uma palavra-chave
 ADULT_AGE = 18  # abaixo disso, dose pediátrica (mg/kg)
 BLOOD_LOSS_REDOSE_ML = 1500  # ASHP/IDSA 2013: redose também quando a perda passa de 1.500 mL
 DAY = 24 * 60
@@ -205,6 +207,19 @@ def negated(clause: str, words: tuple[str, ...]) -> bool:
     if last and len(before) - last.end() <= 25 and not CONJUNCTION.search(before[last.end() :]):
         return True
     return bool(NEG_AFTER.match(clause[idx + len(hit) :]))
+
+
+def side_negated(clause: str) -> bool:
+    """Lado negado na oração ("não foi o joelho esquerdo", "esquerdo não"): não é o lado operado."""
+    m = SIDE_RE.search(clause)
+    if not m:
+        return False
+    before = clause[: m.start()]
+    found = list(NEG_WORD.finditer(before))
+    last = found[-1] if found else None
+    if last and len(before) - last.end() <= SIDE_NEG_REACH and not CONJUNCTION.search(before[last.end() :]):
+        return True
+    return bool(NEG_AFTER.match(clause[m.end() :]))
 
 
 def side_of(text: str) -> str | None:
@@ -484,7 +499,7 @@ def dictated_sides(segments: list[Segment], site_words: tuple[str, ...]) -> list
         for raw, clause in clauses(affirmative(s.texto)):
             if site_words and not first_hit(clause, site_words):
                 continue
-            if is_history(clause):
+            if is_history(clause) or side_negated(clause):
                 continue  # "artroplastia do joelho esquerdo há 3 anos" é antecedente, não o lado operado agora
             side = side_of(clause)
             if side:
@@ -517,8 +532,10 @@ class Checks:
         scheduled: Scheduled | None,
         marks: dict | None,
         dictated_template: str | None,
+        all_segments: list[Segment] | None = None,
     ):
         self.segments = segments
+        self.all_segments = all_segments if all_segments is not None else segments  # o termo vale dito por quem for
         self.tpl = tpl
         self.chart = chart
         self.scheduled = scheduled
@@ -592,7 +609,7 @@ class Checks:
 
     def consent(self) -> None:
         label = "Termo de consentimento"
-        said = mentions(self.segments, CONSENT_WORDS)
+        said = mentions(self.all_segments, CONSENT_WORDS)
         in_chart = self.scheduled.consentimento if self.scheduled else None
         refused = said and (
             negated(said[-1].clause, CONSENT_WORDS)
@@ -926,9 +943,10 @@ def run_checks(
     scheduled: Scheduled | None,
     marks: dict | None,
     dictated_template: str | None,
+    all_segments: list[Segment] | None = None,
 ) -> tuple[list[SafetyCheck], list[Highlight]]:
     """Verificações + as pendências que elas geram (crítico, atenção ou informação), com as mesmas fontes."""
-    items = Checks(segments, tpl, chart, scheduled, marks, dictated_template).run()
+    items = Checks(segments, tpl, chart, scheduled, marks, dictated_template, all_segments).run()
     highlights = [
         Highlight(texto=f"{i.rotulo}: {i.texto}", severidade=HIGHLIGHT_OF[i.status], refs=i.refs)
         for i in items

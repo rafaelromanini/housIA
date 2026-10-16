@@ -110,8 +110,8 @@ export function SurgicalPanel({
             </p>
           ) : (
             <ul className="space-y-1.5">
-              {report.pendencias.map((p) => (
-                <li key={p.texto} className="flex gap-2 text-sm">
+              {report.pendencias.map((p, i) => (
+                <li key={`${i}-${p.texto}`} className="flex gap-2 text-sm">
                   <SeverityIcon severity={p.severidade} className="mt-0.5 size-4 shrink-0" />
                   <span className="flex-1">
                     {p.texto} <SourceRefs patientId={patientId} refs={p.refs} />

@@ -82,6 +82,8 @@ aprovada pelo profissional.
    crítico), o tempo de garrote e a antibioticoprofilaxia (`surgical_prophylaxis.csv`, ASHP/IDSA 2013: agente,
    janela antes da incisão, dose pelo peso do prontuário, redose pela duração). Tudo determinístico: a IA só
    reescreve o texto dos campos e não remove nem contradiz uma verificação.
+   Só a equipe registra etapa, dose, horário, lado e procedimento: fala de paciente ou acompanhante identificada à mão
+   fica fora (o termo de consentimento e a alergia valem ditos por qualquer pessoa); o falante automático conta como equipe.
 
 ## Consequências
 
