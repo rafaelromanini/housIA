@@ -39,7 +39,7 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
   await page.getByRole("button", { name: "Iniciar", exact: true }).click();
 
   // antes da conversa: perguntas a partir do prontuário
-  await expect(page.getByText("Atualiza a cada fala. Some da lista quando já foi perguntado ou respondido.")).toBeVisible();
+  await expect(page.getByText("Atualiza a cada fala. Some da lista quando o profissional já perguntou, mesmo com outras palavras.")).toBeVisible();
   await expect(page.getByText(/Toma a Glibenclamida mesmo nos dias/)).toBeVisible();
 
   await simulate(page);

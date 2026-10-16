@@ -319,7 +319,7 @@ export function SmartAppsPanel({
           title="Sugestão de perguntas"
           Icon={MessageCircleQuestion}
           count={ins.perguntas.length}
-          hint="Atualiza a cada fala. Some da lista quando já foi perguntado ou respondido."
+          hint="Atualiza a cada fala. Some da lista quando o profissional já perguntou, mesmo com outras palavras."
           className="border-primary/40"
         >
           {ins.perguntas.length === 0 ? (
