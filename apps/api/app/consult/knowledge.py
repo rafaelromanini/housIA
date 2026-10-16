@@ -377,6 +377,41 @@ def prophylaxis() -> dict[str, ProphylaxisDef]:
     }
 
 
+@dataclass(frozen=True)
+class LabDef:
+    """Exame pedível (data/reference/lab_catalog.csv): sinônimos, LOINC, preparo e intervalo mínimo entre repetições."""
+
+    key: str
+    name: str
+    category: str  # "laboratorio" | "imagem"
+    words: tuple[str, ...]
+    loinc: str
+    loinc_name: str
+    result_keys: tuple[str, ...]  # chaves de Observation (codes.LABS) que trazem o resultado desse exame
+    interval_days: int  # repetir antes disso pede justificativa (0 = sem aviso)
+    prep: str
+    source: str
+
+
+@lru_cache
+def lab_catalog() -> tuple[LabDef, ...]:
+    return tuple(
+        LabDef(
+            r["chave"],
+            r["exame"],
+            r["categoria"],
+            _words(r["sinonimos"]),
+            r["loinc"],
+            r["loinc_nome"],
+            _words(r["chaves_resultado"]),
+            int(r["intervalo_dias"]),
+            r["preparo"],
+            r["fonte"],
+        )
+        for r in _read_csv("lab_catalog.csv")
+    )
+
+
 @lru_cache
 def demo_scripts() -> dict[str, dict]:
     """Roteiros de demonstração (data/consultations/*.json), por id do arquivo.

@@ -291,6 +291,19 @@ export interface Hypothesis {
   refs: string[];
 }
 
+export interface ProposedRx {
+  ref: string;
+  nome: string;
+  classe: string;
+  classe_rotulo: string;
+  texto: string;
+  acao: "nova" | "substitui";
+  substitui: string | null;
+  prescritor: string | null;
+  em: string | null;
+  justificativa: string | null;
+  alertas: string[];
+}
 export interface MedrecRun {
   id: number;
   patient_id: string;
@@ -298,6 +311,8 @@ export interface MedrecRun {
   origem: SectorRef | null;
   destino: SectorRef;
   linhas: RecRow[];
+  /** Prescrições propostas e assinadas na consulta com IA (MedicationRequest draft/proposal), conferidas aqui. */
+  prescricoes_propostas?: ProposedRx[];
   achados: MedFinding[];
   hipoteses: Hypothesis[];
   sinais_detectados: { sinal: string; texto: string; ref: string; timestamp: string }[];
@@ -560,7 +575,7 @@ export interface MedItem {
   medicamento: string;
   posologia: string;
   desde: string | null;
-  status: "em_uso" | "suspenso" | "relatado";
+  status: "em_uso" | "suspenso" | "relatado" | "proposto";
   observacao: string | null;
   refs: string[];
 }
@@ -782,6 +797,64 @@ export interface SurgicalReport {
   perioperatorio?: SurgeryItem[];
   prontidao?: Readiness | null;
 }
+export type OrderCheckType =
+  | "alergia"
+  | "reatividade_cruzada"
+  | "dose_tfg"
+  | "dose_idade"
+  | "interacao"
+  | "duplicidade"
+  | "alto_alerta"
+  | "retirada_abrupta"
+  | "sem_prescricao"
+  | "exame_repetido"
+  | "exame_pendente";
+export interface OrderCheck {
+  tipo: OrderCheckType;
+  severidade: Severity;
+  texto: string;
+  refs: string[];
+}
+export interface OrderDecision {
+  estado: "pendente" | "assinado" | "recusado";
+  justificativa: string;
+  por: string | null;
+  em: string | null;
+  editado: boolean;
+}
+/** Rascunho de MedicationRequest/ServiceRequest tirado da fala (ou sugerido por protocolo/hipótese), já checado. */
+export interface OrderDraft {
+  id: string;
+  tipo: "medicamento" | "exame";
+  acao: "iniciar" | "alterar_dose" | "suspender" | "solicitar";
+  item: string;
+  chave: string;
+  dose: string;
+  via: string;
+  frequencia: string;
+  duracao: string;
+  dose_anterior: string;
+  justificativa: string;
+  refs: string[];
+  checagens: OrderCheck[];
+  gravidade: Severity;
+  fonte_pedido: "fala" | "protocolo" | "hipotese";
+  origem: Origin;
+  loinc: string;
+  loinc_nome: string;
+  categoria: string;
+  preparo: string;
+  prescricao_ref: string;
+  decisao: OrderDecision;
+}
+export interface OrderDecisionIn {
+  estado: OrderDecision["estado"];
+  justificativa?: string;
+  dose?: string;
+  via?: string;
+  frequencia?: string;
+  duracao?: string;
+}
 export interface ConsultInsights {
   tipo: ConsultKind;
   especialidade: string;
@@ -811,6 +884,7 @@ export interface ConsultInsights {
   anamnese: Anamnese | null;
   alertas: Highlight[];
   relatorio_cirurgico: SurgicalReport | null;
+  pedidos?: OrderDraft[];
   tfg: number | null;
   descartados: Record<string, unknown>[];
 }
@@ -867,6 +941,7 @@ export interface Consultation {
   opme_guia?: OpmeGuideInfo | null;
   faturamento?: { convenio?: string | null; numero_guia?: string | null } | null;
   justificativa_envio?: { texto: string; por: string; em: string; regras_justificadas: string[] } | null;
+  pedidos_fhir?: string[] | null;
   criado_por: string | null;
   created_at: string;
   finished_at: string | null;

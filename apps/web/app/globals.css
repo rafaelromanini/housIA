@@ -132,3 +132,31 @@
     font-size: 14pt;
   }
 }
+
+/* Impressão de receita e solicitação de exames (rascunhos assinados): só o documento escolhido vai para o papel */
+.pedido-doc {
+  display: none;
+}
+@media print {
+  body.printing-pedido-receita *,
+  body.printing-pedido-exames * {
+    visibility: hidden;
+  }
+  body.printing-pedido-receita #pedido-receita,
+  body.printing-pedido-receita #pedido-receita *,
+  body.printing-pedido-exames #pedido-exames,
+  body.printing-pedido-exames #pedido-exames * {
+    visibility: visible;
+  }
+  body.printing-pedido-receita #pedido-receita,
+  body.printing-pedido-exames #pedido-exames {
+    display: block;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    padding: 24px;
+    font-size: 13pt;
+    color: #000;
+    background: #fff;
+  }
+}

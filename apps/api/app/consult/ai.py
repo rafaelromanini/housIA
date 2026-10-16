@@ -22,6 +22,7 @@ from app.consult.knowledge import (
     semiology,
     semiology_questions,
 )
+from app.consult.orders import parse_posology
 from app.consult.schemas import (
     LANGUAGE_LABELS,
     Anamnese,
@@ -38,6 +39,7 @@ from app.consult.schemas import (
     Insights,
     MedSuggestion,
     NoteSection,
+    OrderDraft,
     Priority,
     QueixaDetalhada,
     Question,
@@ -166,6 +168,18 @@ class AiAnamnese(BaseModel):
     campos_especialidade: list[AiCampoEspecialidade] = []
 
 
+class AiPedido(BaseModel):
+    """Posologia e justificativa que a IA completa num rascunho que as regras JÁ detectaram (nunca cria rascunho)."""
+
+    id: str  # id de `pedidos_em_rascunho`
+    dose: str = ""
+    via: str = ""
+    frequencia: str = ""
+    duracao: str = ""
+    justificativa: str = ""
+    refs: list[str]
+
+
 class ClinicaOutput(BaseModel):
     """Smart Apps clínicos (2ª chamada, em paralelo)."""
 
@@ -174,6 +188,7 @@ class ClinicaOutput(BaseModel):
     cirurgia: list[AiText]
     historico_relatado: list[AiText]
     anamnese: AiAnamnese
+    pedidos_ia: list[AiPedido] = []
 
 
 class ConsultLiveOutput(BaseModel):
@@ -191,6 +206,7 @@ class ConsultLiveOutput(BaseModel):
     anamnese: Anamnese
     falantes: list[AiSpeaker]
     perguntas_abordadas: list[AiAbordada] = []
+    pedidos_ia: list[AiPedido] = []
 
 
 class AiTranslation(BaseModel):
@@ -307,6 +323,21 @@ def deterministic_payload(ins: Insights) -> dict:
             {"medicamento": m.medicamento, "status": m.status, "refs": m.refs}
             for m in ins.medicamentos
             if any(r.startswith("Fala/") for r in m.refs)
+        ],
+        # rascunhos que as regras detectaram na fala: a IA só completa o que está vazio (posologia e justificativa)
+        "pedidos_em_rascunho": [
+            {
+                "id": d.id,
+                "item": d.item,
+                "acao": d.acao,
+                "dose": d.dose,
+                "via": d.via,
+                "frequencia": d.frequencia,
+                "duracao": d.duracao,
+                "justificativa": d.justificativa,
+                "refs": d.refs,
+            }
+            for d in ins.pedidos
         ],
         "protocolo_pendente": [f"{p.protocolo}: {p.item}" for p in ins.protocolos if p.status != "em_dia"],
         # semiologia que as regras já leram da conversa (cada campo com as falas de onde veio) e o que ainda falta
@@ -560,7 +591,34 @@ def merge_live(base: Insights, ai: ConsultLiveOutput, valid: set[str], segments:
             return row in semio_ids and (chave, semio_ids[row]) in known
 
         out.perguntas = [q for q in out.perguntas if not answered(q)]
+    out.pedidos = _merge_pedidos(base.pedidos, ai.pedidos_ia, v)
     out.descartados = v.dropped
+    return out
+
+
+def _merge_pedidos(base: list[OrderDraft], items: list[AiPedido], v: RefValidator) -> list[OrderDraft]:
+    """A IA completa só campos vazios (posologia, justificativa) de rascunhos que as regras detectaram. Não cria
+    rascunho, não mexe nas checagens e não sobrescreve o que a fala ou o profissional já definiram."""
+    out = [d.model_copy(deep=True) for d in base]
+    by_id = {d.id: d for d in out}
+    for it in items:
+        d = by_id.get(it.id)
+        if d is None or not v.ok(it.refs):
+            v.dropped.append(
+                {"onde": "pedidos", "texto": it.id, "refs_invalidas": [r for r in it.refs if r not in v.valid]}
+            )
+            continue
+        filled = False
+        for f in ("dose", "via", "frequencia", "duracao", "justificativa"):
+            value = getattr(it, f).strip()
+            if value and not getattr(d, f) and (f != "dose" or d.tipo == "medicamento"):
+                setattr(d, f, value[:160])
+                filled = True
+        if filled:
+            d.origem = "ia"
+            if d.tipo == "medicamento" and not d.periodicidade:
+                pos = parse_posology(norm(f"{d.frequencia} {d.duracao}"))
+                d.periodicidade, d.duracao_dias = pos.periodicidade, d.duracao_dias or pos.duracao_dias
     return out
 
 

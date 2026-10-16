@@ -135,8 +135,8 @@ class TimelineBuilder:
         by_ref = {m.ref: m for m in self.r.medications}
         for mr in self.r.resources.get("MedicationRequest", []):
             m = med_info(mr)
-            prefix = "Prescrição"
-            if m.prior_ref and m.prior_ref in by_ref:
+            prefix = "Prescrição proposta (rascunho)" if m.status == "draft" else "Prescrição"
+            if m.status != "draft" and m.prior_ref and m.prior_ref in by_ref:
                 prefix = f"Prescrição (substitui {by_ref[m.prior_ref].name})"
             value = {
                 "principio_ativo": m.ingredient,

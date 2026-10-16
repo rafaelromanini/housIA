@@ -146,6 +146,31 @@ def main_complaint(
     return service.set_main_complaint(db, fhir, user, cid, body.chave)
 
 
+class PedidoDecisaoIn(BaseModel):
+    """Assinatura item a item: assinar, recusar ou voltar a pendente. Item crítico exige justificativa."""
+
+    estado: Literal["assinado", "recusado", "pendente"]
+    justificativa: str | None = Field(None, max_length=1000)
+    # posologia corrigida pelo profissional antes de assinar (só os campos enviados mudam)
+    dose: str | None = Field(None, max_length=60)
+    via: str | None = Field(None, max_length=40)
+    frequencia: str | None = Field(None, max_length=80)
+    duracao: str | None = Field(None, max_length=60)
+
+
+@router.put("/consultations/{cid}/pedidos/{draft_id}")
+def decide_order(
+    cid: int,
+    draft_id: str,
+    body: PedidoDecisaoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Assina ou recusa um rascunho de receita/pedido de exame (item crítico só com justificativa, auditada)."""
+    return service.decide_order(db, fhir, user, cid, draft_id, body)
+
+
 class OpmeItemIn(BaseModel):
     codigo: str = Field(..., min_length=1, max_length=40)
     quantidade: int = Field(1, ge=1, le=99)

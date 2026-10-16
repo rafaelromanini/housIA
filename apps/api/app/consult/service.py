@@ -14,6 +14,7 @@ from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import ai, antiglosa, gs1, knowledge, opme, stt
+from app.consult import orders as order_drafts
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
     claim_resource,
@@ -137,6 +138,7 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "opme_guia": (c.extra_json or {}).get("opme_guia"),
         "faturamento": (c.extra_json or {}).get("faturamento"),
         "justificativa_envio": (c.extra_json or {}).get("justificativa_envio"),
+        "pedidos_fhir": (c.extra_json or {}).get("pedidos_fhir"),
         "criado_por": (user_names or {}).get(c.created_by or 0),
         "created_at": c.created_at.isoformat(),
         "finished_at": c.finished_at.isoformat() if c.finished_at else None,
@@ -524,6 +526,106 @@ def _audit_readiness(
     )
 
 
+# ---------- pedidos e prescrições em rascunho ----------
+EDITABLE_ORDER_FIELDS = ("dose", "via", "frequencia", "duracao")
+
+
+def decide_order(db: Session, fhir: FhirSource, user: User, cid: int, draft_id: str, body) -> dict:
+    """Assinatura item a item de um rascunho (assinar, recusar ou voltar a pendente), com a posologia corrigida se
+    preciso. Item crítico (alergia, dose por TFG, interação grave) só é assinado com justificativa."""
+    if body.estado == "assinado" and user.role != "medico":
+        raise HTTPException(
+            403, "Só o médico assina receitas e pedidos; a enfermagem pode recusar ou revisar."
+        )
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "Os pedidos do modo cirúrgico seguem o relatório: retire-os na revisão.")
+    if c.status == "enviada":
+        raise HTTPException(409, "Consulta já enviada ao prontuário: os pedidos não podem mais ser alterados.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    draft = next((d for d in _insights(c, record, events, ctx, segments).pedidos if d.id == draft_id), None)
+    if draft is None:
+        raise HTTPException(404, "Pedido em rascunho não encontrado nesta consulta.")
+    extra = dict(c.extra_json or {})
+    decisions = dict(extra.get("pedidos_decisoes") or {})
+    edits = dict((decisions.get(draft_id) or {}).get("edicao") or {})
+    edits |= {f: getattr(body, f).strip() for f in EDITABLE_ORDER_FIELDS if getattr(body, f) is not None}
+    text = (body.justificativa or "").strip()
+    if body.estado == "assinado":
+        critical = [k for k in draft.checagens if k.severidade == "critico"]
+        if critical and len(text) < MIN_JUSTIFICATION:
+            raise HTTPException(
+                409,
+                {
+                    "codigo": "pedido_critico",
+                    "mensagem": f"Este item tem {len(critical)} alerta(s) crítico(s). Assine só com uma justificativa "
+                    f"de pelo menos {MIN_JUSTIFICATION} caracteres ou recuse o item.",
+                    "checagens": [k.model_dump() for k in critical],
+                },
+            )
+        dose = edits.get("dose", draft.dose)
+        if draft.tipo == "medicamento" and draft.acao != "suspender" and not dose:
+            raise HTTPException(422, "Informe a dose do medicamento (edite o rascunho) antes de assinar.")
+    if body.estado == "pendente":
+        decisions[draft_id] = {"estado": "pendente", "edicao": edits} if edits else {}
+        decisions = {k: v for k, v in decisions.items() if v}
+    else:
+        decisions[draft_id] = {
+            "estado": body.estado,
+            "justificativa": text,
+            "por": user.name,
+            "em": clock.now().isoformat(),
+            "edicao": edits,
+        }
+    c.extra_json = extra | {"pedidos_decisoes": decisions}
+    result = _refresh(c, fhir)
+    action = {"assinado": "assinado", "recusado": "recusado", "pendente": "revertido"}[body.estado]
+    log_action(
+        db,
+        user,
+        f"consulta.pedido_{action}",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "pedido": draft.id,
+            "tipo": draft.tipo,
+            "item": draft.item,
+            "acao": draft.acao,
+            "gravidade": draft.gravidade,
+            "alertas_criticos": [k.texto for k in draft.checagens if k.severidade == "critico"],
+            "justificativa": text,
+            "editado": bool(edits),
+            "refs": draft.refs,
+        },
+    )
+    return result | {"pedido": next((d for d in _draft_list(c) if d["id"] == draft_id), None)}
+
+
+def _draft_list(c: Consultation) -> list[dict]:
+    return (c.insights_json or {}).get("pedidos") or []
+
+
+def _signed_orders(c: Consultation) -> list[order_drafts.OrderDraft]:
+    """Rascunhos assinados da consulta (aprovados item a item pelo profissional)."""
+    return [] if c.kind == "cirurgia" else order_drafts.signed(_draft_list(c))
+
+
+def _order_resources(c: Consultation, author: str, when: datetime) -> list[dict]:
+    return [
+        order_drafts.fhir_resource(
+            d,
+            patient_id=c.patient_id,
+            encounter_id=c.encounter_id,
+            author=author,
+            when=when,
+            consultation_id=c.id,
+        )
+        for d in _signed_orders(c)
+    ]
+
+
 # ---------- IA (ciclos) ----------
 def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = False) -> dict:
     c = _get(db, cid)
@@ -726,7 +828,7 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
     author = f"{user.name} ({role})"
     note = reidentify(c.note_json, record)  # o prontuário recebe os nomes, não os tokens enviados à IA
-    text = note_as_text(c.kind, record.name, author, _local(now), note, c.patient_language)
+    text = note_as_text(c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c))
     doc = document_reference(
         kind=c.kind,
         patient_id=c.patient_id,
@@ -740,9 +842,12 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     return text, doc
 
 
-def _orders(c: Consultation) -> list[dict]:
-    """Pedidos propostos no relatório cirúrgico revisado (o cirurgião pode retirar antes de aprovar)."""
-    if c.kind != "cirurgia" or not c.note_json:
+def _orders(c: Consultation, author: str = "", when: datetime | None = None) -> list[dict]:
+    """Pedidos a enviar. Cirurgia: os propostos no relatório revisado (o cirurgião pode retirar). Consulta e visita: os
+    rascunhos de receita e de exame que o profissional assinou item a item (FHIR draft/proposal)."""
+    if c.kind != "cirurgia":
+        return _order_resources(c, author, when or clock.now())
+    if not c.note_json:
         return []
     return [p["recurso"] for p in (c.note_json.get("relatorio_cirurgico") or {}).get("pedidos", [])]
 
@@ -755,7 +860,11 @@ def _bundle(c: Consultation, record: PatientRecord, doc: dict, orders: list[dict
     """Bundle de transação (relatório, pedidos propostos, implantes, Procedure e Claim em rascunho) para exportar."""
     report = _report(c)
     if report is None:
-        return None
+        if not orders:
+            return None
+        entries = [(export_urn(c.id, "doc"), doc)]
+        entries += [(export_urn(c.id, "pedido", i), o) for i, o in enumerate(orders)]
+        return transaction_bundle(entries)
     now = clock.now()
     entries = [(export_urn(c.id, "doc"), doc)]
     entries += [(export_urn(c.id, "pedido", i), o) for i, o in enumerate(orders)]
@@ -798,11 +907,15 @@ def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     c = _get(db, cid)
     text, doc = _document(db, fhir, user, c)
     log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
-    orders = _orders(c)
+    orders = _orders(c, _author(doc), clock.now())
     result = {"texto": text, "recurso": doc, "pedidos": orders}
-    if c.kind == "cirurgia":
+    if c.kind == "cirurgia" or orders:
         result["bundle"] = _bundle(c, load_record(fhir, c.patient_id), doc, orders)
     return result
+
+
+def _author(doc: dict) -> str:
+    return (doc.get("author") or [{}])[0].get("display") or ""
 
 
 def _gate_billing(db: Session, user: User, c: Consultation, justification: str | None) -> dict | None:
@@ -849,7 +962,7 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     text, doc = _document(db, fhir, user, c)
     if not get_settings().ehr_writeback:
         log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
-        orders = _orders(c)
+        orders = _orders(c, _author(doc), clock.now())
         return {
             "enviado": False,
             "motivo": "Envio automático desligado (EHR_WRITEBACK=false): copie o texto ou baixe o FHIR.",
@@ -862,17 +975,21 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     created = fhir.create(doc)
     c.fhir_ref = f"DocumentReference/{created['id']}"
     # pedidos propostos aprovados com o relatório: vão como proposta (intent=proposal), ligados ao documento
-    author = (doc.get("author") or [{}])[0].get("display")
+    author = _author(doc)
     orders = []
-    for i, order in enumerate(_orders(c)):
-        resource = order | {
-            "status": "active",
-            "authoredOn": clock.now().isoformat(),
-            "requester": {"display": author},
-            "supportingInfo": [{"reference": c.fhir_ref}],
-            "identifier": [{"system": ORDER_SYSTEM, "value": f"{c.id}-{i + 1}"}],
-        }
-        orders.append(f"ServiceRequest/{fhir.create(resource)['id']}")
+    for i, order in enumerate(_orders(c, author, clock.now())):
+        if c.kind == "cirurgia":
+            resource = order | {
+                "status": "active",
+                "authoredOn": clock.now().isoformat(),
+                "requester": {"display": author},
+                "supportingInfo": [{"reference": c.fhir_ref}],
+                "identifier": [{"system": ORDER_SYSTEM, "value": f"{c.id}-{i + 1}"}],
+            }
+        else:  # receitas e pedidos de exame assinados: seguem como rascunho (draft/proposal), ligados à nota
+            link = "supportingInformation" if order["resourceType"] == "MedicationRequest" else "supportingInfo"
+            resource = order | {link: [{"reference": c.fhir_ref}]}
+        orders.append(f"{order['resourceType']}/{fhir.create(resource)['id']}")
     traceability = _send_surgery_records(c, record, fhir)
     c.extra_json = (c.extra_json or {}) | ({"pedidos_fhir": orders} if orders else {}) | traceability
     c.status = "enviada"

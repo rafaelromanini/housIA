@@ -30,7 +30,15 @@ CHECK_STATUS = {"ok": "ok", "info": "informação", "atencao": "atenção", "cri
 KIND_TITLE = {"consulta": "Nota de consulta", "visita": "Nota de visita médica", "cirurgia": "Relatório cirúrgico"}
 
 
-def note_as_text(kind: str, patient_name: str, author: str, when: datetime, note: dict, language: str) -> str:
+def note_as_text(
+    kind: str,
+    patient_name: str,
+    author: str,
+    when: datetime,
+    note: dict,
+    language: str,
+    orders: list | None = None,
+) -> str:
     title = KIND_TITLE.get(kind, "Nota clínica")
     lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}", ""]
     if kind == "cirurgia":
@@ -65,8 +73,23 @@ def note_as_text(kind: str, patient_name: str, author: str, when: datetime, note
         if note.get("orientacoes_paciente"):
             lines += ["", f"Orientações ao paciente ({LANGUAGE_LABELS.get(language, language)}):"]
             lines += [f"- {o}" for o in note["orientacoes_paciente"]]
+    if orders:
+        lines += ["", "Pedidos e prescrições assinados (rascunhos, ainda sem emissão):"]
+        lines += [f"- {order_line(o)}" for o in orders]
     lines += ["", "Documento gerado com apoio de IA (HousIA) e revisado pelo profissional responsável."]
     return "\n".join(lines)
+
+
+def order_line(o) -> str:
+    """Uma linha do pedido assinado (receita ou exame) para o texto do prontuário e a impressão."""
+    verb = {"iniciar": "Iniciar", "alterar_dose": "Alterar dose de", "suspender": "Suspender", "solicitar": "Solicitar"}
+    parts = [o.item, o.dose, o.via, o.frequencia, o.duracao]
+    text = f"{verb.get(o.acao, o.acao)} " + " · ".join(p for p in parts if p)
+    if o.acao == "alterar_dose" and o.dose_anterior:
+        text += f" (dose atual: {o.dose_anterior})"
+    if o.decisao.justificativa:
+        text += f" — justificativa: {o.decisao.justificativa}"
+    return text
 
 
 def document_reference(

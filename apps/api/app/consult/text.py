@@ -359,6 +359,11 @@ def _drug_hits(clause: str) -> list[tuple[int, int, str, str]]:
     return sorted(hits)
 
 
+def drug_hits(clause: str) -> list[tuple[int, int, str, str]]:
+    """(início, fim, princípio ou @classe, termo dito) dos medicamentos citados na oração normalizada."""
+    return _drug_hits(clause)
+
+
 def _drug_status(before: str, after: str) -> DrugStatus:
     before, after = before.strip(), after.strip()
     if RESUMED.search(before) or RESUMED.search(after):

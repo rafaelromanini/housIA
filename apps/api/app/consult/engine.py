@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import knowledge, semiology
+from app.consult import knowledge, orders, semiology
 from app.consult.chart import ChartView, fmt_date
 from app.consult.schemas import (
     AllergyInfo,
@@ -905,6 +905,15 @@ class Engine:
         exams = self.chart.exams()
         history = self.chart.history() + self.reported_history()
         egfr = self.chart.egfr
+        protocols = self.chart.protocols()
+        order_ctx = orders.OrderContext(
+            chart=self.chart,
+            age=self.r.age,
+            in_use=self._med_classes(reported),
+            allergies=orders.allergen_keys(self.chart, allergies),
+            pending=self.r.pending_exams,
+        )
+        drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
         alerts = [
             Highlight(texto=m.texto, severidade=m.severidade, refs=m.refs)
             for m in meds_safety
@@ -928,7 +937,8 @@ class Engine:
             medicamentos=self.chart.meds(reported, self.suspended_meds()),
             sugestoes_medicamentos=meds_safety,
             cirurgia=surgery_items,
-            protocolos=self.chart.protocols(),
+            protocolos=protocols,
+            pedidos=drafts,
             resumo=self.summary(tags, hyps, meds_safety, exams),
             anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),
             alertas=alerts,

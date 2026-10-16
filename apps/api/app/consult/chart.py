@@ -284,6 +284,17 @@ class ChartView:
                         refs=[m.ref],
                     )
                 )
+        for m in self.r.proposed_meds:
+            out.append(
+                MedItem(
+                    medicamento=m.name,
+                    posologia=m.text,
+                    desde=fmt_date(m.authored),
+                    status="proposto",
+                    observacao="Prescrição proposta na consulta (rascunho assinado): ainda não emitida.",
+                    refs=[m.ref],
+                )
+            )
         active_ings = {m.ingredient for m in self.active_meds}
         seen: set[str] = set()
         for ing, term, ref in reported:

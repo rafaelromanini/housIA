@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
+import { OrdersCard } from "@/components/consult/orders-card";
 import { api, ApiError, type BillingItem, type ConsultNote, type Consultation, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 
@@ -393,6 +394,20 @@ export function NoteReview({
                 ))}
               </ul>
             </div>
+
+            {(c.insights?.pedidos?.length ?? 0) > 0 && (
+              <section aria-labelledby="pedidos-rascunho" className="rounded-md border p-3">
+                <h3 id="pedidos-rascunho" className="mb-2 text-sm font-bold">
+                  Pedidos e prescrições em rascunho
+                </h3>
+                <OrdersCard
+                  consultId={c.id}
+                  orders={c.insights?.pedidos ?? []}
+                  editable={!sent}
+                  onInsights={(insights) => onChange({ ...c, insights })}
+                />
+              </section>
+            )}
           </div>
         )}
 
