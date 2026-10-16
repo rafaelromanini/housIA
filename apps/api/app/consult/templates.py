@@ -85,11 +85,13 @@ class ProcedureTemplate(_Strict):
 
 
 # ---------- sinônimos ----------
+@lru_cache(maxsize=4096)
 def syn(word: str) -> str:
     """Normaliza o sinônimo (sem acento, minúsculo) e preserva o espaço final, que exige a palavra inteira."""
     return norm(word) + (" " if word.endswith(" ") else "")
 
 
+@lru_cache(maxsize=4096)
 def _pattern(words: tuple[str, ...]) -> re.Pattern | None:
     if not words:
         return None

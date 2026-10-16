@@ -394,3 +394,21 @@ def test_stored_segments_from_before_the_team_speakers_still_load():
     old = {"n": 1, "t": 0.0, "falante": "acompanhante", "texto": "Ele tomou o remédio.", "idioma": "pt-BR"}
     assert Segment.model_validate(old).falante == "acompanhante"
     assert Segment.model_validate(old | {"falante": "instrumentador"}).falante == "instrumentador"
+
+
+def test_schedule_from_appointment_only():
+    """Sem ServiceRequest: o procedimento e o lado vêm da descrição do Appointment da sala."""
+    from app.consult.surgical_checks import scheduled_surgery
+    from app.timeline.record import PatientRecord
+
+    appointment = {
+        "resourceType": "Appointment",
+        "id": "ag1",
+        "status": "booked",
+        "description": "Hernioplastia inguinal esquerda",
+        "start": "2026-10-16T08:00:00-03:00",
+        "participant": [{"actor": {"reference": "Patient/p1"}, "status": "accepted"}],
+    }
+    rec = PatientRecord({"resourceType": "Patient", "id": "p1"}, {"Appointment": [appointment]}, {})
+    sch = scheduled_surgery(rec)
+    assert sch and sch.refs == ["Appointment/ag1"] and sch.lado == "esquerdo" and sch.template_id == "herniorrafia"
