@@ -16,7 +16,7 @@ import { api, type AlertItem } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 
-const SOURCE = { handoff: "Passagem de plantão", medrec: "Reconciliação", discharge: "Alta" } as const;
+const SOURCE = { handoff: "Passagem de plantão", medrec: "Reconciliação", discharge: "Alta", jornada: "Jornada pós-alta" } as const;
 const ORDER = { critico: 0, atencao: 1, info: 2 } as const;
 
 export function AlertsCard() {

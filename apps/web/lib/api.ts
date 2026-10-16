@@ -229,7 +229,7 @@ export interface HandoffReport {
 export interface AlertItem {
   id: number;
   patient_id: string;
-  source: "handoff" | "medrec" | "discharge";
+  source: "handoff" | "medrec" | "discharge" | "jornada";
   severity: Severity;
   title: string;
   detail: string;
@@ -442,7 +442,21 @@ export interface DischargeDocuments {
     retorno: DocSection;
   };
   descartados: { onde: string; texto?: string; refs_invalidas: string[] }[];
+  /** Cartão do implante: vem do Device FHIR registrado na cirurgia, não do LLM. */
+  cartao_implante?: ImplantCard[];
   meta: { modo: "mock" | "real"; gerado_em: string; traducao_disponivel: boolean };
+}
+
+export interface ImplantCard {
+  descricao: string;
+  lote: string | null;
+  serie: string | null;
+  validade: string | null;
+  registro_anvisa: string | null;
+  gtin: string | null;
+  procedimento: string | null;
+  colocado_em: string | null;
+  refs: string[];
 }
 
 // ---------- Consulta com IA ----------
@@ -575,6 +589,7 @@ export interface Highlight {
   texto: string;
   severidade: Severity;
   refs: string[];
+  categoria?: string | null;
 }
 export type SemioField = "inicio_duracao" | "localizacao" | "intensidade" | "piora" | "melhora" | "frequencia" | "associados";
 export interface CampoSemio {
@@ -618,13 +633,107 @@ export interface ReportField {
   motivo?: string | null;
   fonte?: string | null;
 }
+export type OpmeStatus =
+  | "conferido"
+  | "nao_autorizado"
+  | "nao_citado"
+  | "quantidade_divergente"
+  | "validade_vencida"
+  | "sem_etiqueta"
+  | "sem_fala";
+export type OpmeVia = "ok" | "divergente" | "ausente" | "nao_registrado" | "nao_aplica";
+/** Leitura de etiqueta GS1 de um item consumido (lote, validade, série). */
+export interface OpmeLote {
+  id: string;
+  gtin: string | null;
+  lote: string | null;
+  validade: string | null;
+  serie: string | null;
+  quantidade: number;
+  vencido: boolean;
+  registro_anvisa: string | null;
+  lido_em: string | null;
+  por: string | null;
+}
+/** Conciliação em três vias: narrado (Fala/N), autorizado (guia) e consumido (etiqueta). */
 export interface OpmeLine {
   codigo: string;
   descricao: string;
   autorizado: number;
   citado: number;
-  status: "conferido" | "nao_autorizado" | "nao_citado" | "quantidade_divergente";
+  consumido: number;
+  status: OpmeStatus;
   refs: string[];
+  status_fala: OpmeVia;
+  status_guia: OpmeVia;
+  status_etiqueta: OpmeVia;
+  implantavel: boolean;
+  tamanhos: string[];
+  lotes: OpmeLote[];
+  registro_anvisa: string | null;
+  justificativa: string | null;
+  editado: boolean;
+}
+export interface BillingItem {
+  regra: string;
+  tipo: string;
+  severidade: Severity;
+  texto: string;
+  fonte: string;
+  campo: string | null;
+  refs: string[];
+  peso: number;
+}
+/** Prontidão para faturamento (0–100) segundo as regras de glosa em dados (data/reference/glosa_rules). */
+export interface Readiness {
+  score: number;
+  pronto: boolean;
+  convenio: string;
+  convenio_rotulo: string;
+  regras_avaliadas: number;
+  regras_ok: number;
+  criticas: number;
+  atencoes: number;
+  pendencias: BillingItem[];
+  procedimento: string | null;
+  codigo_demo: string | null;
+  numero_guia: string | null;
+  versao: string;
+}
+export interface OpmeCatalogItem {
+  codigo: string;
+  descricao: string;
+  implantavel: boolean;
+  registro_anvisa: string | null;
+  gtin: string | null;
+}
+export interface ConvenioOption {
+  value: string;
+  label: string;
+  codigos: string;
+}
+export interface OpmeGuideInfo {
+  origem: "manual" | "claimresponse" | "tiss";
+  numero: string | null;
+  senha: string | null;
+  itens: number;
+  por: string;
+  em: string;
+}
+export interface OpmeScanResult {
+  insights: ConsultInsights;
+  leitura: {
+    id: string;
+    codigo: string;
+    descricao: string;
+    gtin: string | null;
+    lote: string | null;
+    serie: string | null;
+    validade: string | null;
+    vencido: boolean;
+    avisos: string[];
+    registro_anvisa: string | null;
+  };
 }
 export interface CidSuggestion {
   codigo: string;
@@ -671,6 +780,7 @@ export interface SurgicalReport {
   verificacoes?: SafetyCheck[];
   pedidos?: ProposedOrder[];
   perioperatorio?: SurgeryItem[];
+  prontidao?: Readiness | null;
 }
 export interface ConsultInsights {
   tipo: ConsultKind;
@@ -754,6 +864,9 @@ export interface Consultation {
   } | null;
   fhir_ref: string | null;
   roteiro_demo: string | null;
+  opme_guia?: OpmeGuideInfo | null;
+  faturamento?: { convenio?: string | null; numero_guia?: string | null } | null;
+  justificativa_envio?: { texto: string; por: string; em: string; regras_justificadas: string[] } | null;
   criado_por: string | null;
   created_at: string;
   finished_at: string | null;
@@ -787,4 +900,129 @@ export interface DemoScript {
   especialidade?: string;
   titulo: string;
   falas: { t: number; falante: Speaker; texto: string }[];
+}
+
+// ---------- Jornada do paciente ----------
+export type JourneyRule =
+  | "alta_sem_contato_72h"
+  | "retorno_nao_agendado"
+  | "falta_ao_retorno"
+  | "protocolo_aps_vencido"
+  | "nao_adesao_consulta"
+  | "troca_sem_reconciliacao";
+
+export interface JourneyTask {
+  id: number;
+  patient_id: string;
+  regra: JourneyRule;
+  titulo: string;
+  detalhe: string;
+  papel: Role;
+  prazo: string;
+  status: "aberta" | "concluida" | "cancelada";
+  fontes: string[];
+  fhir_ref: string | null;
+  criada_em: string;
+  encerrada_em: string | null;
+  observacao_encerramento: string | null;
+  paciente?: { id: string; nome: string };
+}
+
+export interface JourneyItem {
+  id: string;
+  regra: JourneyRule;
+  regra_titulo: string;
+  severidade: Severity;
+  situacao: "vencido" | "a_vencer";
+  paciente: {
+    id: string;
+    nome: string;
+    idade: number | null;
+    sexo: string;
+    telefone: string | null;
+    familiar: { nome: string; parentesco: string; telefone: string | null } | null;
+  };
+  titulo: string;
+  detalhe: string;
+  fontes: string[];
+  fonte_regra: string;
+  desde: string;
+  prazo: string | null;
+  papel_sugerido: Role;
+  prazo_tarefa_horas: number;
+  tarefa: JourneyTask | null;
+  contexto: Record<string, unknown>;
+}
+
+export interface JourneyWorklist {
+  gerado_em: string;
+  resumo: { itens: number; pacientes: number; criticos: number; com_tarefa: number; por_regra: Record<string, number> };
+  itens: JourneyItem[];
+}
+
+export interface ContactQuestion {
+  id: string;
+  tipo: "confirmacao" | "teach_back" | "retirada" | "sinal_alarme";
+  texto: string;
+  alarme: string | null;
+  risco_quando: "sim" | "nao";
+}
+
+export type ContactAnswer = "sim" | "nao" | "nao_se_aplica";
+
+export interface ContactResult {
+  id: number;
+  atendeu: boolean;
+  canal: string;
+  sinais_de_alarme: string[];
+  pendencias: { pergunta: string; tipo: string; texto: string }[];
+  fhir_ref: string | null;
+  alerta: { id: number; titulo: string; severidade: Severity } | null;
+  texto: string | null;
+}
+
+export interface MessageDraft {
+  texto: string;
+  envio: false;
+  aviso: string;
+  telefone: string | null;
+  fontes: string[];
+}
+
+export interface JourneyMetricsRow {
+  altas: number;
+  seguimento_completo: number;
+  em_seguimento: number;
+  reinternacoes: number;
+  taxa_reinternacao: number | null;
+  reinternados_em_seguimento: number;
+  retornos_perdidos: number;
+  taxa_retorno_perdido: number | null;
+  faltas: number;
+}
+
+export interface JourneyCase {
+  paciente_id: string;
+  paciente: string;
+  encounter_ref: string;
+  alta_em: string;
+  lace: number;
+  risco: Risk;
+  coorte: string;
+  seguimento_completo: boolean;
+  reinternado: boolean;
+  reinternacao_ref: string | null;
+  dias_ate_reinternacao: number | null;
+  retorno_realizado: boolean;
+  retorno_ref: string | null;
+  falta_ref: string | null;
+}
+
+export interface JourneyMetrics {
+  gerado_em: string;
+  parametros: { coorte: string; dias: number; reinternacao_dias: number; retorno_dias: number };
+  metodo: string;
+  total: JourneyMetricsRow;
+  coortes: (JourneyMetricsRow & { chave: string; rotulo: string })[];
+  casos: JourneyCase[];
 }

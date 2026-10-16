@@ -3,22 +3,24 @@
 Camada determinística. O modelo do relatório vem de dados (data/reference/surgical_templates: base + regras da
 especialidade + procedimento), escolhido pelo procedimento ditado ou pelo agendado (ServiceRequest/Appointment).
 O ditado é separado nos campos do modelo e os obrigatórios que faltaram viram pendência com o motivo e a fonte (o
-que costuma gerar glosa). Os materiais citados são conciliados com os autorizados (catálogo OPME de DEMONSTRAÇÃO,
-códigos fictícios), o antibiótico é cruzado com as alergias, as verificações perioperatórias rodam
-(app/consult/surgical_checks.py) e o exame de imagem de controle citado vira pedido proposto (ServiceRequest).
+que costuma gerar glosa). Os materiais citados são conciliados em três vias com os autorizados (guia) e os consumidos
+(etiqueta GS1) em app/consult/opme.py (catálogo OPME de DEMONSTRAÇÃO, códigos fictícios), as regras anti-glosa em dados
+dão a prontidão para faturamento (app/consult/antiglosa.py), o antibiótico é cruzado com as alergias, as verificações
+perioperatórias rodam (app/consult/surgical_checks.py) e o exame de imagem de controle citado vira pedido proposto
+(ServiceRequest).
 A IA só reescreve o texto final em linguagem técnica.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import TYPE_CHECKING
 
-from app.consult import knowledge
+from app.consult import antiglosa, knowledge, opme
 from app.consult.schemas import (
     CidSuggestion,
     Highlight,
-    OpmeLine,
     ProposedOrder,
     ReportField,
     ScheduledInfo,
@@ -47,7 +49,6 @@ from app.reference import drugs, matches
 if TYPE_CHECKING:
     from app.consult.chart import ChartView
 
-NUMBERS = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6}
 PROCEDURE_WORDS = ("procedimento realizado", "procedimento:", "procedimento proposto", "cirurgia realizada")
 ORDER_SYSTEM = "http://housia.dev/fhir/NamingSystem/pedido-proposto"
 
@@ -58,16 +59,6 @@ def _sentences(text: str) -> list[str]:
 
 def _clauses(text: str) -> list[str]:
     return [c.strip().rstrip(".") + "." for c in re.split(r"[,.;]\s+|\.$", text.strip()) if c.strip()]
-
-
-def _quantity_before(text: str, idx: int) -> int:
-    tokens = text[:idx].split()[-2:]
-    for tok in reversed(tokens):
-        if tok.isdigit():
-            return int(tok)
-        if tok in NUMBERS:
-            return NUMBERS[tok]
-    return 1
 
 
 # ---------- modelo ----------
@@ -202,6 +193,9 @@ def surgical_report(
     authorized: list[dict],
     specialty: str = "cirurgia_geral",
     marks: dict | None = None,
+    consumed: list[dict] | None = None,
+    today: date | None = None,
+    billing: dict | None = None,
 ) -> SurgicalReport:
     # o relatório e as verificações vêm da equipe: paciente ou acompanhante identificados à mão ("fiz uma
     # colecistectomia em 2015", "o time-out foi feito") não escolhem o modelo nem registram etapa. O falante
@@ -218,57 +212,8 @@ def surgical_report(
         if f.obrigatorio and not f.texto
     ]
 
-    cited: dict[str, tuple[int, list[str]]] = {}
-    for s in segments:
-        t = norm(s.texto)
-        for d in knowledge.opme_catalog():
-            for w in d.words:
-                idx = t.find(w)
-                if idx >= 0:
-                    qty, refs = cited.get(d.code, (0, []))
-                    cited[d.code] = (qty + _quantity_before(t, idx), [*refs, fala_ref(s.n)])
-                    break
-    auth = {a["codigo"]: int(a.get("quantidade", 1)) for a in authorized}
-    catalog = {d.code: d for d in knowledge.opme_catalog()}
-    lines: list[OpmeLine] = []
-    for code in list(dict.fromkeys([*auth, *cited])):
-        qty, refs = cited.get(code, (0, []))
-        allowed = auth.get(code, 0)
-        if allowed and qty == allowed:
-            status = "conferido"
-        elif not allowed:
-            status = "nao_autorizado"
-        elif qty == 0:
-            status = "nao_citado"
-        else:
-            status = "quantidade_divergente"
-        desc = catalog[code].description if code in catalog else code
-        lines.append(OpmeLine(codigo=code, descricao=desc, autorizado=allowed, citado=qty, status=status, refs=refs))
-        if status == "nao_autorizado":
-            pending.append(
-                Highlight(
-                    texto=f"{desc} citado no ditado sem autorização na guia: risco de glosa — anexar justificativa "
-                    "ou solicitar autorização complementar.",
-                    severidade="critico",
-                    refs=refs,
-                )
-            )
-        elif status == "nao_citado":
-            pending.append(
-                Highlight(
-                    texto=f"{desc} autorizado mas não citado no relatório: confirmar se foi usado.",
-                    severidade="atencao",
-                    refs=[],
-                )
-            )
-        elif status == "quantidade_divergente":
-            pending.append(
-                Highlight(
-                    texto=f"{desc}: {qty} citado(s) × {allowed} autorizado(s). Conferir a quantidade.",
-                    severidade="atencao",
-                    refs=refs,
-                )
-            )
+    lines, opme_pending = opme.reconcile(segments, authorized, consumed or [], today or opme.local_today())
+    pending += opme_pending
 
     catalog_drugs = drugs()
     for s in everyone:  # alergia: qualquer fala que cite o fármaco alérgico alerta
@@ -307,7 +252,7 @@ def surgical_report(
         if scheduled
         else None
     )
-    return SurgicalReport(
+    report = SurgicalReport(
         campos=fields,
         opme=lines,
         pendencias=pending,
@@ -327,3 +272,5 @@ def surgical_report(
         pedidos=control_orders(segments, tpl, chart, scheduled),
         perioperatorio=chart.perioperative_checks(),
     )
+    report.prontidao = antiglosa.evaluate(report, segments=segments, **(billing or {}))
+    return report

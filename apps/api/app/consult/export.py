@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import base64
+import uuid
 from datetime import datetime
 
 from app.consult.schemas import LANGUAGE_LABELS
 from app.fhir_client import codes
+
+BUNDLE_NS = uuid.UUID("5b3f0c4e-9a1d-4c1e-8a57-2f0d7c0b6a11")
+CLAIM_SYSTEM = "http://housia.dev/fhir/NamingSystem/claim-rascunho"
+SURGERY_SYSTEM = "http://housia.dev/fhir/NamingSystem/cirurgia"
 
 NOTE_SECTIONS = [
     ("queixa_principal", "Queixa principal"),
@@ -36,6 +41,16 @@ def note_as_text(kind: str, patient_name: str, author: str, when: datetime, note
             lines.append("CID-10: " + "; ".join(f"{c['codigo']} {c['descricao']}" for c in report["cids"]))
         if report.get("opme"):
             lines.append("Materiais/OPME: " + "; ".join(f"{o['descricao']} ×{o['citado']}" for o in report["opme"]))
+        implants = implant_rows(report)
+        if implants:
+            lines.append("Implantes (rastreio):")
+            lines += [f"- {i['descricao']}: {implant_label(i)}" for i in implants]
+        ready = report.get("prontidao")
+        if ready:
+            lines.append(
+                f"Prontidão para faturamento: {ready['score']}/100 ({ready['convenio_rotulo']}); "
+                f"{ready['criticas']} pendência(s) crítica(s), {ready['atencoes']} de atenção."
+            )
         checks = [v for v in report.get("verificacoes", []) if v.get("status") != "pendente"]
         if checks:
             lines += ["", "Verificações perioperatórias:"]
@@ -90,3 +105,212 @@ def document_reference(
     if encounter_id:
         resource["context"] = {"encounter": [{"reference": f"Encounter/{encounter_id}"}]}
     return resource
+
+
+# ---------- rastreio do implante, Procedure e Claim em rascunho ----------
+def implant_rows(report: dict) -> list[dict]:
+    """Uma linha por leitura de etiqueta de item implantável (lote, série, validade, registro ANVISA)."""
+    rows = []
+    for line in report.get("opme", []):
+        if not line.get("implantavel"):
+            continue
+        for lote in line.get("lotes", []):
+            rows.append(
+                {
+                    "leitura": lote["id"],
+                    "codigo": line["codigo"],
+                    "descricao": line["descricao"],
+                    "gtin": lote.get("gtin"),
+                    "lote": lote.get("lote"),
+                    "serie": lote.get("serie"),
+                    "validade": lote.get("validade"),
+                    "quantidade": lote.get("quantidade", 1),
+                    "registro_anvisa": lote.get("registro_anvisa") or line.get("registro_anvisa"),
+                }
+            )
+    return rows
+
+
+def implant_label(row: dict) -> str:
+    parts = [f"lote {row['lote']}" if row.get("lote") else None, f"série {row['serie']}" if row.get("serie") else None]
+    if row.get("validade"):
+        y, m, d = row["validade"].split("-")
+        parts.append(f"validade {d}/{m}/{y}")
+    if row.get("registro_anvisa"):
+        parts.append(f"registro ANVISA {row['registro_anvisa']}")
+    return ", ".join(p for p in parts if p) or "sem etiqueta"
+
+
+def device_resources(report: dict, patient_id: str) -> list[tuple[str, dict]]:
+    """Device FHIR de cada implante lido na etiqueta: UDI (GTIN), lote, série e validade, ligado ao paciente."""
+    out = []
+    for row in implant_rows(report):
+        resource: dict = {
+            "resourceType": "Device",
+            "status": "active",
+            "deviceName": [{"name": row["descricao"], "type": "user-friendly-name"}],
+            "type": {"text": row["descricao"]},
+            "patient": {"reference": f"Patient/{patient_id}"},
+            "note": [{"text": "Implante registrado pelo HousIA a partir da etiqueta lida na sala (rastreabilidade)."}],
+        }
+        if row.get("gtin"):
+            resource["udiCarrier"] = [
+                {
+                    "deviceIdentifier": row["gtin"],
+                    "issuer": codes.GS1_ISSUER,
+                    "entryType": "barcode",
+                }
+            ]
+        if row.get("lote"):
+            resource["lotNumber"] = row["lote"]
+        if row.get("serie"):
+            resource["serialNumber"] = row["serie"]
+        if row.get("validade"):
+            resource["expirationDate"] = row["validade"]
+        if row.get("registro_anvisa"):
+            resource["identifier"] = [{"system": codes.ANVISA_REGISTRO, "value": row["registro_anvisa"]}]
+        if row["quantidade"] != 1:
+            resource["property"] = [{"type": {"text": "quantidade"}, "valueQuantity": {"value": row["quantidade"]}}]
+        out.append((row["leitura"], resource))
+    return out
+
+
+def procedure_label(report: dict) -> str:
+    field = next((f for f in report.get("campos", []) if f["campo"] == "procedimento" and f["texto"]), None)
+    return (field["texto"] if field else (report.get("modelo") or {}).get("rotulo")) or "Procedimento cirúrgico"
+
+
+def procedure_resource(
+    *,
+    report: dict,
+    patient_id: str,
+    encounter_id: str | None,
+    when: datetime,
+    consultation_id: int,
+    device_refs: list[str],
+    document_ref: str,
+) -> dict:
+    """Procedure da cirurgia com os implantes em `usedReference` e o relatório aprovado em `report`."""
+    resource: dict = {
+        "resourceType": "Procedure",
+        "identifier": [{"system": SURGERY_SYSTEM, "value": str(consultation_id)}],
+        "status": "completed",
+        "category": {
+            "coding": [{"system": codes.SNOMED, "code": codes.SR_SURGICAL[0], "display": codes.SR_SURGICAL[1]}],
+            "text": "cirurgia",
+        },
+        "code": {"text": procedure_label(report)},
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "performedDateTime": when.isoformat(),
+        "report": [{"reference": document_ref}],
+        "usedReference": [{"reference": ref} for ref in device_refs],
+        "note": [{"text": "Registro gerado pelo HousIA a partir do relatório cirúrgico revisado e aprovado."}],
+    }
+    if encounter_id:
+        resource["encounter"] = {"reference": f"Encounter/{encounter_id}"}
+    return resource
+
+
+def claim_resource(
+    *,
+    report: dict,
+    patient_id: str,
+    patient_name: str,
+    when: datetime,
+    consultation_id: int,
+    numero_guia: str | None,
+    device_refs: dict[str, str],
+) -> dict:
+    """FHIR Claim em RASCUNHO (nada é cobrado): procedimento (código DEMO), CID principal e materiais usados."""
+    from app.consult import antiglosa
+
+    ready = report.get("prontidao") or {}
+    conv = antiglosa.convenios().get(ready.get("convenio", "generico"), antiglosa.convenios()["generico"])
+    proc = antiglosa.procedures().get((report.get("modelo") or {}).get("id", ""))
+    system = codes.SIGTAP_DEMO if conv.codigos == "sigtap_demo" else codes.TUSS_DEMO
+    insurance: dict = {"sequence": 1, "focal": True, "coverage": {"display": conv.rotulo}}
+    if numero_guia:
+        insurance["preAuthRef"] = [numero_guia]
+    resource: dict = {
+        "resourceType": "Claim",
+        "identifier": [{"system": CLAIM_SYSTEM, "value": str(consultation_id)}],
+        "status": "draft",
+        "type": {"coding": [{"system": codes.CLAIM_TYPE, "code": "institutional"}]},
+        "use": "claim" if numero_guia else "preauthorization",
+        "patient": {"reference": f"Patient/{patient_id}", "display": patient_name},
+        "created": when.isoformat(),
+        "provider": {"display": "Hospital (HousIA — demonstração)"},
+        "priority": {"coding": [{"system": codes.PROCESS_PRIORITY, "code": "normal"}]},
+        "insurance": [insurance],
+    }
+    cids = report.get("cids", [])
+    if cids:
+        resource["diagnosis"] = [
+            {
+                "sequence": i + 1,
+                "diagnosisCodeableConcept": {
+                    "coding": [{"system": codes.ICD10, "code": c["codigo"], "display": c["descricao"]}]
+                },
+                "type": [{"coding": [{"system": codes.DIAGNOSIS_TYPE, "code": c.get("tipo", "principal")}]}]
+                if c.get("tipo") == "principal"
+                else [],
+            }
+            for i, c in enumerate(cids)
+        ]
+        for d in resource["diagnosis"]:
+            if not d["type"]:
+                del d["type"]
+    items: list[dict] = []
+    if proc:
+        code = proc.sigtap if conv.codigos == "sigtap_demo" else proc.tuss
+        coding = {"system": system, "code": code, "display": f"{proc.descricao} (código de demonstração)"}
+        resource["procedure"] = [
+            {"sequence": 1, "procedureCodeableConcept": {"coding": [coding]}, "date": when.isoformat()}
+        ]
+        items.append(
+            {
+                "sequence": 1,
+                "productOrService": {"coding": [coding]},
+                "quantity": {"value": 1},
+                "procedureSequence": [1],
+            }
+        )
+    tracking = any(line.get("consumido") for line in report.get("opme", []))
+    for line in report.get("opme", []):
+        qty = line.get("consumido") if tracking else line.get("citado")
+        if not qty:
+            continue
+        item: dict = {
+            "sequence": len(items) + 1,
+            "productOrService": {
+                "coding": [{"system": codes.OPME_DEMO, "code": line["codigo"], "display": line["descricao"]}]
+            },
+            "quantity": {"value": qty},
+        }
+        udi = [{"reference": device_refs[lote["id"]]} for lote in line.get("lotes", []) if lote["id"] in device_refs]
+        if udi:
+            item["udi"] = udi
+        if line.get("status") not in ("conferido",) and not line.get("justificativa"):
+            item["extension"] = [
+                {"url": "http://housia.dev/fhir/StructureDefinition/pendencia-opme", "valueString": line["status"]}
+            ]
+        items.append(item)
+    if items:
+        resource["item"] = items
+    return resource
+
+
+def urn(consultation_id: int, kind: str, index: int = 0) -> str:
+    return f"urn:uuid:{uuid.uuid5(BUNDLE_NS, f'{consultation_id}/{kind}/{index}')}"
+
+
+def transaction_bundle(entries: list[tuple[str, dict]]) -> dict:
+    """Bundle FHIR de transação: (fullUrl, recurso) → POST. Nada é enviado: serve para exportar e conferir."""
+    return {
+        "resourceType": "Bundle",
+        "type": "transaction",
+        "entry": [
+            {"fullUrl": url, "resource": r, "request": {"method": "POST", "url": r["resourceType"]}}
+            for url, r in entries
+        ],
+    }

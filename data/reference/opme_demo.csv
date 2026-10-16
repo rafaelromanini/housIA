@@ -1,16 +1,21 @@
-codigo,descricao,palavras
-DEMO-OPME-001,Trocarte descartável 10 mm,trocarte de 10|trocater de 10|trocarte de dez|portal de 10
-DEMO-OPME-002,Trocarte descartável 5 mm,trocarte de 5|trocater de 5|trocartes de 5|trocarte de cinco|trocartes de cinco|portais de 5
-DEMO-OPME-003,Clipe de titânio (cartela),clipe de titanio|clipes de titanio|clipador
-DEMO-OPME-004,Clipe polimérico (tipo hem-o-lok),hem-o-lok|hemolok|clipe polimerico
-DEMO-OPME-005,Alça pré-formada (endoloop),endoloop|alca pre-formada|endo loop
-DEMO-OPME-006,Bolsa extratora,endobag|bolsa extratora|saco extrator|bolsa coletora
-DEMO-OPME-007,Grampeador linear endoscópico,grampeador|stapler
-DEMO-OPME-008,Carga para grampeador,carga do grampeador|cargas do grampeador|carga azul|carga branca
-DEMO-OPME-009,Pinça de energia ultrassônica,bisturi ultrassonico|tesoura ultrassonica|harmonic|energia ultrassonica
-DEMO-OPME-010,Tela de polipropileno,tela de polipropileno|tela 
-DEMO-OPME-011,Dreno tubular,dreno tubular|dreno de blake|dreno portovac
-DEMO-OPME-012,Componente femoral de prótese de joelho,componente femoral
-DEMO-OPME-013,Componente tibial de prótese de joelho,componente tibial|bandeja tibial
-DEMO-OPME-014,Inserto de polietileno (joelho),polietileno|inserto
-DEMO-OPME-015,Cimento ósseo (dose),doses de cimento|dose de cimento|cimento osseo
+codigo,descricao,palavras,implantavel,tamanho,gtin,registro_anvisa,fonte
+DEMO-OPME-001,Trocarte descartável 10 mm,trocarte de 10|trocater de 10|trocarte de dez|portal de 10,nao,nao,02990000000019,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-002,Trocarte descartável 5 mm,trocarte de 5|trocater de 5|trocartes de 5|trocarte de cinco|trocartes de cinco|portais de 5,nao,nao,02990000000026,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-003,Clipe de titânio (cartela),clipe de titanio|clipes de titanio|clipador,nao,nao,02990000000033,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-004,Clipe polimérico (tipo hem-o-lok),hem-o-lok|hemolok|clipe polimerico,nao,nao,02990000000040,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-005,Alça pré-formada (endoloop),endoloop|alca pre-formada|endo loop,nao,nao,02990000000057,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-006,Bolsa extratora,endobag|bolsa extratora|saco extrator|bolsa coletora,nao,nao,02990000000064,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-007,Grampeador linear endoscópico,grampeador|stapler,nao,nao,02990000000071,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-008,Carga para grampeador,carga do grampeador|cargas do grampeador|carga azul|carga branca,nao,nao,02990000000088,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-009,Pinça de energia ultrassônica,bisturi ultrassonico|tesoura ultrassonica|harmonic|energia ultrassonica,nao,nao,02990000000095,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-010,Tela de polipropileno,tela de polipropileno|tela ,sim,sim,02990000000101,DEMO-ANVISA-010,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-011,Dreno tubular,dreno tubular|dreno de blake|dreno portovac,nao,nao,02990000000118,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-012,Componente femoral de prótese de joelho,componente femoral,sim,sim,02990000000125,DEMO-ANVISA-012,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-013,Componente tibial de prótese de joelho,componente tibial|bandeja tibial,sim,sim,02990000000132,DEMO-ANVISA-013,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-014,Inserto de polietileno (joelho),polietileno|inserto,sim,sim,02990000000149,DEMO-ANVISA-014,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-015,Cimento ósseo (dose),doses de cimento|dose de cimento|cimento osseo,nao,nao,02990000000156,,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-016,Parafuso cortical de osteossíntese,parafuso,sim,sim,02990000000163,DEMO-ANVISA-016,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-017,Placa de osteossíntese bloqueada,placa bloqueada|placa de osteossintese|placa de compressao,sim,sim,02990000000170,DEMO-ANVISA-017,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-018,Componente acetabular de prótese de quadril,componente acetabular|copo acetabular,sim,sim,02990000000187,DEMO-ANVISA-018,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-019,Haste femoral de prótese de quadril,haste femoral|haste cimentada|haste nao cimentada,sim,sim,02990000000194,DEMO-ANVISA-019,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"
+DEMO-OPME-020,Stent coronariano farmacológico,stent|stents,sim,sim,02990000000200,DEMO-ANVISA-020,"Catálogo de demonstração do HousIA (códigos, GTIN e registro fictícios; substituir pela tabela do hospital/TUSS licenciada)"

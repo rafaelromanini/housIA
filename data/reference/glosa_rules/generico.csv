@@ -1,0 +1,25 @@
+regra,tipo,condicao,severidade,peso,mensagem,fonte,tipo_fonte
+completude_modelo,completude_modelo,obrigatorios,atencao,4,Campo obrigatório do modelo não ditado: {rotulo}. {motivo},@campo,manual
+procedimento_ditado,campo,procedimento,critico,10,Procedimento realizado não ditado: é o item de cobrança da guia.,ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+diagnostico_ditado,campo,diagnostico_pre,critico,8,Diagnóstico pré-operatório não ditado: justifica a indicação e o CID da conta.,ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+anestesia_ditada,campo,anestesia,atencao,6,Tipo de anestesia não ditado: consta do registro anestésico e da conta.,CFM — Resolução nº 2.174/2017 (registro do ato anestésico) e padrão TISS,manual
+equipe_ditada,campo,equipe,critico,8,"Equipe cirúrgica não identificada: honorários do cirurgião, auxiliares e anestesista ficam sem lastro.",ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+horario_ditado,campo,horario,atencao,6,"Horário de início e término não ditado: define a duração (sala, anestesia e honorários).",ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+cid_presente,cid_presente,,critico,8,Sem CID-10 principal identificado no prontuário ou no diagnóstico ditado: a guia é devolvida sem diagnóstico.,ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+procedimento_codificado,procedimento_codificado,,atencao,4,Procedimento ainda não reconhecido pelo modelo cirúrgico: sem código de cobrança (demonstração) para a guia.,ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+cid_procedimento,cid_procedimento,,critico,10,CID {cid} sem relação com {procedimento}: glosa por incompatibilidade entre procedimento e diagnóstico. CIDs compatíveis: {compativeis}.,"Motivo de glosa usual (categoria da terminologia TISS, sem código; confirmar na tabela vigente da ANS)",motivo_glosa_tiss
+opme_incompativel,opme_procedimento,incompativel,critico,8,{material} não é usual em {procedimento}: glosa por material incompatível com o procedimento.,"Motivo de glosa usual (categoria da terminologia TISS, sem código; confirmar na tabela vigente da ANS)",motivo_glosa_tiss
+opme_esperada,opme_procedimento,esperado,atencao,4,{material} é esperado em {procedimento} e não foi citado nem lido: confirmar o uso ou justificar.,@tabela,manual
+opme_sem_guia,opme_conciliacao,nao_autorizado,critico,8,{detalhe},Glosa usual de OPME sem autorização na guia (manual da operadora); ANS — TISS: OPME precisa constar na autorização,motivo_glosa_tiss
+opme_vencida,opme_conciliacao,validade_vencida,critico,10,{detalhe},Anvisa — RDC nº 67/2009 (tecnovigilância) e boas práticas de rastreabilidade de implantáveis,manual
+opme_quantidade,opme_conciliacao,quantidade_divergente,atencao,4,{detalhe},Glosa usual por quantidade de OPME diferente da autorizada,motivo_glosa_tiss
+opme_tres_vias,opme_conciliacao,sem_fala|nao_citado,atencao,3,{detalhe},"Conciliação em três vias do HousIA: fala, guia e etiqueta devem concordar",manual
+opme_rastreio,opme_rastreio,implantaveis,atencao,4,"{material} citado sem etiqueta lida (lote, série e validade): rastreabilidade do implante incompleta.",Anvisa — RDC nº 67/2009 (tecnovigilância): rastreabilidade de implantáveis,manual
+auxiliares,auxiliares,,atencao,5,{detalhe},@tabela,manual
+horario_coerencia,horario_coerencia,coerencia,critico,8,{detalhe},"Motivo de glosa usual (categoria da terminologia TISS, sem código; confirmar na tabela vigente da ANS)",motivo_glosa_tiss
+horario_completo,horario_coerencia,completo,atencao,5,{detalhe},ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+duracao_faixa,duracao_faixa,,atencao,4,{detalhe},@tabela,manual
+anestesia_procedimento,anestesia_procedimento,,atencao,5,{detalhe},@tabela,manual
+anestesista_identificado,equipe_papel,anestesista,atencao,5,Anestesista não identificado na equipe: os honorários anestésicos são glosados sem o profissional.,CFM — Resolução nº 2.174/2017 (identificação do anestesiologista) e padrão TISS,manual
+cirurgiao_identificado,equipe_papel,cirurgiao,critico,6,Cirurgião responsável não identificado na equipe.,ANS — Padrão TISS (guia de internação/SP-SADT): campo exigido para a cobrança,manual
+guia_autorizacao,guia_autorizacao,,atencao,6,Autorização prévia não registrada para {procedimento}: informar o número da guia autorizada ou importar a guia.,"Motivo de glosa usual (categoria da terminologia TISS, sem código; confirmar na tabela vigente da ANS)",motivo_glosa_tiss

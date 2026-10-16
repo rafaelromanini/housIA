@@ -18,6 +18,7 @@ RISK_PREFIX = {
     "omissao": "Possível omissão na transferência",
     "duplicidade": "Duplicidade terapêutica",
     "exame_pendente": "Exame pendente",
+    "implante": "Implante",
 }
 HEADLINE_PRIORITY = ["alergia", "interacao", "omissao", "tendencia", "sinal_vital_fora_da_faixa", "diurese"]
 
@@ -54,7 +55,9 @@ def mock_handoff(audience: str, facts: list[Fact], patient: dict, situation_refs
     if audience == "enfermagem":
         situacao += f" Alergias: {patient.get('alergias') or 'sem registro'}."
 
-    change_types = {"transferencia", "mudanca_prescricao"} | ({"exame_alterado"} if audience == "medico" else set())
+    change_types = {"transferencia", "mudanca_prescricao", "implante"} | (
+        {"exame_alterado"} if audience == "medico" else set()
+    )
     mudancas = [{"texto": f.texto, "refs": f.refs} for f in rel if f.tipo in change_types and f.refs]
 
     # sinal fora da faixa já coberto por uma tendência da mesma medida não vira risco duplicado

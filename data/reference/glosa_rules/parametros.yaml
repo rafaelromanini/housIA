@@ -1,0 +1,8 @@
+# Parâmetros do motor anti-glosa (app/consult/antiglosa.py). Versão da base de regras: mude ao editar os CSV.
+versao: "1.0.0"
+limiar_pronto: 90          # score mínimo (0–100) para "pronto para faturar", sem nenhuma pendência crítica
+teto_com_critica: 89       # com pendência crítica o score não passa deste teto (nunca parece "pronto")
+pesos_padrao:              # usados quando a regra não traz `peso`
+  critico: 10
+  atencao: 5
+  info: 2

@@ -1,0 +1,62 @@
+{
+  "id": "cen7c",
+  "tag": "cenario-7c",
+  "titulo": "Cenário 7c — Jornada: alta sem retorno agendado",
+  "esperado": "Alta há 8 dias, risco baixo e nenhum Appointment depois da alta: aparece pela regra de retorno pós-alta não agendado, com a internação como fonte.",
+  "paciente": {
+    "nome": "Wilson Pacheco Amaral",
+    "sexo": "male",
+    "nascimento": "1971-12-09",
+    "cpf": "304.772.918-06",
+    "telefone": "(11) 97701-3382",
+    "endereco": "Rua Vergueiro, 1800, Vila Mariana, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-11d",
+    "fim": "-8d",
+    "tipo": "eletiva",
+    "motivo": "Colecistectomia videolaparoscópica",
+    "setores": [
+      {
+        "id": "enf",
+        "setor": "Enfermaria 3B",
+        "leito": "08",
+        "inicio": "-11d",
+        "fim": "-8d"
+      }
+    ]
+  },
+  "diagnosticos": [
+    {
+      "cid": "K80.2",
+      "texto": "Colelitíase sem colecistite",
+      "principal": true,
+      "inicio": "-11d"
+    },
+    {
+      "cid": "I10",
+      "texto": "Hipertensão arterial sistêmica",
+      "inicio": "-2900d",
+      "registro": "-11d"
+    }
+  ],
+  "alergias": [],
+  "social": {
+    "moradores": 3
+  },
+  "procedimentos": [
+    {
+      "t": "-10d",
+      "texto": "Colecistectomia videolaparoscópica",
+      "categoria": "cirurgia"
+    }
+  ],
+  "evolucoes": [
+    {
+      "t": "-8d1h",
+      "tipo": "medica",
+      "autor": "Dr. Paulo Mendes (Cirurgia Geral)",
+      "texto": "Alta em bom estado geral, dieta livre, curativos secos. Retornar ao ambulatório de cirurgia em 15 dias (agendar)."
+    }
+  ]
+}

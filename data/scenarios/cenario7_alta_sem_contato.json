@@ -1,0 +1,180 @@
+{
+  "id": "cen7",
+  "tag": "cenario-7",
+  "titulo": "Cenário 7 — Jornada: alta de alto risco há 4 dias, sem contato pós-alta",
+  "esperado": "Waze da jornada: idoso que mora sozinho, com LACE alto e 3 idas ao PS, recebeu alta há 4 dias (96 h) e ninguém ligou. Aparece na lista de pacientes em risco de abandono (regra alta sem contato em 72 h) com as fontes. O retorno está agendado, então só essa regra dispara. Registrar o contato pós-alta tira o paciente da lista; resposta 'sim' a um sinal de alarme abre um alerta crítico.",
+  "paciente": {
+    "nome": "Osvaldo Teixeira Brandão",
+    "sexo": "male",
+    "nascimento": "1946-02-18",
+    "cpf": "418.226.903-71",
+    "telefone": "(11) 3341-7720",
+    "endereco": "Rua do Carmo, 210, apto 12, Sé, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-9d4h",
+    "fim": "-4d",
+    "tipo": "urgencia",
+    "motivo": "Insuficiência cardíaca descompensada",
+    "setores": [
+      {
+        "id": "enf",
+        "setor": "Enfermaria 3B",
+        "leito": "05",
+        "inicio": "-9d4h",
+        "fim": "-4d"
+      }
+    ]
+  },
+  "encontros_anteriores": [
+    {
+      "inicio": "-150d",
+      "motivo": "Dispneia — insuficiência cardíaca descompensada",
+      "duracao": "7h"
+    },
+    {
+      "inicio": "-88d",
+      "motivo": "Hiperglicemia e desidratação",
+      "duracao": "6h"
+    },
+    {
+      "inicio": "-37d",
+      "motivo": "Queda da própria altura em domicílio",
+      "duracao": "5h"
+    }
+  ],
+  "diagnosticos": [
+    {
+      "cid": "I50.0",
+      "texto": "Insuficiência cardíaca congestiva",
+      "principal": true,
+      "inicio": "-9d4h"
+    },
+    {
+      "cid": "E11.2",
+      "texto": "Diabetes mellitus tipo 2 com complicações renais",
+      "inicio": "-4380d",
+      "registro": "-9d4h"
+    },
+    {
+      "cid": "N18.3",
+      "texto": "Doença renal crônica estágio 3",
+      "inicio": "-1200d",
+      "registro": "-9d4h"
+    },
+    {
+      "cid": "J44.9",
+      "texto": "Doença pulmonar obstrutiva crônica",
+      "inicio": "-2500d",
+      "registro": "-9d4h"
+    },
+    {
+      "cid": "I10",
+      "texto": "Hipertensão arterial sistêmica",
+      "inicio": "-7000d",
+      "registro": "-9d4h"
+    }
+  ],
+  "alergias": [],
+  "familiares": [
+    {
+      "nome": "Marta Brandão",
+      "parentesco": "filha",
+      "codigo": "DAU",
+      "descricao": "filha (mora em Santos)",
+      "telefone": "(13) 99744-1208"
+    }
+  ],
+  "social": {
+    "moradores": 1
+  },
+  "prescricoes": [
+    {
+      "id": "furosemida",
+      "med": "furosemida",
+      "dose": "40 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00"
+      ]
+    },
+    {
+      "id": "carvedilol",
+      "med": "carvedilol",
+      "dose": "6,25 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00",
+        "20:00"
+      ]
+    },
+    {
+      "id": "enalapril",
+      "med": "enalapril",
+      "dose": "10 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00",
+        "20:00"
+      ]
+    },
+    {
+      "id": "insulina_nph",
+      "med": "insulina_nph",
+      "dose": "10 UI",
+      "via": "SC",
+      "horarios": [
+        "07:00",
+        "19:00"
+      ],
+      "inicio": "-6d",
+      "observacao": "Insulinização iniciada nesta internação (primeiro uso de insulina)"
+    }
+  ],
+  "escalas": [
+    {
+      "t": "-4d1h",
+      "morse": 55,
+      "braden": 16
+    }
+  ],
+  "exames": [
+    {
+      "t": "-9d3h",
+      "bnp": 2100,
+      "creatinina": 1.8,
+      "potassio": 4.8,
+      "glicose": 380,
+      "hba1c": 9.4
+    },
+    {
+      "t": "-4d2h",
+      "bnp": 540,
+      "creatinina": 1.6,
+      "potassio": 4.5,
+      "glicose": 152
+    }
+  ],
+  "agendamentos": [
+    {
+      "id": "ret",
+      "t": "+10d",
+      "status": "booked",
+      "motivo": "Retorno pós-alta: insuficiência cardíaca e diabetes"
+    }
+  ],
+  "evolucoes": [
+    {
+      "t": "-4d3h",
+      "tipo": "medica",
+      "autor": "Dr. Felipe Andrade (Clínica Médica)",
+      "texto": "Compensado, em uso de furosemida oral. Alta hospitalar amanhã com insulina NPH nova; paciente mora sozinho, filha em outra cidade. Orientado retorno em 14 dias."
+    },
+    {
+      "t": "-4d2h",
+      "tipo": "enfermagem",
+      "autor": "Enf. Marcos Lima (Enfermaria 3B)",
+      "texto": "Alta orientada. Dificuldade para aspirar a dose de insulina, treino repetido duas vezes. Sem contato telefônico combinado após a alta."
+    }
+  ]
+}

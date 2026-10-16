@@ -131,6 +131,18 @@ class _Sector:
     end: datetime | None
 
 
+def _priority(urgent: bool) -> dict:
+    return {
+        "coding": [
+            {
+                "system": "http://terminology.hl7.org/CodeSystem/v3-ActPriority",
+                "code": "EM" if urgent else "R",
+                "display": "urgência" if urgent else "eletiva",
+            }
+        ]
+    }
+
+
 class ScenarioBuilder:
     def __init__(self, scenario: dict, anchor: datetime, locations: LocationRegistry):
         self.s = scenario
@@ -189,6 +201,7 @@ class ScenarioBuilder:
         self._scales()
         self._procedures()
         self._surgeries()
+        self._appointments()
         self._notes()
         return self.out
 
@@ -266,15 +279,7 @@ class ScenarioBuilder:
                 "id": hosp_id,
                 "status": "finished" if end else "in-progress",
                 "class": {"system": codes.ACT_CODE, "code": "IMP", "display": "internação"},
-                "priority": {
-                    "coding": [
-                        {
-                            "system": "http://terminology.hl7.org/CodeSystem/v3-ActPriority",
-                            "code": "EM" if urgent else "R",
-                            "display": "urgência" if urgent else "eletiva",
-                        }
-                    ]
-                },
+                "priority": _priority(urgent),
                 "subject": self.patient_ref,
                 "period": {"start": iso(start)} | ({"end": iso(end)} if end else {}),
                 "reasonCode": [{"text": it["motivo"]}],
@@ -333,8 +338,11 @@ class ScenarioBuilder:
             start = self.t(enc["inicio"])
             end = start + parse_offset(enc.get("duracao", "6h"))
             emer = enc.get("tipo", "urgencia") == "urgencia"
+            urgent_stay = enc.get("urgente", True)  # internação anterior (tipo "internacao"): entrou por urgência?
+            priority = {} if emer else {"priority": _priority(urgent_stay)}
             self.out.append(
                 {
+                    **priority,
                     "resourceType": "Encounter",
                     "id": f"{self.sid}-ant-{i}",
                     "status": "finished",
@@ -893,6 +901,26 @@ class ScenarioBuilder:
                         "provision": {"type": "permit", "data": [{"meaning": "related", "reference": sr_ref}]},
                     }
                 )
+
+    def _appointments(self) -> None:
+        """Agenda ambulatorial do paciente (retornos, faltas): Appointment com o paciente e o profissional."""
+        for ag in self.s.get("agendamentos", []):
+            when = self.t(ag["t"])
+            self.out.append(
+                {
+                    "resourceType": "Appointment",
+                    "id": f"{self.sid}-ag-{ag['id']}",
+                    "status": ag.get("status", "booked"),
+                    "serviceType": [{"text": ag.get("servico", "Ambulatório de Clínica Médica")}],
+                    "description": ag["motivo"],
+                    "start": iso(when),
+                    "end": iso(when + parse_offset(ag.get("duracao", "30m"))),
+                    "participant": [
+                        {"actor": self.patient_ref, "status": "accepted"},
+                        {"actor": {"display": ag.get("profissional", "Dra. Helena Prado")}, "status": "accepted"},
+                    ],
+                }
+            )
 
     def _notes(self) -> None:
         for i, ev in enumerate(self.s.get("evolucoes", [])):

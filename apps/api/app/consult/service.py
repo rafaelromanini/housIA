@@ -13,9 +13,17 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import ai, knowledge, stt
-from app.consult.engine import PATIENT_SIDE, Engine, infer_speaker
-from app.consult.export import document_reference, note_as_text
+from app.consult import ai, antiglosa, gs1, knowledge, opme, stt
+from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
+from app.consult.export import (
+    claim_resource,
+    device_resources,
+    document_reference,
+    note_as_text,
+    procedure_resource,
+    transaction_bundle,
+)
+from app.consult.export import urn as export_urn
 from app.consult.schemas import (
     ConsultCreate,
     ConsultNote,
@@ -36,6 +44,7 @@ from app.timeline.events import ClinicalEvent, build_timeline
 from app.timeline.record import PatientRecord, parse_dt
 
 ACTIVE_VISIT = ("planned", "arrived", "triaged", "in-progress")
+MIN_JUSTIFICATION = 15  # caracteres mínimos da justificativa de envio com pendência crítica de faturamento
 _CHART_TTL_S = 30.0
 _chart_cache: dict[str, tuple[float, PatientRecord, list[ClinicalEvent], PatientContext]] = {}
 
@@ -125,6 +134,9 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "nota_meta": c.note_meta_json,
         "fhir_ref": c.fhir_ref,
         "roteiro_demo": (c.extra_json or {}).get("roteiro"),
+        "opme_guia": (c.extra_json or {}).get("opme_guia"),
+        "faturamento": (c.extra_json or {}).get("faturamento"),
+        "justificativa_envio": (c.extra_json or {}).get("justificativa_envio"),
         "criado_por": (user_names or {}).get(c.created_by or 0),
         "created_at": c.created_at.isoformat(),
         "finished_at": c.finished_at.isoformat() if c.finished_at else None,
@@ -229,6 +241,11 @@ def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: 
     c.segments_json = [s.model_dump() for s in segments]
     ins = _insights(c, record, events, ctx, segments)
     c.insights_json = ins.model_dump(mode="json")
+    if c.kind == "cirurgia" and ins.relatorio_cirurgico and "prontidao_inicial" not in (c.extra_json or {}):
+        # primeira leitura com ditado: base para medir quantas pendências foram resolvidas até o envio
+        c.extra_json = (c.extra_json or {}) | {
+            "prontidao_inicial": antiglosa.snapshot(ins.relatorio_cirurgico.prontidao)  # type: ignore[arg-type]
+        }
     db.commit()
     return {"novos": [s.model_dump() for s in new], "insights": c.insights_json, "total": len(segments)}
 
@@ -308,6 +325,203 @@ def set_main_complaint(db: Session, fhir: FhirSource, user: User, cid: int, key:
         {"patient_id": c.patient_id, "queixa": key or None},
     )
     return {"insights": c.insights_json, "total": len(segments)}
+
+
+# ---------- OPME: guia, consumo (etiqueta GS1) e faturamento ----------
+def _open_surgery(c: Consultation, what: str) -> None:
+    if c.kind != "cirurgia":
+        raise HTTPException(409, f"{what} vale só para o modo cirúrgico.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Relatório finalizado: edite o OPME na revisão da nota.")
+
+
+def _refresh(c: Consultation, fhir: FhirSource) -> dict:
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
+def set_opme_guia(db: Session, fhir: FhirSource, user: User, cid: int, body) -> dict:
+    """Guia autorizada: entrada manual, ClaimResponse FHIR ou XML TISS. Substitui a guia anterior."""
+    c = _get(db, cid)
+    _open_surgery(c, "A guia de OPME")
+    try:
+        if body.itens is not None:
+            guia = opme.Guia(
+                opme.normalize_items([i.model_dump(exclude_none=True) for i in body.itens]), origem="manual"
+            )
+        elif body.claim_response is not None:
+            guia = opme.from_claim_response(body.claim_response)
+        else:
+            guia = opme.from_tiss_xml(body.tiss_xml or "")
+    except opme.GuiaError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    number = (body.numero or guia.numero or "").strip() or None
+    c.extra_json = (c.extra_json or {}) | {
+        "opme_autorizado": guia.itens,
+        "opme_guia": {
+            "origem": guia.origem,
+            "numero": number,
+            "senha": guia.senha,
+            "itens": len(guia.itens),
+            "por": user.name,
+            "em": clock.now().isoformat(),
+        },
+    }
+    result = _refresh(c, fhir)
+    log_action(
+        db,
+        user,
+        "consulta.opme_guia",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "origem": guia.origem, "itens": len(guia.itens), "numero_guia": number},
+    )
+    return result | {"guia": c.extra_json["opme_guia"], "autorizado": guia.itens}
+
+
+def add_opme_consumo(db: Session, fhir: FhirSource, user: User, cid: int, body) -> dict:
+    """Consumo de OPME: etiqueta GS1 lida pela câmera (ou lote/série digitados) → GTIN, lote, validade e série."""
+    c = _get(db, cid)
+    _open_surgery(c, "O consumo de OPME")
+    extra = dict(c.extra_json or {})
+    consumo = list(extra.get("opme_consumo") or [])
+    today = opme.local_today()
+    authorized = extra.get("opme_autorizado", [])
+    if body.etiqueta:
+        try:
+            item, label = opme.scan(
+                body.etiqueta, today, quantity=body.quantidade, code=body.codigo, authorized=authorized
+            )
+        except gs1.Gs1Error as exc:
+            raise HTTPException(422, f"Etiqueta ilegível: {exc}") from exc
+        warnings = label.avisos
+    elif body.codigo and (body.lote or body.serie):
+        entry = opme.entries_for(authorized, []).get(body.codigo)
+        if entry is None:
+            raise HTTPException(422, "Código de OPME desconhecido: use o catálogo ou o código da guia.")
+        item = {
+            "codigo": entry.code,
+            "descricao": entry.description,
+            "gtin": None,
+            "lote": body.lote,
+            "validade": body.validade.isoformat() if body.validade else None,
+            "serie": body.serie,
+            "quantidade": body.quantidade,
+            "registro_anvisa": entry.anvisa or None,
+            "origem": "manual",
+        }
+        warnings = []
+    else:
+        raise HTTPException(422, "Informe a etiqueta lida ou o código com lote ou série.")
+    if item.get("serie") and item["quantidade"] != 1:
+        raise HTTPException(422, "Item com número de série é unitário: use quantidade 1.")
+    twin = next(
+        (
+            x
+            for x in consumo
+            if item.get("serie") and x.get("serie") == item["serie"] and x.get("gtin") == item.get("gtin")
+        ),
+        None,
+    )
+    if twin:
+        raise HTTPException(409, f"Esta peça (série {item['serie']}) já foi registrada neste procedimento.")
+    seq = int(extra.get("opme_consumo_seq", 0)) + 1
+    item |= {"id": f"e{seq}", "lido_em": clock.now().isoformat(), "por": user.name}
+    extra |= {"opme_consumo": [*consumo, item], "opme_consumo_seq": seq}
+    c.extra_json = extra
+    result = _refresh(c, fhir)
+    vencido = opme.expired(item.get("validade"), today)
+    log_action(
+        db,
+        user,
+        "consulta.opme_consumo",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "codigo": item["codigo"],
+            "lote": item.get("lote"),
+            "serie": item.get("serie"),
+            "validade": item.get("validade"),
+            "vencido": vencido,
+            "origem": item["origem"],
+        },
+    )
+    return result | {
+        "leitura": item | {"vencido": vencido, "avisos": warnings},
+        "consumo": c.extra_json["opme_consumo"],
+    }
+
+
+def remove_opme_consumo(db: Session, fhir: FhirSource, user: User, cid: int, item_id: str) -> dict:
+    c = _get(db, cid)
+    _open_surgery(c, "O consumo de OPME")
+    extra = dict(c.extra_json or {})
+    consumo = list(extra.get("opme_consumo") or [])
+    kept = [x for x in consumo if x["id"] != item_id]
+    if len(kept) == len(consumo):
+        raise HTTPException(404, "Leitura de etiqueta não encontrada")
+    c.extra_json = extra | {"opme_consumo": kept}
+    result = _refresh(c, fhir)
+    log_action(db, user, "consulta.opme_consumo_removido", "consultation", c.id, {"leitura": item_id})
+    return result | {"consumo": kept}
+
+
+def set_faturamento(db: Session, fhir: FhirSource, user: User, cid: int, convenio: str | None, numero_guia: str | None):
+    """Convênio e número da guia usados nas regras anti-glosa (também com o relatório já finalizado)."""
+    c = _get(db, cid)
+    if c.kind != "cirurgia":
+        raise HTTPException(409, "O faturamento vale só para o modo cirúrgico.")
+    if c.status == "enviada":
+        raise HTTPException(409, "Relatório já enviado.")
+    if convenio is not None and convenio not in antiglosa.convenios():
+        raise HTTPException(422, "Convênio desconhecido")
+    current = dict((c.extra_json or {}).get("faturamento") or {})
+    if convenio is not None:
+        current["convenio"] = convenio
+    if numero_guia is not None:
+        current["numero_guia"] = numero_guia.strip() or None
+    c.extra_json = (c.extra_json or {}) | {"faturamento": current}
+    if c.status == "em_andamento":
+        result = _refresh(c, fhir)
+    else:
+        result = {"consulta": _rescore_note(c)}
+    log_action(db, user, "consulta.faturamento", "consultation", c.id, {"convenio": current.get("convenio")})
+    return result | {"faturamento": current}
+
+
+def _rescore_note(c: Consultation) -> dict:
+    """Reavalia a prontidão do relatório já revisado (convênio, guia ou campos mudaram)."""
+    note = dict(c.note_json or {})
+    report = SurgicalReport.model_validate(note["relatorio_cirurgico"])
+    report.prontidao = antiglosa.evaluate(report, segments=_segments(c), **billing_params(c.extra_json or {}))
+    c.note_json = note | {"relatorio_cirurgico": report.model_dump(mode="json")}
+    return out(c)
+
+
+def _audit_readiness(
+    db: Session, user: User, c: Consultation, moment: str, before: dict | None, after: dict, **extra
+) -> None:
+    """Métrica de glosas evitadas: pendências antes e depois de cada marco (finish e envio)."""
+    log_action(
+        db,
+        user,
+        "cirurgia.prontidao",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "momento": moment,
+            "convenio": billing_params(c.extra_json or {})["convenio"],
+            "antes": before,
+            "depois": after,
+            "resolvidas": antiglosa.resolved(before, after),
+        }
+        | extra,
+        commit=False,
+    )
 
 
 # ---------- IA (ciclos) ----------
@@ -416,6 +630,9 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
             c.insights_json = merged.model_dump(mode="json")
             note: dict = {"relatorio_cirurgico": merged.relatorio_cirurgico.model_dump(mode="json")}
             dropped = merged.descartados
+            snap = antiglosa.snapshot(merged.relatorio_cirurgico.prontidao)  # type: ignore[arg-type]
+            _audit_readiness(db, user, c, "finish", (c.extra_json or {}).get("prontidao_inicial"), snap)
+            c.extra_json = (c.extra_json or {}) | {"prontidao_finish": snap}
         else:
             ins = Insights.model_validate(c.insights_json) if c.insights_json else engine.run()
             if ins.falas_analisadas != len(segments):
@@ -454,18 +671,39 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
         raise HTTPException(409, "Finalize a consulta antes de revisar a nota.")
     if c.status == "enviada":
         raise HTTPException(409, "Nota já enviada ao prontuário.")
+    changes: list[dict] = []
     try:
         if c.kind == "cirurgia":
-            SurgicalReport.model_validate(note.get("relatorio_cirurgico"))
-            note = note | {"relatorio_cirurgico": _kept_orders(c, note["relatorio_cirurgico"])}
+            edited = SurgicalReport.model_validate(note.get("relatorio_cirurgico"))
+            report = _kept_orders(c, edited.model_dump(mode="json"))
+            report, changes = _review_opme(c, report)
+            note = note | {"relatorio_cirurgico": report}
         else:
             ConsultNote.model_validate(note)
     except ValidationError as exc:
         raise HTTPException(422, f"Nota em formato inválido: {exc.error_count()} erro(s)") from exc
     c.note_json = note
+    if c.kind == "cirurgia":
+        _rescore_note(c)
     c.note_meta_json = (c.note_meta_json or {}) | {"revisada_por": user.name, "revisada_em": clock.now().isoformat()}
-    log_action(db, user, "consulta.nota_revisada", "consultation", c.id, {"patient_id": c.patient_id})
+    payload = {"patient_id": c.patient_id} | ({"opme": changes} if changes else {})
+    log_action(db, user, "consulta.nota_revisada", "consultation", c.id, payload)
     return out(c)
+
+
+def _review_opme(c: Consultation, report: dict) -> tuple[dict, list[dict]]:
+    """OPME editável na revisão: só a quantidade citada e a justificativa mudam; guia e etiquetas vêm do servidor."""
+    previous = SurgicalReport.model_validate((c.note_json or {}).get("relatorio_cirurgico")).opme
+    lines, changes = opme.review_lines(previous, report.get("opme", []))
+    convenio = billing_params(c.extra_json or {})["convenio"]
+    for change in changes:  # a justificativa esconde a pendência e a trava de envio: o audit guarda texto e regra
+        if "tipos_suprimidos" in change:
+            change["regras"] = antiglosa.rules_for_kinds(convenio, change.pop("tipos_suprimidos"))
+    kept = [p for p in report.get("pendencias", []) if p.get("categoria") != "opme"]
+    kept += [h.model_dump(mode="json") for h in opme.review_highlights(lines)]
+    order = {"critico": 0, "atencao": 1, "info": 2}
+    kept.sort(key=lambda h: order[h["severidade"]])
+    return report | {"opme": [line.model_dump(mode="json") for line in lines], "pendencias": kept}, changes
 
 
 def _order_id(order: dict) -> str | None:
@@ -509,29 +747,118 @@ def _orders(c: Consultation) -> list[dict]:
     return [p["recurso"] for p in (c.note_json.get("relatorio_cirurgico") or {}).get("pedidos", [])]
 
 
+def _report(c: Consultation) -> dict | None:
+    return (c.note_json or {}).get("relatorio_cirurgico") if c.kind == "cirurgia" else None
+
+
+def _bundle(c: Consultation, record: PatientRecord, doc: dict, orders: list[dict]) -> dict | None:
+    """Bundle de transação (relatório, pedidos propostos, implantes, Procedure e Claim em rascunho) para exportar."""
+    report = _report(c)
+    if report is None:
+        return None
+    now = clock.now()
+    entries = [(export_urn(c.id, "doc"), doc)]
+    entries += [(export_urn(c.id, "pedido", i), o) for i, o in enumerate(orders)]
+    devices = device_resources(report, c.patient_id)
+    refs = {leitura: export_urn(c.id, "device", i) for i, (leitura, _) in enumerate(devices)}
+    entries += [(refs[leitura], r) for leitura, r in devices]
+    if devices:
+        entries.append(
+            (
+                export_urn(c.id, "procedure"),
+                procedure_resource(
+                    report=report,
+                    patient_id=c.patient_id,
+                    encounter_id=c.encounter_id,
+                    when=now,
+                    consultation_id=c.id,
+                    device_refs=list(refs.values()),
+                    document_ref=export_urn(c.id, "doc"),
+                ),
+            )
+        )
+    entries.append((export_urn(c.id, "claim"), _claim(c, record, report, refs, now)))
+    return transaction_bundle(entries)
+
+
+def _claim(c: Consultation, record: PatientRecord, report: dict, refs: dict[str, str], when) -> dict:
+    return claim_resource(
+        report=report,
+        patient_id=c.patient_id,
+        patient_name=record.name,
+        when=when,
+        consultation_id=c.id,
+        numero_guia=billing_params(c.extra_json or {})["numero_guia"],
+        device_refs=refs,
+    )
+
+
 def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     """Texto para colar no prontuário + recurso FHIR (e os pedidos propostos), sem enviar nada."""
     c = _get(db, cid)
     text, doc = _document(db, fhir, user, c)
     log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
-    return {"texto": text, "recurso": doc, "pedidos": _orders(c)}
+    orders = _orders(c)
+    result = {"texto": text, "recurso": doc, "pedidos": orders}
+    if c.kind == "cirurgia":
+        result["bundle"] = _bundle(c, load_record(fhir, c.patient_id), doc, orders)
+    return result
 
 
-def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
+def _gate_billing(db: Session, user: User, c: Consultation, justification: str | None) -> dict | None:
+    """Trava suave do envio da cirurgia: pendência crítica de faturamento exige justificativa (auditada)."""
+    if c.kind != "cirurgia":
+        return None
+    if c.note_json is None:
+        raise HTTPException(409, "Finalize e revise a nota antes de exportar ou enviar.")
+    note = dict(c.note_json)
+    report = SurgicalReport.model_validate(note["relatorio_cirurgico"])
+    ready = antiglosa.evaluate(report, segments=_segments(c), **billing_params(c.extra_json or {}))
+    critical = [p for p in ready.pendencias if p.severidade == "critico"]
+    text = (justification or "").strip()
+    if critical and len(text) < MIN_JUSTIFICATION:
+        raise HTTPException(
+            409,
+            {
+                "codigo": "prontidao_critica",
+                "mensagem": f"Há {len(critical)} pendência(s) crítica(s) de faturamento. Resolva-as ou envie com "
+                f"uma justificativa de pelo menos {MIN_JUSTIFICATION} caracteres.",
+                "pendencias": [p.model_dump() for p in critical],
+            },
+        )
+    report.prontidao = ready
+    c.note_json = note | {"relatorio_cirurgico": report.model_dump(mode="json")}
+    snap = antiglosa.snapshot(ready)
+    extra = {"justificativa": text, "regras_justificadas": [p.regra for p in critical]} if critical else {}
+    if justified := [{"codigo": o.codigo, "justificativa": o.justificativa} for o in report.opme if o.justificativa]:
+        extra["opme_justificadas"] = justified  # contornos da revisão que escondem pendências: ficam no audit do envio
+    _audit_readiness(db, user, c, "envio", (c.extra_json or {}).get("prontidao_finish"), snap, **extra)
+    if critical:
+        c.extra_json = (c.extra_json or {}) | {
+            "justificativa_envio": {"texto": text, "por": user.name, "em": clock.now().isoformat(), **extra}
+        }
+    return snap
+
+
+def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justification: str | None = None) -> dict:
     c = _get(db, cid)
+    if c.status == "enviada" and c.fhir_ref and get_settings().ehr_writeback:
+        raise HTTPException(409, f"Nota já enviada ({c.fhir_ref}).")
+    _gate_billing(db, user, c, justification)
+    record = load_record(fhir, c.patient_id)
     text, doc = _document(db, fhir, user, c)
     if not get_settings().ehr_writeback:
         log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
+        orders = _orders(c)
         return {
             "enviado": False,
             "motivo": "Envio automático desligado (EHR_WRITEBACK=false): copie o texto ou baixe o FHIR.",
             "texto": text,
             "recurso": doc,
-            "pedidos": _orders(c),
+            "pedidos": orders,
+            "bundle": _bundle(c, record, doc, orders),
             "consulta": out(c),
         }
-    if c.status == "enviada" and c.fhir_ref:
-        raise HTTPException(409, f"Nota já enviada ({c.fhir_ref}).")
     created = fhir.create(doc)
     c.fhir_ref = f"DocumentReference/{created['id']}"
     # pedidos propostos aprovados com o relatório: vão como proposta (intent=proposal), ligados ao documento
@@ -546,7 +873,8 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
             "identifier": [{"system": ORDER_SYSTEM, "value": f"{c.id}-{i + 1}"}],
         }
         orders.append(f"ServiceRequest/{fhir.create(resource)['id']}")
-    c.extra_json = (c.extra_json or {}) | ({"pedidos_fhir": orders} if orders else {})
+    traceability = _send_surgery_records(c, record, fhir)
+    c.extra_json = (c.extra_json or {}) | ({"pedidos_fhir": orders} if orders else {}) | traceability
     c.status = "enviada"
     c.sent_at = clock.now()
     clear_chart_cache()
@@ -556,7 +884,7 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
         "consulta.enviada",
         "consultation",
         c.id,
-        {"patient_id": c.patient_id, "fhir_ref": c.fhir_ref, "pedidos": orders},
+        {"patient_id": c.patient_id, "fhir_ref": c.fhir_ref, "pedidos": orders} | traceability,
     )
     return {
         "enviado": True,
@@ -565,7 +893,33 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
         "texto": text,
         "recurso": created,
         "consulta": out(c),
-    }
+    } | traceability
+
+
+def _send_surgery_records(c: Consultation, record: PatientRecord, fhir: FhirSource) -> dict:
+    """Implantes (Device), Procedure com usedReference e Claim em rascunho, criados depois do documento aprovado."""
+    report = _report(c)
+    if report is None:
+        return {}
+    now = clock.now()
+    refs: dict[str, str] = {}
+    for leitura, resource in device_resources(report, c.patient_id):
+        refs[leitura] = f"Device/{fhir.create(resource)['id']}"
+    out_: dict = {}
+    if refs:
+        procedure = procedure_resource(
+            report=report,
+            patient_id=c.patient_id,
+            encounter_id=c.encounter_id,
+            when=now,
+            consultation_id=c.id,
+            device_refs=list(refs.values()),
+            document_ref=c.fhir_ref or "",
+        )
+        out_["dispositivos"] = list(refs.values())
+        out_["procedimento"] = f"Procedure/{fhir.create(procedure)['id']}"
+    out_["claim"] = f"Claim/{fhir.create(_claim(c, record, report, refs, now))['id']}"
+    return out_
 
 
 def _local(dt: datetime) -> datetime:

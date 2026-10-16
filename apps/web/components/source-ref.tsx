@@ -17,6 +17,9 @@ const CONTEXT_LABEL: Record<string, string> = {
   ServiceRequest: "Pedido no prontuário (cirurgia agendada ou exame solicitado/proposto).",
   Appointment: "Agendamento da sala cirúrgica.",
   Consent: "Termo de consentimento registrado no prontuário.",
+  DischargeAssessment: "Avaliação de alta do HousIA (risco LACE + social) que sustenta o risco do paciente.",
+  Consultation: "Consulta com IA do HousIA em que o sinal foi captado (veja as falas citadas).",
+  Device: "Implante registrado na cirurgia (etiqueta lida: lote, série e validade).",
 };
 
 /** Destaca uma fala da transcrição da consulta (refs "Fala/N"). */

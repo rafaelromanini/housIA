@@ -1,23 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { CircleCheck, ClipboardCheck, ImageUp, Loader2, PackageCheck, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CircleCheck, ClipboardCheck, ImageUp, Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
 
+import { OpmePanel } from "@/components/consult/opme-panel";
+import { ReadinessCard } from "@/components/consult/readiness-card";
 import { SeverityIcon } from "@/components/severity";
 import { SourceRefs } from "@/components/source-ref";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ChecklistStep, OpmeLine, SafetyCheck, SurgicalReport } from "@/lib/api";
+import type { ChecklistStep, ConsultInsights, Consultation, SafetyCheck, SurgicalReport } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-const OPME_STATUS: Record<OpmeLine["status"], { label: string; variant: "ok" | "critico" | "atencao" }> = {
-  conferido: { label: "Conferido", variant: "ok" },
-  nao_autorizado: { label: "Sem autorização", variant: "critico" },
-  nao_citado: { label: "Autorizado, não citado", variant: "atencao" },
-  quantidade_divergente: { label: "Quantidade divergente", variant: "atencao" },
-};
 
 const CHECK_STATUS: Record<SafetyCheck["status"], { label: string; variant: "ok" | "outline" | "info" | "atencao" | "critico" }> = {
   ok: { label: "OK", variant: "ok" },
@@ -67,11 +62,16 @@ export function SurgicalPanel({
   report,
   patientId,
   onChecklist,
+  consultation,
+  onInsights,
 }: {
   report: SurgicalReport;
   patientId: string;
   /** Marca uma etapa da Cirurgia Segura por botão (só durante o ditado). */
   onChecklist?: (step: ChecklistStep, done: boolean) => Promise<void>;
+  /** Com a consulta em andamento e `onInsights`, a guia de OPME, as etiquetas e o convênio podem ser editados. */
+  consultation?: Consultation;
+  onInsights?: (insights: ConsultInsights | null, patch?: Partial<Consultation>) => void;
 }) {
   const [marking, setMarking] = useState<ChecklistStep | null>(null);
   const filled = report.campos.filter((f) => f.texto).length;
@@ -93,6 +93,15 @@ export function SurgicalPanel({
 
   return (
     <section aria-label="Relatório cirúrgico" className="space-y-3">
+      {report.prontidao && (
+        <ReadinessCard
+          readiness={report.prontidao}
+          patientId={patientId}
+          consultId={consultation?.id}
+          numeroGuia={consultation?.faturamento?.numero_guia ?? consultation?.opme_guia?.numero}
+          onInsights={onInsights}
+        />
+      )}
       <Card className={cn(report.pendencias.some((p) => p.severidade === "critico") && "border-critico-border")}>
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -304,45 +313,13 @@ export function SurgicalPanel({
         </Card>
       )}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <PackageCheck aria-hidden className="size-5 text-primary" /> Conciliação de OPME e materiais
-          </CardTitle>
-          <CardDescription>Citado no ditado × autorizado na guia. Catálogo e códigos de demonstração (não são TUSS).</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <caption className="sr-only">Materiais citados e autorizados</caption>
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th scope="col" className="py-1 pr-2">Material</th>
-                <th scope="col" className="py-1 pr-2 text-right">Autorizado</th>
-                <th scope="col" className="py-1 pr-2 text-right">Citado</th>
-                <th scope="col" className="py-1">Situação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.opme.map((o) => (
-                <tr key={o.codigo} className="border-b">
-                  <th scope="row" className="py-1.5 pr-2 text-left font-normal">
-                    <span className="font-bold">{o.descricao}</span>
-                    <span className="block font-mono text-xs text-muted-foreground">{o.codigo}</span>
-                  </th>
-                  <td className="py-1.5 pr-2 text-right tabular-nums">{o.autorizado}</td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums">{o.citado}</td>
-                  <td className="py-1.5">
-                    <Badge variant={OPME_STATUS[o.status].variant} className="text-[11px]">
-                      {OPME_STATUS[o.status].label}
-                    </Badge>
-                    <SourceRefs patientId={patientId} refs={o.refs} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+      <OpmePanel
+        report={report}
+        patientId={patientId}
+        consultId={consultation?.id}
+        guide={consultation?.opme_guia}
+        onInsights={onInsights}
+      />
     </section>
   );
 }

@@ -60,7 +60,7 @@ class Alert(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patient_id: Mapped[str] = mapped_column(String(64), index=True)
-    source: Mapped[str] = mapped_column(String(20))  # handoff | medrec | discharge
+    source: Mapped[str] = mapped_column(String(20))  # handoff | medrec | discharge | jornada
     severity: Mapped[str] = mapped_column(String(20))  # info | atencao | critico
     title: Mapped[str] = mapped_column(String(300))
     detail: Mapped[str] = mapped_column(Text, default="")
@@ -180,3 +180,49 @@ class Consultation(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class JourneyContact(Base):
+    """Contato pós-alta feito pela equipe (ligação, visita ou retorno de mensagem): roteiro respondido e desfecho.
+
+    O HousIA não envia SMS/WhatsApp: registra o que a equipe fez. O texto livre e as respostas ficam aqui; o
+    prontuário recebe um DocumentReference (fhir_ref).
+    """
+
+    __tablename__ = "journey_contacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    patient_id: Mapped[str] = mapped_column(String(64), index=True)
+    encounter_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    channel: Mapped[str] = mapped_column(String(20))  # telefone | visita | presencial | mensagem
+    reached: Mapped[bool] = mapped_column()  # falou com o paciente/cuidador (tentativa sem sucesso = False)
+    answers_json: Mapped[dict] = mapped_column(JsonType, default=dict)
+    alarm_signs_json: Mapped[list] = mapped_column(JsonType, default=list)
+    pendencies_json: Mapped[list] = mapped_column(JsonType, default=list)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fhir_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    alert_id: Mapped[int | None] = mapped_column(ForeignKey("alerts.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class JourneyTask(Base):
+    """Tarefa de acompanhamento criada a partir de um item da lista da jornada (espelhada como FHIR Task)."""
+
+    __tablename__ = "journey_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    patient_id: Mapped[str] = mapped_column(String(64), index=True)
+    rule: Mapped[str] = mapped_column(String(60), index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    role: Mapped[str] = mapped_column(String(20))  # papel responsável: medico | enfermagem | gestor
+    due_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    status: Mapped[str] = mapped_column(String(20), default="aberta")  # aberta | concluida | cancelada
+    source_refs: Mapped[list] = mapped_column(JsonType, default=list)
+    fhir_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    closed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    closing_note: Mapped[str | None] = mapped_column(Text, nullable=True)

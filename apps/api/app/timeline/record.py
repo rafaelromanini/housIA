@@ -125,6 +125,39 @@ class PendingExam:
     imagem: bool
 
 
+@dataclass(frozen=True)
+class ImplantInfo:
+    """Implante (FHIR Device com UDI) do paciente e o procedimento que o usou (Procedure.usedReference)."""
+
+    ref: str
+    descricao: str
+    gtin: str | None
+    lote: str | None
+    serie: str | None
+    validade: str | None
+    registro_anvisa: str | None
+    procedimento: str | None
+    procedimento_ref: str | None
+    colocado_em: datetime | None
+    encounter_id: str | None
+
+    @property
+    def refs(self) -> list[str]:
+        return [self.ref, *([self.procedimento_ref] if self.procedimento_ref else [])]
+
+    @property
+    def rotulo(self) -> str:
+        parts = [self.descricao]
+        if self.lote:
+            parts.append(f"lote {self.lote}")
+        if self.serie:
+            parts.append(f"série {self.serie}")
+        if self.validade:
+            y, m, d = self.validade[:10].split("-")
+            parts.append(f"validade {d}/{m}/{y}")
+        return ", ".join(parts)
+
+
 def note_text(doc: dict) -> str:
     for content in doc.get("content", []):
         att = content.get("attachment", {})
@@ -365,6 +398,41 @@ class PatientRecord:
                 )
             )
         out.sort(key=lambda e: e.pedido_em or datetime.min.replace(tzinfo=UTC))
+        return out
+
+    @property
+    def implants(self) -> list[ImplantInfo]:
+        """Implantes registrados (Device com lote/série/UDI), do mais recente ao mais antigo."""
+        used: dict[str, dict] = {}
+        for proc in self.resources.get("Procedure", []):
+            for ref in proc.get("usedReference", []):
+                used.setdefault(ref.get("reference", ""), proc)
+        out = []
+        for dev in self.resources.get("Device", []):
+            if not (dev.get("lotNumber") or dev.get("serialNumber") or dev.get("udiCarrier")):
+                continue
+            proc = used.get(f"Device/{dev['id']}")
+            udi = (dev.get("udiCarrier") or [{}])[0]
+            registro = next(
+                (i["value"] for i in dev.get("identifier", []) if i.get("system") == codes.ANVISA_REGISTRO), None
+            )
+            names = dev.get("deviceName") or [{}]
+            out.append(
+                ImplantInfo(
+                    ref=f"Device/{dev['id']}",
+                    descricao=(dev.get("type") or {}).get("text") or names[0].get("name") or "Implante",
+                    gtin=udi.get("deviceIdentifier"),
+                    lote=dev.get("lotNumber"),
+                    serie=dev.get("serialNumber"),
+                    validade=dev.get("expirationDate"),
+                    registro_anvisa=registro,
+                    procedimento=((proc or {}).get("code") or {}).get("text"),
+                    procedimento_ref=f"Procedure/{proc['id']}" if proc else None,
+                    colocado_em=parse_dt((proc or {}).get("performedDateTime")),
+                    encounter_id=ref_id((proc or {}).get("encounter")),
+                )
+            )
+        out.sort(key=lambda i: i.colocado_em or datetime.min.replace(tzinfo=UTC), reverse=True)
         return out
 
     @property

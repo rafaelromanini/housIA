@@ -24,6 +24,7 @@ TREND_KEYS = {
     "temp": ("Temperatura", 0.8, "sobe"),
     "glicemia": ("Glicemia capilar", 60, "sobe"),
 }
+IMPLANT_DAYS = 30  # implante recente entra na passagem de plantão
 ORDER = {"normal": 0, "info": 0, "atencao": 1, "critico": 2}
 
 
@@ -60,6 +61,7 @@ class FactBuilder:
         self._urine()
         self._scales()
         self._devices()
+        self._implants()
         self._prescription_changes()
         self._next_doses()
         self._medication_safety()
@@ -271,6 +273,22 @@ class FactBuilder:
                         horizonte_h=24,
                     )
                 )
+
+    def _implants(self) -> None:
+        """Implante (OPME rastreada pela etiqueta): descrição, lote, série e validade seguem o paciente."""
+        for i in self.r.implants:
+            if i.colocado_em and (self.now - i.colocado_em).days > IMPLANT_DAYS:
+                continue
+            when = f" ({hhmm(i.colocado_em)}, há {_hours(self.now - i.colocado_em)}h)" if i.colocado_em else ""
+            where = f" em {i.procedimento}" if i.procedimento else ""
+            self.facts.append(
+                Fact(
+                    tipo="implante",
+                    texto=f"Implante: {i.rotulo}{where}{when}.",
+                    refs=i.refs,
+                    publico=["enfermagem", "medico"],
+                )
+            )
 
     def _devices(self) -> None:
         procedures = [e for e in self.events if e.kind == "procedure" and e.timestamp <= self.now]

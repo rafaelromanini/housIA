@@ -40,6 +40,10 @@ const ACTION_LABEL: Record<string, string> = {
   "handoff.conferencia": "Conferência da passagem verbal",
   "discharge.documentos": "Documentos de alta gerados",
   "ia.feedback": "Avaliação da IA (útil/não útil)",
+  "jornada.tarefa_criada": "Tarefa da jornada criada",
+  "jornada.tarefa_concluida": "Tarefa da jornada concluída",
+  "jornada.tarefa_cancelada": "Tarefa da jornada cancelada",
+  "jornada.contato_registrado": "Contato pós-alta registrado",
 };
 
 const FILTERS = [
@@ -49,6 +53,7 @@ const FILTERS = [
   { value: "discharge.", label: "Alta" },
   { value: "discharge.override", label: "Overrides de alta" },
   { value: "alerta.", label: "Mudanças de status de alerta" },
+  { value: "jornada.", label: "Jornada do paciente" },
   { value: "auth.", label: "Logins" },
 ];
 
@@ -95,6 +100,10 @@ function summarize(e: AuditEntry): string {
     case "alerta.reconhecido":
     case "alerta.descartado":
       return `${p.titulo}${p.justificativa ? ` — “${p.justificativa}”` : ""}`;
+    case "jornada.tarefa_criada":
+      return `${p.regra} · ${p.papel} · prazo ${p.prazo} · ${p.fhir}`;
+    case "jornada.contato_registrado":
+      return `${p.canal} · ${p.atendeu ? "atendeu" : "sem sucesso"}${(p.alarmes as string[] | undefined)?.length ? ` · alarme: ${(p.alarmes as string[]).join(", ")}` : ""}`;
     case "alerta.reaberto":
       return `${p.titulo ?? ""} — agora ${p.severidade === "critico" ? "crítico" : p.severidade}`;
     default:

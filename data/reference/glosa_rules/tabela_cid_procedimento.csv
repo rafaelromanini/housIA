@@ -1,0 +1,16 @@
+procedimento,cid_prefixos,fonte
+apendicectomia,K35|K36|K37|K38,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+colecistectomia,K80|K81|K82|K83|K85|C23,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+herniorrafia,K40|K41|K42|K43|K44|K45|K46,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+cesarea,O,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+histerectomia,D25|N80|N81|N83|N84|N85|N92|N93|N87|D06|C53|C54|C55,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+mastectomia,C50|D05|D24|N60|N63|Z40,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+colectomia,C18|C19|D12|K50|K51|K56|K57|K63,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+rtu_prostata,N40|N41|N42|N13|C61|R33,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+nefrolitotripsia,N20|N21|N22|N23|N13,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+safenectomia,I83|I87|I80,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+angioplastia,I20|I21|I22|I24|I25|I70|I73|I74,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+revascularizacao_miocardio,I20|I21|I22|I24|I25,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+artroplastia_joelho,M05|M06|M07|M08|M12|M13|M15|M17|M19|M24|M25|M87|S83|T84,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+artroplastia_quadril,M05|M06|M15|M16|M19|M24|M25|M80|M84|M87|M91|Q65|S72|T84,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora
+osteossintese,S|T14|M80|M84,Curadoria HousIA (demonstração): compatibilidade clínica entre CID-10 e procedimento; substituir pela relação procedimento×CID do SIGTAP (DATASUS) ou do contrato da operadora

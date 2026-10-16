@@ -200,6 +200,7 @@ class Highlight(BaseModel):
     texto: str
     severidade: Severity
     refs: list[str]
+    categoria: str | None = None  # ex.: "opme" (recalculada quando o cirurgião edita o OPME na revisão)
 
 
 SemioField = Literal["inicio_duracao", "localizacao", "intensidade", "piora", "melhora", "frequencia", "associados"]
@@ -269,13 +270,52 @@ class ReportField(BaseModel):
     fonte: str | None = None
 
 
+OpmeStatus = Literal[
+    "conferido",
+    "nao_autorizado",
+    "nao_citado",
+    "quantidade_divergente",
+    "validade_vencida",
+    "sem_etiqueta",
+    "sem_fala",
+]
+ViaStatus = Literal["ok", "divergente", "ausente", "nao_registrado", "nao_aplica"]
+
+
+class OpmeLote(BaseModel):
+    """Leitura de etiqueta GS1 (lote, validade, série) de um item consumido."""
+
+    id: str
+    gtin: str | None = None
+    lote: str | None = None
+    validade: str | None = None
+    serie: str | None = None
+    quantidade: int = 1
+    vencido: bool = False
+    registro_anvisa: str | None = None
+    lido_em: str | None = None
+    por: str | None = None
+
+
 class OpmeLine(BaseModel):
+    """Conciliação em três vias: o narrado (Fala/N), o autorizado (guia) e o consumido (etiqueta lida)."""
+
     codigo: str
     descricao: str
     autorizado: int
     citado: int
-    status: Literal["conferido", "nao_autorizado", "nao_citado", "quantidade_divergente"]
+    consumido: int = 0
+    status: OpmeStatus
     refs: list[str]
+    status_fala: ViaStatus = "ok"
+    status_guia: ViaStatus = "ok"
+    status_etiqueta: ViaStatus = "nao_registrado"
+    implantavel: bool = False
+    tamanhos: list[str] = []
+    lotes: list[OpmeLote] = []
+    registro_anvisa: str | None = None
+    justificativa: str | None = None
+    editado: bool = False
 
 
 class TemplateInfo(BaseModel):
@@ -322,6 +362,37 @@ class ProposedOrder(BaseModel):
     recurso: dict
 
 
+class BillingItem(BaseModel):
+    """Pendência de faturamento: a regra (em data/reference/glosa_rules) que a gerou, com a fonte."""
+
+    regra: str
+    tipo: str
+    severidade: Severity
+    texto: str
+    fonte: str
+    campo: str | None = None
+    refs: list[str] = []
+    peso: int = 0
+
+
+class Readiness(BaseModel):
+    """Prontidão para faturamento (0–100): regras de glosa em dados, avaliadas sobre o relatório."""
+
+    score: int
+    pronto: bool
+    convenio: str
+    convenio_rotulo: str
+    regras_avaliadas: int
+    regras_ok: int
+    criticas: int
+    atencoes: int
+    pendencias: list[BillingItem]
+    procedimento: str | None = None
+    codigo_demo: str | None = None
+    numero_guia: str | None = None
+    versao: str = ""
+
+
 class SurgicalReport(BaseModel):
     campos: list[ReportField]
     opme: list[OpmeLine]
@@ -332,6 +403,7 @@ class SurgicalReport(BaseModel):
     verificacoes: list[SafetyCheck] = []
     pedidos: list[ProposedOrder] = []
     perioperatorio: list["SurgeryItem"] = []
+    prontidao: Readiness | None = None
 
 
 class Insights(BaseModel):
