@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { AuditEntry, AuditMetrics } from "@/lib/api";
+import type { AuditEntry, AuditMetrics, BedRow } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { dayOf, fmtDateTime, ROLE_LABEL } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
@@ -36,6 +36,7 @@ const ACTION_LABEL: Record<string, string> = {
   "alerta.reconhecido": "Alerta reconhecido",
   "alerta.descartado": "Alerta descartado",
   "alerta.aberto": "Alerta reaberto",
+  "alerta.reaberto": "Alerta reaberto (severidade subiu)",
   "handoff.conferencia": "Conferência da passagem verbal",
   "discharge.documentos": "Documentos de alta gerados",
   "ia.feedback": "Avaliação da IA (útil/não útil)",
@@ -94,6 +95,8 @@ function summarize(e: AuditEntry): string {
     case "alerta.reconhecido":
     case "alerta.descartado":
       return `${p.titulo}${p.justificativa ? ` — “${p.justificativa}”` : ""}`;
+    case "alerta.reaberto":
+      return `${p.titulo ?? ""} — agora ${p.severidade === "critico" ? "crítico" : p.severidade}`;
     default:
       return "";
   }
@@ -114,6 +117,9 @@ export function AuditView() {
   const allowed = user?.role === "gestor";
   const metrics = useApi<AuditMetrics>(allowed ? `/audit/metrics?since=${since}&until=${until}` : null);
   const log = useApi<{ total: number; items: AuditEntry[] }>(allowed ? `/audit?${query}` : null);
+  // nome e leito no lugar do id interno do paciente
+  const beds = useApi<BedRow[]>(allowed ? "/patients" : null);
+  const patientName = useMemo(() => new Map((beds.data ?? []).map((b) => [b.id, b])), [beds.data]);
 
   if (!allowed) {
     return (
@@ -248,7 +254,10 @@ export function AuditView() {
                               <span className="block text-xs text-muted-foreground">{ROLE_LABEL[e.user.role]}</span>
                             </>
                           ) : (
-                            "—"
+                            <>
+                              HousIA
+                              <span className="block text-xs text-muted-foreground">automático</span>
+                            </>
                           )}
                         </td>
                         <td className="py-2 pr-3">
@@ -257,8 +266,16 @@ export function AuditView() {
                         </td>
                         <td className="py-2 pr-3">
                           {pid ? (
-                            <Link className="font-bold text-primary hover:underline" href={`/pacientes/${pid}`}>
-                              {pid}
+                            <Link
+                              className="inline-flex min-h-9 flex-col justify-center font-bold text-primary hover:underline"
+                              href={`/pacientes/${pid}`}
+                            >
+                              {patientName.get(pid)?.nome ?? pid}
+                              {patientName.get(pid) && (
+                                <span className="text-xs font-normal text-muted-foreground">
+                                  {patientName.get(pid)!.setor} · leito {patientName.get(pid)!.leito}
+                                </span>
+                              )}
                             </Link>
                           ) : (
                             "—"

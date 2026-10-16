@@ -54,7 +54,15 @@ def upsert_alert(
             alert.title, alert.detail, alert.source_refs, alert.severity = title, detail, refs, severity
             if escalated and alert.status == "reconhecido":
                 alert.status, alert.acted_by, alert.acted_at = "aberto", None, None
-                log_action(db, None, "alerta.reaberto", "alert", alert.id, {"severidade": severity}, commit=False)
+                log_action(
+                    db,
+                    None,
+                    "alerta.reaberto",
+                    "alert",
+                    alert.id,
+                    {"patient_id": patient_id, "titulo": title, "severidade": severity},
+                    commit=False,
+                )
             if claimed is not None:
                 claimed.add(alert.id)
             return alert

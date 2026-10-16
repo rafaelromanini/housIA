@@ -111,4 +111,6 @@ test("auditoria mostra o override de alta para o gestor", async ({ page }) => {
   await page.getByLabel("Ação").selectOption("discharge.override");
   await expect(page.getByRole("table").getByText("Override de alta (justificado)").first()).toBeVisible();
   await expect(page.getByRole("table").getByText(/Melhor em Casa/).first()).toBeVisible();
+  // paciente identificado pelo nome (não pelo id interno)
+  await expect(page.getByRole("table").getByRole("link", { name: /Sebastião Alves Moreira/ }).first()).toBeVisible();
 });
