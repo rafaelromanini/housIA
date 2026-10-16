@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { FileSearch } from "lucide-react";
+import { FileSearch, MessageSquareQuote } from "lucide-react";
 
 import { KIND_META } from "@/components/timeline";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,16 @@ import type { ClinicalEvent } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 import { fetchTimeline } from "@/lib/timeline-cache";
 
-/** Link "ver fonte": mostra o(s) evento(s) FHIR que sustentam uma afirmação. */
-export function SourceRefs({ patientId, refs, label = "ver fonte" }: { patientId: string; refs: string[]; label?: string }) {
+/** Destaca uma fala da transcrição da consulta (refs "Fala/N"). */
+export function focusFala(n: number) {
+  window.dispatchEvent(new CustomEvent("housia:fala", { detail: n }));
+}
+
+/** Link "ver fonte": mostra o(s) evento(s) FHIR que sustentam uma afirmação; refs "Fala/N" apontam para a conversa. */
+export function SourceRefs({ patientId, refs: allRefs, label = "ver fonte" }: { patientId: string; refs: string[]; label?: string }) {
   const [events, setEvents] = useState<ClinicalEvent[] | null>(null);
+  const falas = allRefs.filter((r) => r.startsWith("Fala/")).map((r) => Number(r.split("/")[1]));
+  const refs = allRefs.filter((r) => !r.startsWith("Fala/"));
 
   async function onOpen(open: boolean) {
     if (open && !events) {
@@ -23,7 +30,40 @@ export function SourceRefs({ patientId, refs, label = "ver fonte" }: { patientId
     }
   }
 
-  if (refs.length === 0) return null;
+  if (refs.length === 0 && falas.length === 0) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1">
+      {falas.map((n) => (
+        <Button
+          key={n}
+          variant="link"
+          size="sm"
+          className="min-h-9 px-1 text-xs"
+          onClick={() => focusFala(n)}
+          aria-label={`Ir para a fala ${n} da conversa`}
+        >
+          <MessageSquareQuote aria-hidden />
+          fala {n}
+        </Button>
+      ))}
+      {refs.length > 0 && <FhirRefs patientId={patientId} refs={refs} label={label} events={events} onOpen={onOpen} />}
+    </span>
+  );
+}
+
+function FhirRefs({
+  patientId,
+  refs,
+  label,
+  events,
+  onOpen,
+}: {
+  patientId: string;
+  refs: string[];
+  label: string;
+  events: ClinicalEvent[] | null;
+  onOpen: (open: boolean) => Promise<void>;
+}) {
   return (
     <Dialog onOpenChange={(o) => void onOpen(o)}>
       <DialogTrigger asChild>

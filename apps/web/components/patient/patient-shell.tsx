@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, BedDouble, CalendarDays, ClipboardCheck, House, LayoutList, OctagonAlert, Pill, Sparkles } from "lucide-react";
+import { ArrowLeft, BedDouble, CalendarDays, ClipboardCheck, House, LayoutList, Mic, OctagonAlert, Pill, Sparkles, Stethoscope } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { PatientContext } from "@/components/patient/patient-context";
@@ -42,7 +42,7 @@ function PatientLoader({ patientId, children }: { patientId: string; children: R
     <PatientContext.Provider value={{ patient: data, reload }}>
       <div className="space-y-4">
         <PatientHeader patient={data} />
-        <PatientTabs patientId={data.id} />
+        <PatientTabs patientId={data.id} inpatient={data.internado} />
         <div>{children}</div>
       </div>
     </PatientContext.Provider>
@@ -53,8 +53,11 @@ function PatientHeader({ patient: p }: { patient: PatientDetail }) {
   const allergies = p.contexto.alergias;
   return (
     <section aria-label="Identificação do paciente" className="rounded-lg border bg-card p-4 shadow-sm space-y-3">
-      <Link href="/leitos" className="inline-flex min-h-9 items-center gap-1 text-sm font-bold text-primary hover:underline">
-        <ArrowLeft aria-hidden className="size-4" /> Painel de leitos
+      <Link
+        href={p.internado ? "/leitos" : "/consultas"}
+        className="inline-flex min-h-9 items-center gap-1 text-sm font-bold text-primary hover:underline"
+      >
+        <ArrowLeft aria-hidden className="size-4" /> {p.internado ? "Painel de leitos" : "Agenda de consultas"}
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
@@ -63,17 +66,29 @@ function PatientHeader({ patient: p }: { patient: PatientDetail }) {
             <span>
               {p.idade ?? "—"} anos · {p.sexo}
             </span>
-            <span className="inline-flex items-center gap-1">
-              <BedDouble aria-hidden className="size-4" />
-              {p.setor} · Leito {p.leito}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <CalendarDays aria-hidden className="size-4" />
-              {p.dias_internacao} dia(s) · internação {p.tipo_internacao}
-              {p.internado_em && ` desde ${fmtDateTime(p.internado_em)}`}
-            </span>
+            {p.internado ? (
+              <>
+                <span className="inline-flex items-center gap-1">
+                  <BedDouble aria-hidden className="size-4" />
+                  {p.setor} · Leito {p.leito}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <CalendarDays aria-hidden className="size-4" />
+                  {p.dias_internacao} dia(s) · internação {p.tipo_internacao}
+                  {p.internado_em && ` desde ${fmtDateTime(p.internado_em)}`}
+                </span>
+              </>
+            ) : (
+              p.ambulatorial && (
+                <span className="inline-flex items-center gap-1">
+                  <Stethoscope aria-hidden className="size-4" />
+                  {p.ambulatorial.servico}
+                  {p.ambulatorial.inicio && ` · chegada ${fmtDateTime(p.ambulatorial.inicio)}`}
+                </span>
+              )
+            )}
           </p>
-          <p className="text-sm">{p.motivo}</p>
+          <p className="text-sm">{p.internado ? p.motivo : p.ambulatorial?.motivo}</p>
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           <AlertCountBadges counts={p.alertas_abertos} />
@@ -114,19 +129,20 @@ function PatientHeader({ patient: p }: { patient: PatientDetail }) {
 }
 
 const TABS = [
-  { href: "", label: "Visão geral", Icon: LayoutList },
-  { href: "/passagem", label: "Passagem de plantão", Icon: ClipboardCheck },
-  { href: "/alta", label: "Planejar alta", Icon: House },
-  { href: "/reconciliacao", label: "Reconciliação", Icon: Pill },
+  { href: "", label: "Visão geral", Icon: LayoutList, inpatientOnly: false },
+  { href: "/consulta", label: "Consulta com IA", Icon: Mic, inpatientOnly: false },
+  { href: "/passagem", label: "Passagem de plantão", Icon: ClipboardCheck, inpatientOnly: true },
+  { href: "/alta", label: "Planejar alta", Icon: House, inpatientOnly: true },
+  { href: "/reconciliacao", label: "Reconciliação", Icon: Pill, inpatientOnly: true },
 ];
 
-function PatientTabs({ patientId }: { patientId: string }) {
+function PatientTabs({ patientId, inpatient }: { patientId: string; inpatient: boolean }) {
   const pathname = usePathname();
   const base = `/pacientes/${patientId}`;
   return (
     <nav aria-label="Seções do paciente" className="overflow-x-auto">
       <ul className="flex min-w-max gap-1 border-b">
-        {TABS.map(({ href, label, Icon }) => {
+        {TABS.filter((t) => inpatient || !t.inpatientOnly).map(({ href, label, Icon }) => {
           const target = `${base}${href}`;
           const active = href === "" ? pathname === base : pathname.startsWith(target);
           return (

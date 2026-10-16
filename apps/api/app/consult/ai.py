@@ -344,13 +344,9 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     plan = [m for m in ins.sugestoes_medicamentos if m.severidade in ("critico", "atencao")]
     pending_protocol = [p for p in ins.protocolos if p.status in ("sem_registro", "pendente")]
     cids = [{"codigo": h.cid, "descricao": h.hipotese, "tipo": "hipotese", "refs": h.refs[:3]} for h in hyps] + [
-        {
-            "codigo": text.split("(")[-1].split(")")[0],
-            "descricao": text.split(" (")[0],
-            "tipo": "secundario",
-            "refs": refs,
-        }
-        for text, refs in ((h.texto, h.refs) for h in ins.historico if h.tipo == "diagnostico")
+        {"codigo": icd, "descricao": text, "tipo": "secundario", "refs": [f"Condition/{c['id']}"]}
+        for icd, text, c in engine.chart.conditions
+        if icd
     ]
     chrono = []
     for t in ins.queixas:
@@ -404,7 +400,10 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
             "refs": [r for m in ins.medicamentos if m.status != "suspenso" for r in m.refs],
         },
         "alergias": {
-            "texto": "; ".join(f"{al.alergeno} ({al.fonte})" for al in ins.alergias)
+            "texto": "; ".join(
+                f"{al.alergeno} ({'prontuário' if al.fonte == 'prontuario' else 'relatada na consulta'})"
+                for al in ins.alergias
+            )
             or ("Nega alergias conhecidas." if engine.chart.ctx.nega_alergias else no_record),
             "refs": [r for al in ins.alergias for r in al.refs],
         },

@@ -256,7 +256,7 @@ class ChartView:
                 posologia=m.text,
                 desde=fmt_date(m.start),
                 status="em_uso",
-                observacao=f"Substituiu prescrição anterior ({m.prior_ref})" if m.prior_ref else None,
+                observacao=self._replaced(m),
                 refs=[m.ref],
             )
             for m in self.active_meds
@@ -290,6 +290,12 @@ class ChartView:
                 )
             )
         return out
+
+    def _replaced(self, m: MedInfo) -> str | None:
+        if not m.prior_ref:
+            return None
+        prior = next((x for x in self.r.medications if x.ref == m.prior_ref), None)
+        return f"Substituiu {prior.text}" if prior else "Substituiu prescrição anterior"
 
     # ---------- Alergias ----------
     def chart_allergies(self) -> list[AllergyInfo]:

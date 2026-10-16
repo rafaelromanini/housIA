@@ -68,6 +68,15 @@ export interface PatientDetail {
   alertas_abertos: AlertCounts;
   risco_alta: Risk | null;
   cenario: { id: string; tag: string; titulo: string; esperado: string } | null;
+  internado: boolean;
+  ambulatorial: {
+    encounter_id: string;
+    servico: string;
+    status: string;
+    inicio: string | null;
+    motivo: string;
+    profissional: string;
+  } | null;
 }
 
 export type EventKind = "vital" | "lab" | "med_order" | "med_admin" | "note" | "procedure" | "transfer" | "diagnosis" | "io";
@@ -391,7 +400,7 @@ export interface AuditMetrics {
 }
 
 // ---------- Melhorias (benchmark): feedback, conferência verbal, documentos de alta ----------
-export type FeedbackKind = "handoff" | "handoff_check" | "medrec" | "discharge" | "discharge_docs";
+export type FeedbackKind = "handoff" | "handoff_check" | "medrec" | "discharge" | "discharge_docs" | "consulta" | "consulta_nota";
 
 export interface HandoffCheckItem {
   fato: string;
@@ -434,4 +443,277 @@ export interface DischargeDocuments {
   };
   descartados: { onde: string; texto?: string; refs_invalidas: string[] }[];
   meta: { modo: "mock" | "real"; gerado_em: string; traducao_disponivel: boolean };
+}
+
+// ---------- Consulta com IA ----------
+export type Speaker = "medico" | "paciente" | "acompanhante" | "desconhecido";
+export type ConsultKind = "consulta" | "visita" | "cirurgia";
+export type Origin = "regra" | "ia";
+export type Priority = "alta" | "media" | "baixa";
+export type Confidence = "baixa" | "media" | "alta";
+
+export interface Segment {
+  n: number;
+  t: number;
+  falante: Speaker;
+  falante_auto: boolean;
+  texto: string;
+  idioma: string;
+  traducao: string | null;
+  origem: "microfone" | "servidor" | "digitado" | "demo";
+}
+
+export interface ConsultTag {
+  rotulo: string;
+  status: "presente" | "negado";
+  refs: string[];
+  origem: Origin;
+}
+export interface ConsultEmotion {
+  emocao: string;
+  rotulo: string;
+  quem: Speaker;
+  intensidade: "baixa" | "media" | "alta";
+  trecho: string;
+  abordagem: string;
+  refs: string[];
+  origem: Origin;
+}
+export interface ConsultQuestion {
+  pergunta: string;
+  motivo: string;
+  prioridade: Priority;
+  refs: string[];
+  origem: Origin;
+}
+export interface Evidence {
+  texto: string;
+  refs: string[];
+}
+export interface ConsultHypothesis {
+  hipotese: string;
+  cid: string;
+  confianca: Confidence;
+  a_favor: Evidence[];
+  contra: Evidence[];
+  proximos_passos: string;
+  sinais_de_alarme: string;
+  refs: string[];
+  origem: Origin;
+}
+export interface HistoryItem {
+  texto: string;
+  quando: string | null;
+  tipo: "diagnostico" | "cirurgia" | "internacao" | "pronto_socorro" | "consulta" | "familiar" | "relatado";
+  refs: string[];
+  origem: Origin;
+}
+export interface AllergyInfo {
+  alergeno: string;
+  reacao: string;
+  fonte: "prontuario" | "relatado";
+  reatividade_cruzada: string;
+  evitar: string;
+  alternativas: string;
+  dicas: string;
+  conflitos: string[];
+  refs: string[];
+  origem: Origin;
+}
+export interface ExamInfo {
+  exame: string;
+  chave: string;
+  valor: string;
+  data: string;
+  status: "baixo" | "normal" | "alto";
+  explicacao: string;
+  tendencia: string | null;
+  refs: string[];
+  origem: Origin;
+}
+export interface MedItem {
+  medicamento: string;
+  posologia: string;
+  desde: string | null;
+  status: "em_uso" | "suspenso" | "relatado";
+  observacao: string | null;
+  refs: string[];
+}
+export interface MedSuggestion {
+  texto: string;
+  tipo: "ajuste_dose" | "alternativa" | "suspender" | "interacao" | "registrar" | "adesao" | "alergia";
+  severidade: Severity;
+  refs: string[];
+  origem: Origin;
+}
+export interface SurgeryItem {
+  texto: string;
+  tipo: "historico" | "planejada" | "checagem";
+  refs: string[];
+  origem: Origin;
+}
+export interface ProtocolItem {
+  protocolo: string;
+  item: string;
+  status: "em_dia" | "pendente" | "sem_registro" | "fora_do_alvo" | "no_alvo";
+  ultimo: string | null;
+  orientacao: string;
+  refs: string[];
+}
+export interface Highlight {
+  texto: string;
+  severidade: Severity;
+  refs: string[];
+}
+export interface Anamnese {
+  queixa_principal: string;
+  hda: string;
+  antecedentes: string[];
+  medicacoes_em_uso: string[];
+  alergias: string[];
+  habitos_e_contexto: string[];
+  revisao_de_sistemas: string[];
+  refs: string[];
+}
+export interface ReportField {
+  campo: string;
+  rotulo: string;
+  texto: string;
+  refs: string[];
+  obrigatorio: boolean;
+}
+export interface OpmeLine {
+  codigo: string;
+  descricao: string;
+  autorizado: number;
+  citado: number;
+  status: "conferido" | "nao_autorizado" | "nao_citado" | "quantidade_divergente";
+  refs: string[];
+}
+export interface CidSuggestion {
+  codigo: string;
+  descricao: string;
+  tipo: "principal" | "secundario" | "hipotese";
+  refs: string[];
+}
+export interface SurgicalReport {
+  campos: ReportField[];
+  opme: OpmeLine[];
+  pendencias: Highlight[];
+  cids: CidSuggestion[];
+}
+export interface ConsultInsights {
+  tipo: ConsultKind;
+  especialidade: string;
+  falas_analisadas: number;
+  modo: "regras" | "ia";
+  queixas: ConsultTag[];
+  emocoes: ConsultEmotion[];
+  linha_emocional: { n: number; falante: Speaker; emocoes: string[] }[];
+  comunicacao: {
+    falas: number;
+    palavras_paciente_pct: number;
+    palavras_profissional_pct: number;
+    perguntas_abertas: number;
+    perguntas_fechadas: number;
+  } | null;
+  perguntas: ConsultQuestion[];
+  perguntas_abordadas: ConsultQuestion[];
+  hipoteses: ConsultHypothesis[];
+  historico: HistoryItem[];
+  alergias: AllergyInfo[];
+  exames: ExamInfo[];
+  medicamentos: MedItem[];
+  sugestoes_medicamentos: MedSuggestion[];
+  cirurgia: SurgeryItem[];
+  protocolos: ProtocolItem[];
+  resumo: { texto: string; destaques: Highlight[] } | null;
+  anamnese: Anamnese | null;
+  alertas: Highlight[];
+  relatorio_cirurgico: SurgicalReport | null;
+  tfg: number | null;
+  descartados: Record<string, unknown>[];
+}
+export interface NoteSection {
+  texto: string;
+  refs: string[];
+}
+export interface ConsultNote {
+  queixa_principal: NoteSection;
+  hda: NoteSection;
+  antecedentes: NoteSection;
+  medicacoes: NoteSection;
+  alergias: NoteSection;
+  exame_fisico: NoteSection;
+  exames_complementares: NoteSection;
+  avaliacao: NoteSection;
+  plano: NoteSection;
+  cids: CidSuggestion[];
+  cronologia: { quando: string; texto: string; refs: string[] }[];
+  pendencias: NoteSection[];
+  orientacoes_paciente: string[];
+}
+export interface Consultation {
+  id: number;
+  patient_id: string;
+  encounter_id: string | null;
+  tipo: ConsultKind;
+  especialidade: string;
+  especialidade_rotulo: string;
+  idioma_paciente: string;
+  status: "em_andamento" | "finalizada" | "enviada";
+  segmentos: Segment[];
+  insights: ConsultInsights | null;
+  ia: {
+    modo: "real" | "mock";
+    modelo: string;
+    prompt_version: string;
+    falas: number;
+    em: string;
+    segundos: number;
+    descartados: Record<string, unknown>[];
+  } | null;
+  nota: (ConsultNote & { relatorio_cirurgico?: undefined }) | { relatorio_cirurgico: SurgicalReport } | null;
+  nota_meta: {
+    modo: string;
+    modelo: string;
+    prompt_version: string;
+    gerada_em: string;
+    revisada_por: string | null;
+    revisada_em: string | null;
+  } | null;
+  fhir_ref: string | null;
+  roteiro_demo: string | null;
+  criado_por: string | null;
+  created_at: string;
+  finished_at: string | null;
+  sent_at: string | null;
+}
+export interface ConsultConfig {
+  llm_mode: "real" | "mock";
+  stt_servidor: boolean;
+  envio_prontuario: boolean;
+  idiomas: { value: string; label: string }[];
+  especialidades: { value: string; label: string; foco: string }[];
+}
+export interface Appointment {
+  encounter_id: string;
+  patient_id: string;
+  nome: string;
+  nascimento: string | null;
+  horario: string;
+  status_fhir: string;
+  servico: string;
+  profissional: string;
+  motivo: string;
+  consulta_id: number | null;
+  consulta_status: Consultation["status"] | null;
+  cenario: boolean;
+}
+export interface DemoScript {
+  id: string;
+  patient_id: string;
+  tipo: ConsultKind;
+  titulo: string;
+  falas: { t: number; falante: Speaker; texto: string }[];
 }

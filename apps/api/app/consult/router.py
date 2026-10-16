@@ -138,3 +138,11 @@ def send(
 ) -> dict:
     """Envia a nota aprovada ao prontuário como FHIR DocumentReference (ou devolve o recurso para exportar)."""
     return service.send_to_ehr(db, fhir, user, cid)
+
+
+@router.get("/consultations/{cid}/export")
+def export(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+) -> dict:
+    """Texto pronto para o prontuário e o recurso FHIR (DocumentReference), sem enviar."""
+    return service.export(db, fhir, user, cid)

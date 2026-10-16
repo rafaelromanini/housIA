@@ -541,7 +541,12 @@ class Engine:
         complaint_segs = [
             s for s in self.patient_segments if any(f"Fala/{s.n}" in t.refs for t in tags if t.status == "presente")
         ]
-        qp = self.quote(complaint_segs[0], 140) if complaint_segs else "Sem queixa registrada na conversa até agora."
+        present = [t.rotulo for t in tags if t.status == "presente"]
+        qp = (
+            f"{', '.join(present[:3])} — {self.quote(complaint_segs[0], 110)}"
+            if complaint_segs
+            else "Sem queixa registrada na conversa até agora."
+        )
         hda = " ".join(self.quote(s, 160) for s in complaint_segs[:6]) or "—"
         meds = [m.text for m in self.chart.active_meds] + [
             f"{term} (relatado, por conta própria)"

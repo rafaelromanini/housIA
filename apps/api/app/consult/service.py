@@ -256,31 +256,37 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
     valid = _valid_refs(record, events, ctx, segments)
     pseudo = _pseudo(record)
     started = time.monotonic()
+    analyzed = len(segments)
     try:
         if c.kind == "cirurgia":
             merged, result = ai.run_surgical(engine, base, pseudo, valid)
             saida = None
         else:
-            merged, result = ai.run_live(engine, base, pseudo, valid)
+            _, result = ai.run_live(engine, base, pseudo, valid)
             saida = result.output.model_dump(mode="json")
-            # a IA pode corrigir quem falou (só nas falas atribuídas automaticamente)
-            fixes = {f.n: f.falante for f in result.output.falantes}
-            changed = False
-            for s in segments:
-                if s.falante_auto and s.n in fixes and fixes[s.n] != s.falante:
-                    s.falante, changed = fixes[s.n], True
-            if changed:
-                c.segments_json = [s.model_dump() for s in segments]
-                base = _engine(c, record, events, ctx, segments).run()
-                merged = ai.merge_live(base, result.output, valid, segments)
     except LLMError as exc:
         log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc)})
         raise HTTPException(502, str(exc)) from exc
+    # falas novas podem ter chegado durante a chamada da IA: mescla sobre o estado atual, sem sobrescrevê-las
+    db.refresh(c)
+    segments = _segments(c)
+    if saida is not None:
+        fixes = {f.n: f.falante for f in result.output.falantes}  # a IA só corrige falas atribuídas automaticamente
+        if any(s.falante_auto and s.n in fixes and fixes[s.n] != s.falante for s in segments):
+            for s in segments:
+                if s.falante_auto and s.n in fixes:
+                    s.falante = fixes[s.n]
+            c.segments_json = [s.model_dump() for s in segments]
+        valid = _valid_refs(record, events, ctx, segments)
+        base = _engine(c, record, events, ctx, segments).run()
+        merged = ai.merge_live(base, result.output, valid, segments)
+        if result.mode == "mock":
+            merged.modo = "regras"
     c.ai_meta_json = {
         "modo": result.mode,
         "modelo": result.model,
         "prompt_version": result.prompt_version,
-        "falas": len(segments),
+        "falas": analyzed,
         "em": clock.now().isoformat(),
         "segundos": round(time.monotonic() - started, 1),
         "descartados": merged.descartados,
@@ -295,7 +301,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         c.id,
         {
             "patient_id": c.patient_id,
-            "falas": len(segments),
+            "falas": analyzed,
             "modo": result.mode,
             "itens_descartados": len(merged.descartados),
             "pseudonimizacoes": pseudo.replacements,
@@ -394,13 +400,13 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
     return out(c)
 
 
-def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
-    c = _get(db, cid)
+def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:
     if c.note_json is None:
-        raise HTTPException(409, "Finalize e revise a nota antes de enviar.")
+        raise HTTPException(409, "Finalize e revise a nota antes de exportar ou enviar.")
     record = load_record(fhir, c.patient_id)
     now = clock.now()
-    author = f"{user.name} ({ {'medico': 'Médico(a)', 'enfermagem': 'Enfermagem'}.get(user.role, user.role) })"
+    role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
+    author = f"{user.name} ({role})"
     text = note_as_text(c.kind, record.name, author, _local(now), c.note_json, c.patient_language)
     doc = document_reference(
         kind=c.kind,
@@ -412,6 +418,20 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
         text=text,
         consultation_id=c.id,
     )
+    return text, doc
+
+
+def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
+    """Texto para colar no prontuário + recurso FHIR, sem enviar nada."""
+    c = _get(db, cid)
+    text, doc = _document(db, fhir, user, c)
+    log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
+    return {"texto": text, "recurso": doc}
+
+
+def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
+    c = _get(db, cid)
+    text, doc = _document(db, fhir, user, c)
     if not get_settings().ehr_writeback:
         log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
         return {
@@ -426,7 +446,7 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     created = fhir.create(doc)
     c.fhir_ref = f"DocumentReference/{created['id']}"
     c.status = "enviada"
-    c.sent_at = now
+    c.sent_at = clock.now()
     clear_chart_cache()
     log_action(db, user, "consulta.enviada", "consultation", c.id, {"patient_id": c.patient_id, "fhir_ref": c.fhir_ref})
     return {"enviado": True, "fhir_ref": c.fhir_ref, "texto": text, "recurso": created, "consulta": out(c)}

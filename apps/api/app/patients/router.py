@@ -63,10 +63,33 @@ def get_patient(
             }
             for e in record.previous_emergency_visits
         ],
+        "internado": record.hospitalization is not None and record.admission_end is None,
+        "ambulatorial": _ambulatory(record),
         "contexto": ctx.model_dump(),
         "alertas_abertos": alert_counts(db).get(record.id, {"critico": 0, "atencao": 0, "info": 0}),
         "risco_alta": latest_discharge_risk(db).get(record.id),
         "cenario": scenario_meta().get(record.id) if record.scenario_tag else None,
+    }
+
+
+def _ambulatory(record) -> dict | None:
+    """Consulta ambulatorial do dia (ainda não encerrada), quando houver."""
+    visits = [
+        e
+        for e in record.encounters.values()
+        if e.get("class", {}).get("code") == "AMB"
+        and e.get("status") in ("planned", "arrived", "triaged", "in-progress")
+    ]
+    if not visits:
+        return None
+    e = visits[0]
+    return {
+        "encounter_id": e["id"],
+        "servico": (e.get("serviceType") or {}).get("text", "Ambulatório"),
+        "status": e.get("status"),
+        "inicio": (e.get("period") or {}).get("start"),
+        "motivo": ((e.get("reasonCode") or [{}])[0]).get("text", ""),
+        "profissional": ((e.get("participant") or [{}])[0].get("individual") or {}).get("display", ""),
     }
 
 

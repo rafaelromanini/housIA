@@ -28,7 +28,7 @@ services:
       - "8080:8080"
 
   seed:
-    # Carrega os 5 cenários de demonstração + população de fundo no HAPI (idempotente: PUT por id).
+    # Carrega os 6 cenários de demonstração + população de fundo no HAPI (idempotente: PUT por id).
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -52,6 +52,8 @@ services:
       FHIR_MODE: hapi
       FHIR_BASE_URL: http://fhir:8080/fhir
       CORS_ORIGINS: http://localhost:3000
+      # Demo: o HAPI é sintético, então a nota aprovada vai para o "prontuário" (ADR 0009). Desligue em produção.
+      EHR_WRITEBACK: ${EHR_WRITEBACK:-true}
     ports:
       - "8000:8000"
     depends_on:

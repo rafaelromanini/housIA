@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { BedDouble, LogOut, ShieldCheck, Stethoscope } from "lucide-react";
+import { BedDouble, CalendarClock, LogOut, ShieldCheck, Stethoscope } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const nav = [
     { href: "/leitos", label: "Leitos", Icon: BedDouble, show: true },
+    { href: "/consultas", label: "Consultas", Icon: CalendarClock, show: user.role !== "gestor" },
     { href: "/auditoria", label: "Auditoria", Icon: ShieldCheck, show: user.role === "gestor" },
   ].filter((n) => n.show);
 

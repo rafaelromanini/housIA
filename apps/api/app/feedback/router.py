@@ -11,7 +11,7 @@ from app.db.session import get_db
 
 router = APIRouter(tags=["feedback da IA"])
 
-Kind = Literal["handoff", "handoff_check", "medrec", "discharge", "discharge_docs"]
+Kind = Literal["handoff", "handoff_check", "medrec", "discharge", "discharge_docs", "consulta", "consulta_nota"]
 
 
 class FeedbackIn(BaseModel):
