@@ -20,7 +20,7 @@ from app import clock
 from app.config import get_settings
 from app.consult import gs1, knowledge
 from app.consult.schemas import Highlight, OpmeLine, OpmeLote, Segment, ViaStatus, fala_ref
-from app.consult.surgical_checks import affirmative, clauses, negated
+from app.consult.surgical_checks import SENTENCE_SPLIT, affirmative, clauses, is_history, negated
 from app.consult.text import norm
 
 NUMBERS = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6}
@@ -162,8 +162,8 @@ def from_claim_response(data: dict) -> Guia:
     if data.get("resourceType") == "Bundle":
         found = [
             e["resource"]
-            for e in data.get("entry", [])
-            if (e.get("resource") or {}).get("resourceType") == "ClaimResponse"
+            for e in data.get("entry") or []
+            if isinstance(e, dict) and (e.get("resource") or {}).get("resourceType") == "ClaimResponse"
         ]
         if not found:
             raise GuiaError("O Bundle não tem ClaimResponse")
@@ -173,7 +173,9 @@ def from_claim_response(data: dict) -> Guia:
     if data.get("outcome") == "error":
         raise GuiaError("ClaimResponse com outcome=error: a guia não foi autorizada")
     items = []
-    for add in data.get("addItem", []):
+    for add in data.get("addItem") or []:
+        if not isinstance(add, dict):
+            raise GuiaError("ClaimResponse com addItem inválido")
         denied = any(
             c.get("code") in ("denied", "denial")
             for adj in add.get("adjudication", [])
@@ -182,13 +184,19 @@ def from_claim_response(data: dict) -> Guia:
         if denied:
             continue
         pos = add.get("productOrService") or {}
+        if not isinstance(pos, dict):
+            raise GuiaError("ClaimResponse com productOrService inválido")
         coding = (pos.get("coding") or [{}])[0]
         code = coding.get("code")
         if not code:
             continue
-        qty = (add.get("quantity") or {}).get("value", 1)
+        qty = (add.get("quantity") or {}).get("value")
+        try:
+            quantity = 1 if qty is None else round(float(qty))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise GuiaError(f"Quantidade inválida para {code} no ClaimResponse") from exc
         items.append(
-            {"codigo": code, "quantidade": int(qty), "descricao": coding.get("display") or pos.get("text") or code}
+            {"codigo": code, "quantidade": quantity, "descricao": coding.get("display") or pos.get("text") or code}
         )
     if not items:
         raise GuiaError("O ClaimResponse não tem itens autorizados (addItem)")
@@ -232,7 +240,7 @@ def from_tiss_xml(xml: str) -> Guia:
         if code and qty:
             try:
                 n = round(float(qty.replace(",", ".")))
-            except ValueError as exc:
+            except (ValueError, OverflowError) as exc:
                 raise GuiaError(f"Quantidade inválida no XML: {qty!r}") from exc
             items.append({"codigo": code, "quantidade": n, "descricao": child(el, TISS_DESC) or code})
     if not items:
@@ -241,12 +249,22 @@ def from_tiss_xml(xml: str) -> Guia:
 
 
 # ---------- narrado ----------
+QTY_FILLERS = {"novo", "novos", "nova", "novas", "outro", "outros", "outra", "outras", "mais"}
+SIZE_WORDS = {"tamanho", "numero", "de", "por", "x", "com", "n"}
+
+
 def _quantity_before(text: str, idx: int) -> int:
-    for tok in reversed(text[:idx].split()[-2:]):
-        if tok.isdigit():
-            return int(tok)
-        if tok in NUMBERS:
-            return NUMBERS[tok]
+    """Quantidade dita logo antes do material ("dois trocartes", "mais um clipe"). Número de tamanho não conta."""
+    tokens = text[:idx].split()
+    while tokens and tokens[-1] in QTY_FILLERS:
+        tokens.pop()
+    if not tokens:
+        return 1
+    last = tokens[-1]
+    if last in NUMBERS:
+        return NUMBERS[last]
+    if last.isdigit() and not (len(tokens) > 1 and tokens[-2] in SIZE_WORDS):
+        return int(last)
     return 1
 
 
@@ -260,6 +278,16 @@ def extract_size(tail: str) -> str | None:
     if m := SIZE_MM.search(tail):
         return f"{m.group(1)} mm".replace(".", ",")
     return None
+
+
+def _live_clauses(text: str):
+    """Orações do que se faz agora: sem perguntas e sem antecedente ("stent há 3 anos", "prótese prévia de joelho,
+    componente femoral antigo"): da oração de antecedente até o fim da frase, nada é material usado."""
+    for sentence in SENTENCE_SPLIT.split(affirmative(text)):
+        for raw, clause in clauses(sentence):
+            if is_history(clause):
+                break
+            yield raw, clause
 
 
 def narrated(segments: list[Segment], entries: dict[str, Entry]) -> dict[str, Cited]:
@@ -276,7 +304,7 @@ def narrated(segments: list[Segment], entries: dict[str, Entry]) -> dict[str, Ci
     out: dict[str, Cited] = {}
     for s in segments:
         seen: dict[str, list[str]] = {}
-        for _raw, clause in clauses(affirmative(s.texto)):
+        for _raw, clause in _live_clauses(s.texto):
             for code, pattern in patterns.items():
                 entry = entries[code]
                 if negated(clause, entry.words):
@@ -576,6 +604,9 @@ def review_lines(previous: list[OpmeLine], edited: list[dict]) -> tuple[list[Opm
             )
         )
     for code in known.keys() - seen:
+        if known[code].lotes:
+            out.append(known[code])  # etiqueta lida não se apaga na revisão (a leitura é removida na sala, com audit)
+            continue
         changes.append({"codigo": code, "acao": "retirado"})
     return recompute(out), changes
 

@@ -72,6 +72,10 @@ TITLES = re.compile(r"\b(?:dr|dra|doutor|doutora|enf|enfermeiro|enfermeira)\b")
 COUNT_WORDS = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "tres": 3, "quatro": 4}
 ORDINALS = r"(?:primeiro|segundo|terceiro|quarto|1o|2o|3o|4o)"
 DURATION_TOLERANCE_MIN = 15
+NO_AUXILIAR = re.compile(
+    r"(?<![a-z])(?:sem|nao (?:ha|houve|teve|tem|foi|contou|precisou)(?: de)?|nenhum)\s+(?:\w+\s+){0,2}?auxiliar(?:es)?"
+    r"|auxiliar(?:es)?\s*[:\-]?\s*(?:nenhum|nenhuma|ninguem|nao)(?![a-z])"
+)
 
 
 # ---------- dados ----------
@@ -252,6 +256,7 @@ def count_auxiliares(text: str) -> int:
     """Auxiliares ditados na equipe: "dois auxiliares", "primeiro e segundo auxiliar", "auxiliares: Dr. X e Dra. Y"."""
     t = norm(text)
     t = re.sub(r"\b(dr|dra|sr|sra|enf)\.", r"\1", t)
+    t = NO_AUXILIAR.sub(" ", t)  # "sem auxiliar", "não houve auxiliar", "auxiliares: nenhum"
     if "auxiliar" not in t:
         return 0
     found = len(set(re.findall(rf"({ORDINALS})\s+auxiliar", t)))
@@ -490,7 +495,11 @@ def _anestesia(ctx: Ctx, rule: Rule) -> list[Check]:
     text = norm(ctx.text("anestesia"))
     if not ctx.proc or not text:
         return []
-    said = [k for k, (_label, words) in anesthesia_types().items() if any(w in text for w in words)]
+    said = [
+        k
+        for k, (_label, words) in anesthesia_types().items()
+        if any(re.search(rf"(?<![a-z]){re.escape(w)}", text) for w in words)
+    ]
     if not said:
         return []
     p = ctx.proc

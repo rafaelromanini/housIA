@@ -96,6 +96,14 @@ export function NoteReview({
     try {
       const updated = await api<Consultation>(`/consultations/${c.id}/note`, { method: "PUT", json: draft });
       onChange(updated);
+      // o servidor recalcula a conciliação de OPME, as pendências e a prontidão: o rascunho mostra o que ele devolveu
+      const saved = updated.nota && "relatorio_cirurgico" in updated.nota ? updated.nota.relatorio_cirurgico : undefined;
+      if (saved) {
+        setDraft((d) => {
+          const rep = (d as { relatorio_cirurgico?: SurgicalReport }).relatorio_cirurgico;
+          return rep ? { ...d, relatorio_cirurgico: { ...rep, opme: saved.opme, pendencias: saved.pendencias, prontidao: saved.prontidao } } : d;
+        });
+      }
       setMessage("Revisão salva.");
       return updated;
     } catch (e) {

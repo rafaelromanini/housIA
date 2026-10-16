@@ -365,6 +365,64 @@ def test_size_is_extracted_from_the_dictation(client, auth):
     assert opme.extract_size(" 3,5 por 40, dois") == "3,5 × 40 mm" and opme.extract_size(" sem tamanho") is None
 
 
+def test_adversarial_dictation_history_size_numbers_and_questions(client, auth):
+    """Antecedente, número de tamanho e pergunta não viram material usado nem quantidade."""
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    rep = report_of(
+        dictate(
+            client,
+            h,
+            cid,
+            [
+                ("medico", "Antecedente de stent coronariano há 3 anos."),
+                ("medico", "Paciente idosa com prótese prévia de joelho, componente femoral antigo bem fixo."),
+                ("medico", "Vamos usar tela? O senhor quer que eu pegue o grampeador?"),
+                ("medico", "nao usamos dreno tubular e sem tela"),
+                ("medico", "Colocado componente femoral tamanho 5 e polietileno de 10 mm"),
+                ("anestesista", "Colocados dois trocartes de 5 e mais um clipador"),
+            ],
+        )["insights"]
+    )
+    got = {o["codigo"]: o["citado"] for o in rep["opme"] if o["citado"]}
+    assert got == {"DEMO-OPME-012": 1, "DEMO-OPME-014": 1, "DEMO-OPME-002": 2, "DEMO-OPME-003": 1}
+    assert opme._quantity_before("colocados tres parafusos".split("parafusos")[0], 20) == 3
+    assert opme._quantity_before("tamanho 5 ", 10) == 1 and opme._quantity_before("usado 2 ", 8) == 2
+
+
+def test_malformed_guide_imports_are_422_not_500(client, auth):
+    h = auth("medico")
+    cid = start(client, h, pid="cen1", especialidade="cirurgia_geral")["id"]
+    bad_claims = [
+        {
+            "resourceType": "ClaimResponse",
+            "addItem": [{"productOrService": {"coding": [{"code": "X"}]}, "quantity": {"value": "abc"}}],
+        },
+        {"resourceType": "ClaimResponse", "addItem": ["x"]},
+        {"resourceType": "ClaimResponse", "addItem": [{"productOrService": "x"}]},
+        {"resourceType": "Bundle", "entry": [None]},
+    ]
+    for body in bad_claims:
+        assert put_guide(client, h, cid, claim_response=body).status_code == 422, body
+    inf = "<a><i><codigoProduto>X1</codigoProduto><descricao>d</descricao><quantidade>inf</quantidade></i></a>"
+    assert put_guide(client, h, cid, tiss_xml=inf).status_code == 422
+    # enfermagem registra etiqueta na sala; gestor não mexe no relatório
+    assert put_guide(client, auth("gestor"), cid, itens=[{"codigo": "DEMO-OPME-001"}]).status_code == 403
+
+
+def test_review_cannot_drop_a_line_with_a_label_read(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    assert scan(client, h, cid, FEMUR).status_code == 200
+    dictate(client, h, cid, [(f["falante"], f["texto"]) for f in demo_scripts()["cen4b_artroplastia"]["falas"]])
+    report = client.post(f"/consultations/{cid}/finish", headers=h).json()["nota"]["relatorio_cirurgico"]
+    assert line(report, "DEMO-OPME-012")["lotes"]
+    kept = [o for o in report["opme"] if o["codigo"] != "DEMO-OPME-012"]
+    res = client.put(f"/consultations/{cid}/note", json={"relatorio_cirurgico": report | {"opme": kept}}, headers=h)
+    after = res.json()["nota"]["relatorio_cirurgico"]
+    assert line(after, "DEMO-OPME-012")["lotes"][0]["lote"] == "FEM123"  # a etiqueta lida não some na revisão
+
+
 def test_negated_material_does_not_count(client, auth):
     h = auth("medico")
     cid = start(client, h, pid="cen1", especialidade="cirurgia_geral")["id"]
@@ -722,6 +780,10 @@ def test_auxiliary_counting():
     assert count("Primeiro auxiliar Dr. C e segundo auxiliar Dra. D") == 2
     assert count("Auxiliares: Dr. X e Dra. Y; anestesista Dra. B") == 2
     assert count("cirurgião Dr. Henrique, auxiliar Dr. Caio Lima, anestesista Dra. Marina e instrumentador Felipe") == 1
+    # negação: "sem auxiliar" não é um auxiliar identificado
+    assert count("Equipe: cirurgião Dr. A, sem auxiliar, anestesista Dra. B") == 0
+    assert count("Não houve auxiliar") == 0 and count("cirurgia sem auxiliares") == 0
+    assert count("auxiliares: nenhum") == 0
 
 
 def test_convenio_changes_rules_and_codes(client, auth):
