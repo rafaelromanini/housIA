@@ -24,6 +24,9 @@ GESTÃO DE TOKENS E DE COTA (a sessão anterior estourou o limite com agentes de
 - Você é só o orquestrador: esforço baixo, respostas curtas, nada de ler arquivos grandes inteiros (use grep/sed -n),
   nada de colar relatórios longos dos agentes. Delegue implementação e verificação a subagentes Sonnet
   (Agent com model "sonnet") ou ao Workflow "housia-onda".
+- Modelos e esforço: orquestrador (esta sessão) em esforço baixo; implementação e verificação em agentes Sonnet
+  com effort "medium"; effort "high" só na verificação de itens de segurança clínica (#5+#6, #14+#15, #19, #24);
+  tarefas mecânicas (rodar testes e resumir, atualizar STATUS.md, ajustar seletor de e2e) em agente Haiku.
 - No máximo 2 agentes ao mesmo tempo (frente A e frente B). Se bater o limite de uso, pare de lançar agentes, salve o
   estado (commit + push do que estiver verde, STATUS.md atualizado) e espere o reset; retome o agente interrompido
   com SendMessage em vez de começar outro do zero.
