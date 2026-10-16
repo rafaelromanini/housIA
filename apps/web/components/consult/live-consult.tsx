@@ -230,11 +230,11 @@ export function LiveConsult({
 
   const ia = c.ia;
   const pending = c.segmentos.length - (ia?.falas ?? 0);
-  const modes: { key: Mode; label: string; Icon: typeof Mic; show: boolean }[] = [
-    { key: "microfone", label: "Microfone", Icon: Mic, show: true },
-    { key: "servidor", label: "Servidor (Whisper)", Icon: Server, show: config.stt_servidor },
-    { key: "digitar", label: "Digitar", Icon: Keyboard, show: true },
-    { key: "demo", label: "Simular consulta", Icon: Sparkles, show: !!c.roteiro_demo },
+  const modes: { key: Mode; label: string; short: string; Icon: typeof Mic; show: boolean }[] = [
+    { key: "microfone", label: "Microfone", short: "Microfone", Icon: Mic, show: true },
+    { key: "servidor", label: "Servidor (Whisper)", short: "Servidor", Icon: Server, show: config.stt_servidor },
+    { key: "digitar", label: "Digitar", short: "Digitar", Icon: Keyboard, show: true },
+    { key: "demo", label: "Simular consulta", short: "Simular", Icon: Sparkles, show: !!c.roteiro_demo },
   ];
 
   return (
@@ -307,11 +307,13 @@ export function LiveConsult({
               <div role="tablist" aria-label="Como capturar a conversa" className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
                 {modes
                   .filter((m) => m.show)
-                  .map(({ key, label, Icon }) => (
+                  .map(({ key, label, short, Icon }) => (
                     <button
                       key={key}
                       role="tab"
                       aria-selected={mode === key}
+                      aria-label={label}
+                      title={label}
                       onClick={() => {
                         stopAll();
                         setMode(key);
@@ -321,7 +323,7 @@ export function LiveConsult({
                         mode === key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      <Icon aria-hidden className="size-4" /> {label}
+                      <Icon aria-hidden className="size-4" /> {short}
                     </button>
                   ))}
               </div>

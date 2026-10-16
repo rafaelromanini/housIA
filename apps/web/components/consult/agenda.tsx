@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Appointment } from "@/lib/api";
+import { fmtTime } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 
 const FHIR_STATUS: Record<string, { label: string; variant: "info" | "atencao" | "ok" | "outline" }> = {
@@ -59,7 +60,7 @@ export function Agenda() {
                 <Card>
                   <CardContent className="flex flex-wrap items-center gap-3 pt-4">
                     <span className="w-16 font-mono text-lg font-bold tabular-nums">
-                      {new Date(a.horario).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                      {fmtTime(a.horario)}
                     </span>
                     <div className="min-w-48 flex-1">
                       <p className="flex flex-wrap items-center gap-2 font-bold">

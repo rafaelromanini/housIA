@@ -149,7 +149,7 @@ export function ConsultPage() {
               </NativeSelect>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="especialidade">Assistente da especialidade</Label>
+              <Label htmlFor="especialidade">Especialidade</Label>
               <NativeSelect
                 id="especialidade"
                 value={tipo === "cirurgia" ? "cirurgia_geral" : especialidade}

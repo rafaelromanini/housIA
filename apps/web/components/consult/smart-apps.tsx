@@ -66,11 +66,11 @@ const APPS: { key: AppKey; label: string; tab: TabKey }[] = [
 ];
 
 type TabKey = "vivo" | "raciocinio" | "medicamentos" | "prontuario";
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "vivo", label: "Ao vivo" },
-  { key: "raciocinio", label: "Raciocínio clínico" },
-  { key: "medicamentos", label: "Medicamentos e alergias" },
-  { key: "prontuario", label: "Prontuário e exames" },
+const TABS: { key: TabKey; label: string; short: string }[] = [
+  { key: "vivo", label: "Ao vivo", short: "Ao vivo" },
+  { key: "raciocinio", label: "Raciocínio clínico", short: "Raciocínio" },
+  { key: "medicamentos", label: "Medicamentos e alergias", short: "Medicamentos" },
+  { key: "prontuario", label: "Prontuário e exames", short: "Prontuário" },
 ];
 const STORAGE = "housia.smartapps.ocultos";
 
@@ -165,13 +165,16 @@ export function SmartAppsPanel({ insights: ins }: { insights: ConsultInsights })
               key={t.key}
               role="tab"
               aria-selected={tab === t.key}
+              aria-label={t.label}
+              title={t.label}
               onClick={() => setTab(t.key)}
               className={cn(
                 "min-h-10 rounded-md px-3 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 tab === t.key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {t.label}
+              <span className="xl:hidden">{t.short}</span>
+              <span className="hidden xl:inline">{t.label}</span>
               {t.key === "vivo" && ins.perguntas.length > 0 && (
                 <span className="ml-1.5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{ins.perguntas.length}</span>
               )}
