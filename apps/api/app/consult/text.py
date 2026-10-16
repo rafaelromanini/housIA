@@ -233,16 +233,21 @@ def keyword_status(
 
 
 # ---------- medicamentos citados ----------
+@lru_cache
+def _catalog_names() -> tuple[tuple[str, str, str], ...]:
+    """(nome normalizado, princípio ativo, nome) do catálogo; nomes curtos (< 5 letras) geram falso positivo."""
+    return tuple((norm(d.name), ing, d.name) for ing, d in drugs().items() if len(norm(d.name)) >= 5)
+
+
 def _drug_hits(clause: str) -> list[tuple[int, int, str, str]]:
     """(início, fim, princípio ou @classe, termo dito) na oração, em ordem."""
     t = f" {clause} "
     catalog = drugs()
     hits: list[tuple[int, int, str, str]] = []
-    for ing, d in catalog.items():
-        name = norm(d.name)
+    for name, ing, label in _catalog_names():
         idx = t.find(f" {name}")
-        if len(name) >= 5 and idx >= 0:
-            hits.append((idx, idx + 1 + len(name), ing, d.name))
+        if idx >= 0:
+            hits.append((idx, idx + 1 + len(name), ing, label))
     for brand, ing in BRANDS.items():
         idx = t.find(f" {brand}")
         if idx >= 0 and ing in catalog and all(ing != h[2] for h in hits):
@@ -267,7 +272,8 @@ def _drug_status(before: str, after: str) -> DrugStatus:
     return "em_uso"
 
 
-def mentioned_drugs(text: str) -> list[DrugMention]:
+@lru_cache(maxsize=4096)  # roda a cada fala, para todas as falas: a mesma frase não é reanalisada
+def mentioned_drugs(text: str) -> tuple[DrugMention, ...]:
     """Medicamentos citados na fala, com status: em uso, suspenso (relatado) ou negado.
 
     Cada oração decide o status dos medicamentos que cita; o trecho entre dois medicamentos vale para o seguinte
@@ -298,4 +304,4 @@ def mentioned_drugs(text: str) -> list[DrugMention]:
             if prev is None or _STATUS_RANK[status] < _STATUS_RANK[prev.status]:
                 found[ing] = DrugMention(ing, prev.term if prev else term, status)
             last.append(ing)
-    return list(found.values())
+    return tuple(found.values())

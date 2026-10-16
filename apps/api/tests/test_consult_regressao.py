@@ -6,6 +6,7 @@ corpus inteiro a cada build: alerta falso destrói o diferencial "regras antes d
 frase nova que expõe um erro entra com `limitacao` (xfail estrito) até a regra ser corrigida.
 """
 
+import json
 import re
 
 import pytest
@@ -16,9 +17,11 @@ from app.consult.engine import PATIENT_SIDE, Engine, infer_speaker
 from app.consult.knowledge import demo_scripts, regression_corpus
 from app.consult.schemas import Segment
 from app.consult.text import mentioned_drugs
+from app.llm import client as llm_client
 from app.patients.service import load_record
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
+from tests.test_consult import FakeClient
 
 CORPUS = regression_corpus()
 FRASES = CORPUS["frases"]
@@ -262,3 +265,32 @@ def test_nao_vai_precisar_operar_nao_cria_cirurgia_planejada(client, consult):
     assert any(i["tipo"] == "planejada" for i in ins["cirurgia"]) and any(
         i["tipo"] == "checagem" for i in ins["cirurgia"]
     )
+
+
+def test_ia_recebe_o_status_dos_medicamentos_relatados(client, consult, monkeypatch):
+    """A IA vê o que as regras concluíram (suspenso ≠ em uso) e o ciclo dela não reintroduz o alerta."""
+    cid, h = consult()
+    _say(client, h, cid, ("paciente", "Não tomo mais ibuprofeno, parei faz um mês"))
+    anamnese = {
+        "queixa_principal": "",
+        "hda": "",
+        "antecedentes": [],
+        "medicacoes_em_uso": [],
+        "alergias": [],
+        "habitos_e_contexto": [],
+        "revisao_de_sistemas": [],
+        "refs": [],
+    }
+    empty = {k: [] for k in ("destaques", "queixas", "emocoes", "perguntas", "falantes", "hipoteses", "cirurgia")}
+    fake = FakeClient(
+        empty | {"resumo": "", "sugestoes_medicamentos": [], "historico_relatado": [], "anamnese": anamnese}
+    )
+    monkeypatch.setattr(llm_client.get_settings(), "llm_mode", "real")
+    monkeypatch.setattr(llm_client, "_client", fake)
+    res = client.post(f"/consultations/{cid}/insights", headers=h)
+    monkeypatch.setattr(llm_client, "_client", None)
+    assert res.status_code == 200, res.text
+    sent = json.dumps(fake.calls[0], ensure_ascii=False, default=str)
+    assert "medicamentos_relatados" in sent and '\\"status\\": \\"suspenso\\"' in sent
+    textos = " ".join(m["texto"] for m in res.json()["insights"]["sugestoes_medicamentos"])
+    assert "Tríplice" not in textos and "Ibuprofeno" not in textos

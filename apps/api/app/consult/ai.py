@@ -201,6 +201,12 @@ def deterministic_payload(ins: Insights) -> dict:
         "perguntas_ja_abordadas": [q.pergunta for q in ins.perguntas_abordadas],
         "hipoteses_por_regra": [f"{h.hipotese} ({h.cid}) — confiança {h.confianca}" for h in ins.hipoteses],
         "alertas_de_seguranca": [{"texto": m.texto, "refs": m.refs} for m in ins.sugestoes_medicamentos],
+        # o que o paciente disse que usa ("relatado") ou que parou ("suspenso"); o negado nem entra
+        "medicamentos_relatados": [
+            {"medicamento": m.medicamento, "status": m.status, "refs": m.refs}
+            for m in ins.medicamentos
+            if any(r.startswith("Fala/") for r in m.refs)
+        ],
         "protocolo_pendente": [f"{p.protocolo}: {p.item}" for p in ins.protocolos if p.status != "em_dia"],
     }
 

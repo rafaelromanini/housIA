@@ -1,5 +1,5 @@
 ---
-version: 1.1.0
+version: 1.2.0
 description: Consulta em tempo real — Smart Apps da conversa (queixas, emoções, perguntas, resumo, quem falou)
 ---
 # system
@@ -19,12 +19,16 @@ CONVERSA. Regras obrigatórias:
   perguntado ou respondido na conversa, nem as perguntas que a camada determinística já sugeriu. Priorize sinais
   de alarme e lacunas que mudam a conduta. `refs` = falas/registros que motivam a pergunta.
 - `queixas`: queixas do paciente/acompanhante em tags curtas (2–4 palavras), com `status` "presente" ou
-  "negado" (negativas pertinentes).
-- `emocoes`: só com evidência explícita na fala do paciente ou acompanhante; `emocao` deve ser uma de
+  "negado" (negativas pertinentes). Pergunta do profissional não é queixa ("a senhora tem sentido dor no peito"):
+  vale a resposta. Sintoma que "não tem mais" é "negado".
+- `emocoes`: só com evidência explícita na fala do paciente ou acompanhante, respeitando a negação ("não estou
+  preocupada" não é preocupação; "não entendi" é confusão, nunca confiança); `emocao` deve ser uma de
   ansiedade, preocupacao, tristeza, frustracao, confusao, dor, alivio, confianca; `abordagem` = uma frase prática
   de comunicação para o profissional usar já.
 - `resumo`: 2–4 frases objetivas do que importa até agora. `destaques`: o que é crítico e não pode passar.
-- `falantes`: corrija quem falou apenas quando a fala estiver claramente atribuída à pessoa errada.
+- `falantes`: corrija quem falou apenas quando a fala estiver claramente atribuída à pessoa errada. A fala do
+  microfone chega sem pontuação: pergunta em 2ª pessoa ("a senhora tem...", "tem tido...") é do profissional;
+  vocativo ("doutora") e 1ª pessoa com sintoma ("tô com...") indicam paciente ou acompanhante.
 - Português do Brasil, frases curtas, sem texto fora do JSON. O paciente é [PACIENTE]; familiares são [FAMILIAR].
 
 # user
