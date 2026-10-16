@@ -12,6 +12,13 @@ import type { ClinicalEvent } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 import { fetchTimeline } from "@/lib/timeline-cache";
 
+/** Recursos que não viram evento da timeline: o que cada tipo significa. */
+const CONTEXT_LABEL: Record<string, string> = {
+  ServiceRequest: "Pedido no prontuário (cirurgia agendada ou exame solicitado/proposto).",
+  Appointment: "Agendamento da sala cirúrgica.",
+  Consent: "Termo de consentimento registrado no prontuário.",
+};
+
 /** Destaca uma fala da transcrição da consulta (refs "Fala/N"). */
 export function focusFala(n: number) {
   window.dispatchEvent(new CustomEvent("housia:fala", { detail: n }));
@@ -94,7 +101,9 @@ function FhirRefs({
                 <li key={ref} className="rounded-md border p-3 text-sm">
                   <p className="font-mono text-xs text-muted-foreground">{ref}</p>
                   {matches.length === 0 && (
-                    <p className="mt-1 text-muted-foreground">Registro de contexto (diagnóstico, alergia ou prescrição ativa).</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {CONTEXT_LABEL[ref.split("/")[0]] ?? "Registro de contexto (diagnóstico, alergia ou prescrição ativa)."}
+                    </p>
                   )}
                   {matches.map((e) => (
                     <div key={e.id} className="mt-1 space-y-1">

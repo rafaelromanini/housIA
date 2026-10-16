@@ -28,7 +28,7 @@ const SECTIONS: { key: keyof ConsultNote; label: string; soap: string }[] = [
   { key: "plano", label: "Plano", soap: "P" },
 ];
 
-type ExportOut = { texto: string; recurso: Record<string, unknown> };
+type ExportOut = { texto: string; recurso: Record<string, unknown>; pedidos?: Record<string, unknown>[] };
 
 /** Revisão obrigatória: o profissional edita, aprova e só então a nota vai para o prontuário. */
 export function NoteReview({
@@ -102,7 +102,11 @@ export function NoteReview({
     try {
       if (!sent && !(await save())) return;
       const out = await exportOut();
-      const blob = new Blob([JSON.stringify(out.recurso, null, 2)], { type: "application/fhir+json" });
+      // com pedidos propostos (relatório cirúrgico), baixa um Bundle: relatório + ServiceRequest(s)
+      const fhir = out.pedidos?.length
+        ? { resourceType: "Bundle", type: "collection", entry: [out.recurso, ...out.pedidos].map((resource) => ({ resource })) }
+        : out.recurso;
+      const blob = new Blob([JSON.stringify(fhir, null, 2)], { type: "application/fhir+json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `nota-consulta-${c.id}.fhir.json`;
@@ -167,6 +171,37 @@ export function NoteReview({
 
         {surgical && report ? (
           <div className="space-y-3">
+            {(report.pedidos?.length ?? 0) > 0 && (
+              <div className="rounded-md border bg-secondary/40 p-3">
+                <p className="text-sm font-bold">Pedidos propostos (vão ao prontuário com o relatório aprovado)</p>
+                <ul className="mt-1 space-y-1 text-sm">
+                  {report.pedidos!.map((pedido, i) => (
+                    <li key={pedido.descricao} className="flex flex-wrap items-center gap-2">
+                      <span className="flex-1">
+                        {pedido.descricao} <SourceRefs patientId={patient.id} refs={pedido.refs} />
+                      </span>
+                      {!sent && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Retirar o pedido: ${pedido.descricao}`}
+                          onClick={() =>
+                            setDraft((d) => {
+                              const rep = structuredClone((d as { relatorio_cirurgico: SurgicalReport }).relatorio_cirurgico);
+                              rep.pedidos = (rep.pedidos ?? []).filter((_, j) => j !== i);
+                              return { ...d, relatorio_cirurgico: rep };
+                            })
+                          }
+                        >
+                          <Trash2 aria-hidden /> Retirar
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {report.campos.map((f, i) => (
               <div key={f.campo} className="space-y-1">
                 <Label htmlFor={`campo-${f.campo}`}>

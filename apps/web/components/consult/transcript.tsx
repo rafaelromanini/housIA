@@ -13,11 +13,25 @@ export const SPEAKER_STYLE: Record<Speaker, string> = {
   medico: "bg-primary text-primary-foreground",
   paciente: "bg-accent text-accent-foreground",
   acompanhante: "bg-info-bg text-info border border-info-border",
+  anestesista: "bg-ok-bg text-ok border border-ok-border",
+  circulante: "bg-atencao-bg text-atencao border border-atencao-border",
+  instrumentador: "bg-secondary text-secondary-foreground border border-border",
   desconhecido: "bg-muted text-muted-foreground",
 };
 
+/** Equipe de sala (modo cirúrgico): botões e atalhos Alt+4, Alt+5 e Alt+6. */
+export const TEAM_SPEAKERS: Speaker[] = ["anestesista", "circulante", "instrumentador"];
+
 export function speakerLabel(s: Speaker, proLabel: string) {
-  return { medico: proLabel, paciente: "Paciente", acompanhante: "Acompanhante", desconhecido: "Quem fala?" }[s];
+  return {
+    medico: proLabel,
+    paciente: "Paciente",
+    acompanhante: "Acompanhante",
+    anestesista: "Anestesista",
+    circulante: "Circulante",
+    instrumentador: "Instrumentador(a)",
+    desconhecido: "Quem fala?",
+  }[s];
 }
 
 export const clock = (t: number) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -84,7 +98,7 @@ export function Transcript({
             id={`fala-${s.n}`}
             className={cn(
               "rounded-md p-2 transition-colors",
-              s.falante === "medico" ? "bg-card" : "bg-secondary/50",
+              s.falante === "medico" || TEAM_SPEAKERS.includes(s.falante) ? "bg-card" : "bg-secondary/50",
               focus === s.n && "ring-2 ring-ring bg-atencao-bg",
             )}
           >
