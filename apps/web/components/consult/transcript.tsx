@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Languages, Volume2 } from "lucide-react";
 
+import { reidentify } from "@/components/ai/ai-badge";
+import { usePatient } from "@/components/patient/patient-context";
 import { Button } from "@/components/ui/button";
 import type { Segment, Speaker } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -36,6 +38,7 @@ export function Transcript({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [focus, setFocus] = useState<number | null>(null);
+  const { patient } = usePatient();
 
   // acompanha a conversa enquanto a pessoa está no fim da lista
   useEffect(() => {
@@ -56,7 +59,7 @@ export function Transcript({
   }, []);
 
   function speak(text: string) {
-    const u = new SpeechSynthesisUtterance(text);
+    const u = new SpeechSynthesisUtterance(reidentify(text, patient.nome));
     u.lang = VOICE_LANG[patientLanguage] ?? patientLanguage;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
@@ -98,7 +101,7 @@ export function Transcript({
             {s.traducao && (
               <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
                 <Languages aria-hidden className="mt-0.5 size-4 shrink-0" />
-                <span className="flex-1">{s.traducao}</span>
+                <span className="flex-1">{reidentify(s.traducao, patient.nome)}</span>
                 {s.falante === "medico" && (
                   <Button variant="ghost" size="sm" className="min-h-8 px-2" onClick={() => speak(s.traducao!)} aria-label="Ouvir a tradução">
                     <Volume2 aria-hidden />

@@ -8,6 +8,7 @@ removidas pela IA.
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 from pydantic import BaseModel
@@ -39,7 +40,7 @@ from app.consult.schemas import (
     fala_ref,
 )
 from app.consult.text import norm
-from app.llm.client import generate_structured
+from app.llm.client import LLMResult, generate_structured
 from app.llm.pseudonymize import Pseudonymizer
 
 KIND_LABEL = {"consulta": "consulta", "visita": "visita à beira do leito", "cirurgia": "ditado de relatório cirúrgico"}
@@ -97,7 +98,30 @@ class AiSpeaker(BaseModel):
     falante: Literal["medico", "paciente", "acompanhante"]
 
 
+class ConversaOutput(BaseModel):
+    """Smart Apps da conversa (1ª chamada)."""
+
+    resumo: str
+    destaques: list[Highlight]
+    queixas: list[AiTag]
+    emocoes: list[AiEmotion]
+    perguntas: list[AiQuestion]
+    falantes: list[AiSpeaker]
+
+
+class ClinicaOutput(BaseModel):
+    """Smart Apps clínicos (2ª chamada, em paralelo)."""
+
+    hipoteses: list[AiHypothesis]
+    sugestoes_medicamentos: list[AiMedSuggestion]
+    cirurgia: list[AiText]
+    historico_relatado: list[AiText]
+    anamnese: Anamnese
+
+
 class ConsultLiveOutput(BaseModel):
+    """União das duas chamadas (formato guardado e re-mesclado a cada fala)."""
+
     resumo: str
     destaques: list[Highlight]
     queixas: list[AiTag]
@@ -325,8 +349,22 @@ def run_live(engine: Engine, base: Insights, pseudo: Pseudonymizer, valid: set[s
         "deterministico": pseudo.apply(deterministic_payload(base)),
         "transcricao": transcript_text(engine.segments, pseudo),
     }
-    result = generate_structured(
-        "consult_live", variables, ConsultLiveOutput, mock=lambda _v: mock_live(base), effort="low"
+    # duas chamadas em paralelo: schemas menores (limite da saída estruturada) e resposta mais rápida
+    mock = mock_live(base)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_conv = pool.submit(
+            generate_structured, "consult_live_conversa", variables, ConversaOutput, lambda _v: mock, "low"
+        )
+        f_clin = pool.submit(
+            generate_structured, "consult_live_clinica", variables, ClinicaOutput, lambda _v: mock, "low"
+        )
+        conv, clin = f_conv.result(), f_clin.result()
+    result = LLMResult(
+        output=ConsultLiveOutput(**conv.output.model_dump(), **clin.output.model_dump()),
+        model=conv.model,
+        prompt_version=f"{conv.prompt_version}+{clin.prompt_version}",
+        mode=conv.mode,
+        repaired=conv.repaired or clin.repaired,
     )
     merged = merge_live(base, result.output, valid, engine.segments)
     if result.mode == "mock":

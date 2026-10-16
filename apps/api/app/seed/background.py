@@ -439,4 +439,60 @@ def generate(seed: int = 20251015) -> list[dict]:
             },
         ]
         out.append(dsl)
+    return out + _ambulatory(rng)
+
+
+# Agenda ambulatorial do dia (fundo): pacientes simples para a tela de consultas parecer real
+AMBULATORY = [
+    (
+        "-3h",
+        "finished",
+        "Retorno de hipertensão",
+        [("I10", "Hipertensão arterial sistêmica")],
+        [("losartana", "50 mg", ["08:00"])],
+    ),
+    ("+35m", "planned", "Primeira consulta: dor lombar", [("M54.5", "Dor lombar baixa")], []),
+    (
+        "+1h20m",
+        "planned",
+        "Retorno de hipotireoidismo",
+        [("E03.9", "Hipotireoidismo")],
+        [("levotiroxina", "50 mcg", ["06:00"])],
+    ),
+    ("+2h10m", "planned", "Acompanhamento de DPOC", [("J44.9", "Doença pulmonar obstrutiva crônica")], []),
+]
+
+
+def _ambulatory(rng: random.Random) -> list[dict]:
+    out = []
+    for n, (when, status, reason, dx, meds) in enumerate(AMBULATORY, start=1):
+        sex = rng.choice(["male", "female"])
+        age = rng.randint(34, 78)
+        visits = [{"id": "ant", "inicio": f"-{rng.randint(80, 200)}d", "duracao": "30m", "motivo": "Consulta anterior"}]
+        today = {"id": "hoje", "inicio": when, "motivo": reason, "status": status}
+        if status == "finished":
+            today["duracao"] = "25m"
+        out.append(
+            {
+                "id": f"amb{n:02d}",
+                "paciente": {
+                    "nome": _name(rng, sex),
+                    "sexo": sex,
+                    "nascimento": f"{2026 - age}-{rng.randint(1, 12):02d}-{rng.randint(1, 28):02d}",
+                    "cpf": _cpf(rng),
+                },
+                "ambulatorio": {
+                    "servico": "Ambulatório de Clínica Médica",
+                    "sala": f"Consultório {rng.randint(1, 6)}",
+                    "profissional": "Dra. Helena Prado",
+                    "consultas": [*visits, today],
+                },
+                "diagnosticos": [{"cid": c, "texto": t, "inicio": f"-{rng.randint(400, 3000)}d"} for c, t in dx],
+                "alergias": [],
+                "prescricoes": [
+                    {"id": f"m{i}", "med": m, "dose": d, "via": "VO", "horarios": h, "setor": "ant", "inicio": "-300d"}
+                    for i, (m, d, h) in enumerate(meds)
+                ],
+            }
+        )
     return out

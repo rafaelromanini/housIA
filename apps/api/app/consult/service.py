@@ -74,6 +74,20 @@ def _pseudo(record: PatientRecord) -> Pseudonymizer:
     return Pseudonymizer(**record.identifiers_for_pseudonymization())
 
 
+def reidentify(data, record: PatientRecord):
+    """Troca os tokens da pseudonimização pelos nomes reais (só para exibir/exportar, nunca para o LLM)."""
+    family = [((rp.get("name") or [{}])[0]).get("text") for rp in record.related_persons]
+    family = [f for f in family if f]
+    relative = family[0] if len(family) == 1 else "familiar"
+    if isinstance(data, str):
+        return data.replace("[PACIENTE]", record.name).replace("[FAMILIAR]", relative)
+    if isinstance(data, list):
+        return [reidentify(v, record) for v in data]
+    if isinstance(data, dict):
+        return {k: reidentify(v, record) for k, v in data.items()}
+    return data
+
+
 def _get(db: Session, cid: int) -> Consultation:
     c = db.get(Consultation, cid)
     if c is None:
@@ -407,7 +421,8 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     now = clock.now()
     role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
     author = f"{user.name} ({role})"
-    text = note_as_text(c.kind, record.name, author, _local(now), c.note_json, c.patient_language)
+    note = reidentify(c.note_json, record)  # o prontuário recebe os nomes, não os tokens enviados à IA
+    text = note_as_text(c.kind, record.name, author, _local(now), note, c.patient_language)
     doc = document_reference(
         kind=c.kind,
         patient_id=c.patient_id,

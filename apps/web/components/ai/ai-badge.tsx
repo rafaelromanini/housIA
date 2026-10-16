@@ -13,5 +13,5 @@ export function AiBadge({ label = "Gerado por IA — confira" }: { label?: strin
 
 /** Mostra o nome do paciente no lugar do token de pseudonimização usado com o LLM. */
 export function reidentify(text: string, name: string) {
-  return text.replaceAll("[PACIENTE]", name);
+  return text.replaceAll("[PACIENTE]", name).replaceAll("[FAMILIAR]", "familiar");
 }

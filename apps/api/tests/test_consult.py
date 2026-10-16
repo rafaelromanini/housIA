@@ -355,3 +355,14 @@ def test_merge_never_removes_rule_based_safety_items():
     out = consult_ai.ConsultLiveOutput.model_validate(consult_ai.mock_live(base))
     merged = consult_ai.merge_live(base, out, {"Fala/1"}, [])
     assert merged.sugestoes_medicamentos[0].texto == "Suspender ibuprofeno"
+
+
+def test_export_reidentifies_tokens_sent_to_the_llm(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    say(client, h, cid, SCRIPT[:6])
+    note = client.post(f"/consultations/{cid}/finish", headers=h).json()["nota"]
+    note["hda"]["texto"] = "[PACIENTE] veio com a filha ([FAMILIAR]) relatando tontura."
+    client.put(f"/consultations/{cid}/note", json=note, headers=h)
+    text = client.get(f"/consultations/{cid}/export", headers=h).json()["texto"]
+    assert "Joana Ferreira Lima veio com a filha (Fernanda Lima Duarte)" in text and "[PACIENTE]" not in text
