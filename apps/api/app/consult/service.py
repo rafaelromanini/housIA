@@ -45,7 +45,7 @@ from app.timeline.events import ClinicalEvent, build_timeline
 from app.timeline.record import PatientRecord, parse_dt
 
 ACTIVE_VISIT = ("planned", "arrived", "triaged", "in-progress")
-MIN_JUSTIFICATION = 15  # caracteres mínimos da justificativa de envio com pendência crítica de faturamento
+MIN_JUSTIFICATION = order_drafts.MIN_JUSTIFICATION  # justificativa mínima: envio com pendência crítica e pedido crítico
 _CHART_TTL_S = 30.0
 _chart_cache: dict[str, tuple[float, PatientRecord, list[ClinicalEvent], PatientContext]] = {}
 
@@ -534,9 +534,7 @@ def decide_order(db: Session, fhir: FhirSource, user: User, cid: int, draft_id: 
     """Assinatura item a item de um rascunho (assinar, recusar ou voltar a pendente), com a posologia corrigida se
     preciso. Item crítico (alergia, dose por TFG, interação grave) só é assinado com justificativa."""
     if body.estado == "assinado" and user.role != "medico":
-        raise HTTPException(
-            403, "Só o médico assina receitas e pedidos; a enfermagem pode recusar ou revisar."
-        )
+        raise HTTPException(403, "Só o médico assina receitas e pedidos; a enfermagem pode recusar ou revisar.")
     c = _get(db, cid)
     if c.kind == "cirurgia":
         raise HTTPException(409, "Os pedidos do modo cirúrgico seguem o relatório: retire-os na revisão.")

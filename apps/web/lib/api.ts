@@ -821,6 +821,7 @@ export interface OrderDecision {
   por: string | null;
   em: string | null;
   editado: boolean;
+  aviso?: string;
 }
 /** Rascunho de MedicationRequest/ServiceRequest tirado da fala (ou sugerido por protocolo/hipótese), já checado. */
 export interface OrderDraft {

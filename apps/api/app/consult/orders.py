@@ -39,6 +39,7 @@ from app.timeline.record import normalize
 
 SEVERITY_RANK: dict[str, int] = {"critico": 0, "atencao": 1, "info": 2}
 MAX_SUGGESTIONS = 6
+MIN_JUSTIFICATION = 15  # caracteres mínimos da justificativa para assinar um item com alerta crítico
 ORDER_SYSTEM = "http://housia.dev/fhir/NamingSystem/pedido-consulta"
 DRAFT_NOTE = (
     "Rascunho gerado pelo HousIA a partir da conversa e assinado pelo profissional. Não vale como receita nem como "
@@ -82,6 +83,8 @@ FUTURE = set(
         "temos"
     ).split()
 )
+CHAIN = {"e", "depois", "tambem", "alem"}
+ARTICLES = {"o", "a", "os", "as", "um", "uma"}
 CONDITIONAL = {"se", "caso", "talvez", "quando", "sabe"}
 FILLERS = {"entao", "ai", "e", "bom", "ok", "agora", "ja", "tambem", "a", "gente", "doutora", "doutor", "pois", "certo"}
 LIST_FILLER = re.compile(
@@ -304,6 +307,9 @@ class Intent:
     scope: str  # exam | rx | both
     start: int
     end: int
+    negated: bool = (
+        False  # "não vou pedir…", "se piorar, pedimos…": não vale, mas também não deixa o verbo anterior valer
+    )
 
     def fits(self, kind: str) -> bool:
         return self.scope == "both" or (self.scope == "exam") == (kind == "exame")
@@ -324,6 +330,7 @@ def _intents(clause: str) -> tuple[Intent, ...]:
         before = [w for w, _, _ in tokens[max(0, i - 7) : i]]
         near = before[-4:]
         if any(w in NEG_WORDS for w in near) or any(w in CONDITIONAL for w in before):
+            out.append(Intent(verb[0], verb[1], start, end, negated=True))
             continue
         # "vou suspender o ibuprofeno e trocar a hidroclorotiazida…": o "vou" alcança os verbos seguintes da lista
         has_lead = any(w in FUTURE for w in (near if word in NEEDS_LEAD else before[-7:]))
@@ -332,22 +339,30 @@ def _intents(clause: str) -> tuple[Intent, ...]:
             ok = has_lead or (word in IMPERATIVE_OK and at_start)
         else:
             ok = has_lead or at_start
-        if ok:
+        # "vou aumentar a losartana para 100 mg e pedir potássio": "e/depois" + verbo continua a lista do "vou" anterior
+        chained = bool(before) and before[-1] in CHAIN and any(not i.negated for i in out)
+        if ok or (chained and word not in NEEDS_LEAD):
             out.append(Intent(verb[0], verb[1], start, end))
     return tuple(out)
 
 
 def find_intents(clause: str) -> list[Intent]:
+    """Intenções da oração, as negadas/condicionais incluídas (`negated`): quem as ignora herda o verbo anterior."""
     return list(_intents(clause))
+
+
+def _negated_item(clause: str, item: Item) -> bool:
+    words = [w for w in TOKEN.findall(clause[: item.start]) if w not in ARTICLES]
+    return bool(words) and words[-1] in NEG_WORDS
 
 
 def _governing(item: Item, intents: list[Intent]) -> Intent | None:
     intents = [i for i in intents if i.fits(item.kind)]
     left = [i for i in intents if i.end <= item.start]
-    if left:
-        return left[-1]
+    if left:  # "vou pedir hemograma e não vou pedir creatinina": o verbo mais próximo é o negado
+        return None if left[-1].negated else left[-1]
     right = [i for i in intents if i.start >= item.end]
-    return right[0] if right else None
+    return None if not right or right[0].negated else right[0]
 
 
 # ---------- checagens ----------
@@ -648,7 +663,9 @@ def detect(segments: list[Segment], chart: ChartView) -> list[OrderDraft]:
                 intents = find_intents(clause)
                 if not items:
                     pos = parse_posology(clause)
-                    if last and not pos.empty() and not intents:  # "…amoxicilina, 500 mg de 8 em 8 horas, por 7 dias"
+                    if (
+                        last and not pos.empty() and not any(not i.negated for i in intents)
+                    ):  # "…amoxicilina, 500 mg de 8 em 8 horas, por 7 dias"
                         for d in last:
                             _merge(d, _fill(d, pos))
                     else:
@@ -662,6 +679,8 @@ def detect(segments: list[Segment], chart: ChartView) -> list[OrderDraft]:
                 continues = bool(LIST_FILLER.match(re.sub(r"\s+", " ", leftover).strip()))
                 governed: list[tuple[Item, Intent]] = []
                 for item in items:
+                    if _negated_item(clause, item):  # "vou prescrever azitromicina e não amoxicilina"
+                        continue
                     intent = _governing(item, intents)
                     if intent is None and carry is not None and carry.fits(item.kind) and continues:
                         intent = carry
@@ -677,6 +696,11 @@ def detect(segments: list[Segment], chart: ChartView) -> list[OrderDraft]:
                     n_item = items.index(item)
                     nxt = items[n_item + 1].start if n_item + 1 < len(items) else len(clause)
                     pos = parse_posology(clause[item.end : nxt])
+                    if (
+                        not pos.dose and item.kind == "medicamento" and n_item == 0
+                    ):  # "vou prescrever 40 mg de omeprazol"
+                        if before := DOSE.search(clause[intent.end : item.start]):
+                            pos.dose = _fmt_dose(before.group(1), before.group(2))
                     if item.kind == "exame":
                         if intent.cls == "start":
                             made.append(put(_new_exam(item, seg, pos)))
@@ -855,6 +879,15 @@ def apply_decisions(drafts: list[OrderDraft], decisions: dict) -> None:
             em=raw.get("em"),
             editado=bool(edits),
         )
+        # um alerta crítico que surge DEPOIS da assinatura (alergia contada mais tarde, outra prescrição) desfaz a
+        # assinatura: item crítico só vale assinado com justificativa
+        if (
+            d.decisao.estado == "assinado"
+            and any(c.severidade == "critico" for c in d.checagens)
+            and len(d.decisao.justificativa.strip()) < MIN_JUSTIFICATION
+        ):
+            d.decisao.estado = "pendente"
+            d.decisao.aviso = "Surgiu alerta crítico depois da assinatura: assine de novo com justificativa ou recuse."
 
 
 # ---------- FHIR ----------

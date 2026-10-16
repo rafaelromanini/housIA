@@ -576,3 +576,35 @@ def test_medicamentos_do_prontuario_mostram_a_prescricao_proposta(client, auth, 
     finally:
         for rid in set(store.resources["MedicationRequest"]) - before:
             store.resources["MedicationRequest"].pop(rid, None)
+
+
+# ---------- verificação independente: achados corrigidos ----------
+def test_alerta_critico_que_surge_depois_da_assinatura_desfaz_a_assinatura(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    d = by_item(say(client, h, cid, ("medico", "Vou prescrever dipirona 1 g de 6 em 6 horas.")), "Dipirona")
+    assert d["gravidade"] == "info" and decide(client, h, cid, d["id"], estado="assinado").status_code == 200
+    # a paciente conta a alergia só depois: o item assinado sem justificativa não pode seguir como assinado
+    d = by_item(
+        say(client, h, cid, ("paciente", "Doutora, tenho alergia a dipirona, fico cheia de placas.")), "Dipirona"
+    )
+    assert d["gravidade"] == "critico" and d["decisao"]["estado"] == "pendente" and d["decisao"]["aviso"]
+    assert orders.signed([d]) == []
+    again = decide(client, h, cid, d["id"], estado="assinado", justificativa="Alergia leve, já usou sem reação.")
+    assert again.status_code == 200 and by_item(again.json()["insights"], "Dipirona")["decisao"]["estado"] == "assinado"
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("Vou pedir hemograma e não vou pedir creatinina.", {"hemograma"}),
+        ("Vou prescrever azitromicina e não amoxicilina.", {"azitromicina"}),
+        ("Vou pedir TSH sem pedir hemograma.", {"tsh"}),
+        ("Vou aumentar a losartana para 100 mg e pedir potássio em uma semana.", {"losartana", "potassio"}),
+        ("Vou prescrever 40 mg de omeprazol.", {"omeprazol"}),
+    ],
+)
+def test_negacao_no_meio_da_frase_nao_herda_o_verbo_anterior(record, texto, esperado):
+    assert {d.chave for d in spoken(record, "cen6", texto)} == esperado
+    if "omeprazol" in esperado:
+        assert spoken(record, "cen6", texto)[0].dose == "40 mg"  # dose dita antes do nome do medicamento

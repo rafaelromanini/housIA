@@ -220,6 +220,12 @@ function OrderItem({
         </ul>
       )}
 
+      {o.decisao.aviso && (
+        <p className="mt-1 text-xs font-medium text-critico" role="alert">
+          {o.decisao.aviso}
+        </p>
+      )}
+
       {o.decisao.estado !== "pendente" && (
         <p className="mt-1 text-xs text-muted-foreground">
           {o.decisao.estado === "assinado" ? "Assinado" : "Recusado"} por {o.decisao.por}

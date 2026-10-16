@@ -441,6 +441,7 @@ class OrderDecision(BaseModel):
     por: str | None = None
     em: str | None = None
     editado: bool = False  # posologia corrigida pelo profissional antes de assinar
+    aviso: str = ""  # assinatura desfeita porque surgiu alerta crítico depois dela (assinar de novo, com justificativa)
 
 
 class OrderDraft(BaseModel):
