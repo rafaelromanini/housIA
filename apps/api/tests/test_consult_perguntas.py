@@ -668,3 +668,165 @@ def test_modelos_de_saida_da_ia_continuam_pequenos_e_validam_json_antigo():
         ),
         Insights,
     )
+
+
+# ---------- verificação independente: falsos positivos de "abordada" e de semiologia ----------
+@pytest.mark.parametrize(
+    ("frase", "pergunta"),
+    [
+        ("O ar tem faltado quando caminha?", True),
+        ("o ar tem faltado quando caminha", True),
+        ("e a febre", True),
+        ("E como estão o sono, o apetite e o ânimo?", True),
+        ("a senhora dorme bem", True),
+        ("de zero a dez quanto doi", True),
+        ("desde quando o joelho dói", True),
+        ("Tem tosse com catarro?", True),
+        ("Vou pedir exames para investigar a falta de ar, tá?", False),
+        ("Vamos olhar o sono depois", False),
+        ("A dor piora quando a pessoa carrega peso e melhora com repouso, é comum", False),
+        ("Isso explica parte da tontura.", False),
+        ("Pode ser, junto com o açúcar baixo e o anti-inflamatório. Vamos ajustar.", False),
+        ("Bom dia, dona Joana! Que bom ver a senhora.", False),
+        ("Vou suspender o ibuprofeno e a tontura deve melhorar quando levantar devagar", False),
+    ],
+)
+def test_so_pergunta_do_profissional_conta_como_pergunta(frase, pergunta):
+    from app.consult.text import is_question
+
+    assert is_question(frase) is pergunta
+
+
+@pytest.mark.parametrize(
+    "explicacao",
+    [
+        "Vou pedir exames pra investigar esse cansaço e a falta de ar, tá?",
+        "Esse cansaço pode ser da anemia, a falta de ar a gente vê depois com o ecocardiograma.",
+        "Anote aí: dor no peito e falta de ar são sinais de alerta, se aparecerem volte aqui.",
+    ],
+)
+def test_medico_que_comenta_o_assunto_sem_perguntar_nao_aborda_a_pergunta(client, auth, explicacao):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(
+        client, h, cid, ("paciente", "Ando muito cansada, doutora"), ("medico", explicacao), ("paciente", "Tá bom")
+    )
+    assert not [q for q in ins["perguntas_abordadas"] if row_of(q).trigger == "sintoma:cansaco"], explicacao
+    assert [q for q in ins["perguntas"] if row_of(q).trigger == "sintoma:cansaco"]
+
+
+def test_medico_explicando_piora_e_melhora_nao_responde_a_semiologia(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(
+        client,
+        h,
+        cid,
+        ("paciente", "Estou com dor nas costas faz uma semana"),
+        ("medico", "A dor piora quando a pessoa carrega peso e melhora com repouso, é comum"),
+    )
+    assert not [q for q in ins["perguntas_abordadas"] if q["id"].startswith(("q080", "q081"))]
+    assert any(q["id"].startswith("q080") for q in ins["perguntas"])
+
+
+def test_demo_do_cen6_nao_trata_comentario_do_medico_como_pergunta_feita(client, auth):
+    """Fala/27 ("Pode ser, junto com o açúcar baixo e o anti-inflamatório") explica; ninguém perguntou do remédio."""
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    roteiro = json.loads((clock_root() / "data" / "consultations" / "cen6_consulta.json").read_text(encoding="utf-8"))
+    segs = [{"falante": f["falante"], "texto": f["texto"]} for f in roteiro["falas"]]
+    res = client.post(f"/consultations/{cid}/segments", json={"segmentos": segs}, headers=h)
+    ins = res.json()["insights"]
+    assert not [q for q in ins["perguntas_abordadas"] if q["refs"] == ["Fala/27"]]
+    assert all(
+        q["resposta"] != "Ah, que alívio, doutora. Achei que era coisa pior." for q in ins["perguntas_abordadas"]
+    )
+    # as perguntas que o profissional fez de fato continuam abordadas, com a resposta
+    done = {q["id"]: q for q in ins["perguntas_abordadas"]}
+    assert done["q078:tontura"]["resposta_refs"] == ["Fala/4"]
+    assert done["q007"]["refs"] == ["Fala/21"] and done["q007"]["resposta_refs"] == ["Fala/22"]
+
+
+def clock_root():
+    from app.config import get_settings
+
+    return get_settings().data_dir.parent
+
+
+def test_hda_nao_repete_a_queixa_que_ja_aparece_como_associada(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(client, h, cid, ("paciente", "Estou com febre e tosse há dois dias"))
+    hda = ins["anamnese"]["hda"]
+    assert "associada a tosse" in hda and "Refere também" not in hda
+
+
+def test_posologia_e_inicio_da_noite_nao_viram_frequencia_nem_piora_da_queixa(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(
+        client,
+        h,
+        cid,
+        ("paciente", "Tive tosse. Volto em 15 dias para retorno"),
+        ("paciente", "Tomo o remédio 3 vezes ao dia"),
+        ("paciente", "Dor de cabeça desde ontem à noite que piora quando levanto"),
+    )
+    q = {x["chave"]: x for x in ins["anamnese"]["queixas_detalhadas"]}
+    assert q["tosse"]["frequencia"]["valor"] == "" and q["tosse"]["inicio_duracao"]["valor"] == ""
+    assert q["cefaleia"]["inicio_duracao"]["valor"] == "desde ontem à noite"
+    assert "à noite" not in q["cefaleia"]["piora"]["valor"]
+
+
+def test_febre_nao_gera_pergunta_de_intensidade_de_0_a_10(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(client, h, cid, ("paciente", "Estou com febre faz três dias"))
+    assert not [q for q in ins["perguntas"] if q["id"].startswith(("q079:febre", "q080:febre"))]
+    assert any(q["id"].startswith("q081:febre") for q in ins["perguntas"])
+
+
+def test_campo_da_ia_com_fonte_na_fala_do_medico_nao_entra_na_anamnese(client, auth, monkeypatch):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    say(client, h, cid, ("paciente", "Ando muito tonta"), ("medico", "Isso piora ao levantar, é comum"))
+    payload = _payload(
+        anamnese=_payload()["anamnese"]
+        | {"queixas_detalhadas": [_detalhada(piora=_campo("ao levantar", ["Fala/2"]))]}  # Fala/2 é do médico
+    )
+    body = _live(client, h, cid, monkeypatch, payload)
+    tontura = body["insights"]["anamnese"]["queixas_detalhadas"][0]
+    assert tontura["piora"]["valor"] == ""
+
+
+def test_lista_de_perguntas_do_cen6_tem_limite_para_caber_no_tablet(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    roteiro = json.loads((clock_root() / "data" / "consultations" / "cen6_consulta.json").read_text(encoding="utf-8"))
+    segs = [{"falante": f["falante"], "texto": f["texto"]} for f in roteiro["falas"]]
+    ins = client.post(f"/consultations/{cid}/segments", json={"segmentos": segs}, headers=h).json()["insights"]
+    semio = [q for q in ins["perguntas"] if row_of(q).trigger.startswith("semiologia:")]
+    assert len(ins["perguntas"]) - len(semio) <= 10 and len(semio) <= 8
+    assert len({q["pergunta"] for q in ins["perguntas"]}) == len(ins["perguntas"])
+
+
+# ---------- verificação independente: frases adversariais (remédio e queixa na mesma frase) ----------
+@pytest.mark.parametrize(
+    ("frase", "chave", "campo", "esperado"),
+    [
+        ("tomo losartana de manhã e tenho tontura ao levantar", "tontura", "piora", "ao levantar"),
+        ("tomo losartana 2 vezes ao dia e tenho tontura ao levantar", "tontura", "frequencia", ""),
+        ("tomei dipirona e a febre não baixou há 4 dias", "febre", "inicio_duracao", "4 dias"),
+        ("tenho dor de barriga há 2 dias depois de comer", "dor_abdominal", "piora", "depois de comer"),
+        ("Meu pai teve infarto, eu tenho dor de barriga há 2 dias", "dor_abdominal", "inicio_duracao", "2 dias"),
+        ("não tenho febre mas estou com tosse há duas semanas", "tosse", "inicio_duracao", "2 semanas"),
+        ("Ela está com diarreia desde ontem à noite", "diarreia", "piora", ""),
+    ],
+)
+def test_frases_adversariais_da_semiologia(client, auth, frase, chave, campo, esperado):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(client, h, cid, ("paciente", frase))
+    q = {x["chave"]: x for x in ins["anamnese"]["queixas_detalhadas"]}
+    assert chave in q, frase
+    assert q[chave][campo]["valor"] == esperado, frase

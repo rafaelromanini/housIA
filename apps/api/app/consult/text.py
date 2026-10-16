@@ -239,6 +239,47 @@ def has_vocative(text: str) -> bool:
     return False
 
 
+# pergunta do profissional: "?" ou, na fala sem pontuação, um jeito de perguntar ("o ar tem faltado quando caminha")
+TAG_QUESTION = re.compile(r"[,;]? ?(ta|ne|ok|certo|ta bom|ta certo|ta bem|entendeu|combinado|beleza|tudo bem|viu)\?+$")
+QUESTION_WHEN = re.compile(
+    r"(?<!\w)quando (caminha|anda|levanta|deita|sobe|desce|come|respira|urina|tosse|dorme|se esforca|faz esforco|abaixa"
+    r"|agacha|vira|se mexe|fica em pe|fica deitad[oa]|evacua|engole)(?!\w)"
+)
+FOLLOW_UP = re.compile(r"^e (a|o|as|os|de|do|da|na|no|dor|tosse|febre|falta|algum|alguma|quando|se|como)(?!\w)")
+QUESTION_START = re.compile(
+    r"^(e |entao |mas )?(como|qual|quais|quanto|quantos|quantas|quando|onde|aonde|o que|por que|desde quando"
+    r"|ha quanto|faz quanto|tem|teve|tinha|sente|sentiu|sentia|fez|faz|toma|tomou|usa|usou|algum|alguma|alguem"
+    r"|ainda|costuma|consegue|conseguiu|chegou|ficou|fica|piorou|melhorou|doi|numa escala|em uma escala"
+    r"|de 0 a 10|de zero a dez|ja (teve|tem|tomou|fez|sentiu|usou|operou|internou|caiu|desmaiou))(?!\w)"
+)
+SECOND_ASK = re.compile(
+    r"(?<!\w)(a senhora|o senhor|voce) (nao )?(dorme|come|urina|evacua|toma|usa|mede|mediu|fuma|bebe|consegue|conseguiu"
+    r"|notou|percebeu|costuma|tomou|usou|fez|sentiu|dormiu|comeu|caiu|desmaiou|vomitou|tossiu|andou)(?!\w)"
+)
+
+
+def is_question(sentence: str) -> bool:
+    """A frase é uma pergunta do profissional? "Vou pedir exames pra investigar a falta de ar, tá?" não é: o "tá?" só
+    pede concordância. Frase sem "?" (microfone) vale se tem jeito de pergunta."""
+    t = norm(sentence)
+    t = TAG_QUESTION.sub("", t).strip()
+    if "?" in t:
+        return True
+    return bool(
+        QUESTION_START.match(t)
+        or QUESTION_WHEN.search(t)
+        or FOLLOW_UP.match(t)
+        or SECOND_ASK.search(t)
+        or LISTENER_QUESTION.search(t)
+    )
+
+
+def question_text(text: str) -> str:
+    """Só as frases de pergunta da fala, normalizadas: onde procurar o que o profissional perguntou."""
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+|\n", text) if x.strip()]
+    return " ".join(norm(x) for x in sentences if is_question(x))
+
+
 def listener_question(clause: str) -> bool:
     """Oração que pergunta da experiência de quem escuta ("a senhora tem sentido...", "tem tido febre")."""
     return bool(LISTENER_QUESTION.search(clause))

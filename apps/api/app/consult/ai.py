@@ -413,11 +413,13 @@ def _merge_anamnese(
         out.hda = rule.hda
 
     def usable(field: CampoSemio) -> bool:
-        return (
-            bool(field.valor.strip())
-            and bool(field.refs)
-            and all(r in valid and r.startswith("Fala/") for r in field.refs)
-        )
+        """Campo com valor e fonte válida, e a fonte é fala de quem tem a queixa (paciente ou acompanhante)."""
+        if not field.valor.strip() or not field.refs:
+            return False
+        if not all(r in valid for r in field.refs):
+            return False
+        spoken = [_fala(r, segments) for r in field.refs]
+        return all(x is not None and x.falante in PATIENT_SIDE for x in spoken)
 
     def sync(q: QueixaDetalhada) -> QueixaDetalhada:
         q.faltam = [f for f in semiology().group_of(q.chave).fields if not getattr(q, f).valor]  # type: ignore[misc]

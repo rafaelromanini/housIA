@@ -48,9 +48,7 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
     separam as 2 hipóteses de maior confiança sobem na ordem.
   - **#9** Anamnese por queixa (`app/consult/semiology.py`, `data/reference/consult_semiology.yaml`): campos
     semiológicos com fonte, HDA redigida no modo regras, tags com os atributos e queixa principal que o médico fixa.
-    **A verificação independente do #4+#9 parou no meio por limite de uso.** O trabalho parcial dela está em
-    `docs/paridade-lya/wip/verificacao-4-9-parcial.patch` (não aplicado: deixa 1 teste falhando,
-    `test_posologia_e_inicio_da_noite_nao_viram_frequencia_nem_piora_da_queixa`).
+    Verificação cética concluída (patch aplicado, remédio e queixa na mesma frase, "dor de barriga").
   - **#25** OPME em três vias (fala × guia autorizada × etiqueta GS1), rastreio do implante (Device,
     Procedure.usedReference, cartão do implante na alta, implante na passagem). Verificado (commit `a4e4e43`).
   - **#26** Anti-glosa em dados (`data/reference/glosa_rules/`), score de prontidão, Claim em rascunho, trava 409
@@ -79,9 +77,6 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 ## O que falta, na ordem
 
 1. **Fechar as verificações interrompidas:**
-   - #4+#9: aplicar ou descartar `docs/paridade-lya/wip/verificacao-4-9-parcial.patch`
-     (`git apply docs/paridade-lya/wip/verificacao-4-9-parcial.patch`), fazer passar o teste que falha, rodar a
-     verificação cética (ver `.claude/workflows/housia-onda.js`, `verifyPrompt`, base `58a7c68`) e apagar a pasta `wip/`.
    - #30: verificação cética (base `a4e4e43`, commits `7da3c4c`, `c6b7abe`, `09d6bd6`).
    - Subir a stack, recarregar o seed e rodar os e2e; corrigir o que quebrar.
 2. **Resto da Onda 1, frente A, em sequência:** #5+#6 (CID-10 oficial validado e medicamentos e alergias de qualquer

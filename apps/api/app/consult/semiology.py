@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from app.consult import knowledge
 from app.consult.knowledge import SemiologyDef, SymptomDef
 from app.consult.schemas import CampoEspecialidade, CampoSemio, QueixaDetalhada, Segment, fala_ref
-from app.consult.text import clauses, contains, find, keyword_status, mentioned_drugs, norm
+from app.consult.text import clauses, contains, find, keyword_status, mentioned_drugs, norm, question_text
 
 FIELD_ORDER = ("inicio_duracao", "localizacao", "intensidade", "piora", "melhora", "frequencia", "associados")
 FOLLOWING = 2  # falas seguintes do paciente lidas depois da fala da queixa
@@ -92,6 +92,10 @@ SINCE_LABEL = {
     "segunda": "segunda",
     "terca": "terça",
     "sabado": "sábado",
+    "ontem a noite": "ontem à noite",
+    "ontem a tarde": "ontem à tarde",
+    "ontem de manha": "ontem de manhã",
+    "hoje de manha": "hoje de manhã",
 }
 SUDDEN = re.compile(
     r"(?<!\w)(de repente|subitamente|do nada|de uma hora pra outra|de uma hora para outra|bruscamente)(?!\w)"
@@ -147,6 +151,10 @@ FREQ_WORDS = (
     ("1 vez", ("uma unica vez", "so uma vez", "so uma")),
 )
 
+DOSING = re.compile(
+    r"(?<!\w)(tomo|toma|tomar|tomei|tomando|tomava|uso|usa|usando|comprimidos?|doses?|gotas|capsulas?|injecao|insulina"
+    r"|remedio|medicacao)(?!\w)"
+)
 LATERAL = re.compile(r"(?<!\w)([a-z]+) (direito|direita|esquerdo|esquerda)(?!\w)")
 LATERAL_SKIP = {"o", "a", "os", "as", "do", "da", "no", "na", "e", "ou", "um", "uma", "meu", "minha", "lado"}
 
@@ -323,8 +331,18 @@ def _ref_n(ref: str) -> int:
 
 
 def _sentences(text: str) -> list[str]:
-    """Frases de uma fala, sem as que falam de medicamento (a duração e a frequência delas são do remédio)."""
-    return [s for s in re.split(r"(?<=[.!?])\s+|\n", text) if s.strip() and not mentioned_drugs(s)]
+    """Frases de uma fala, sem o que fala de medicamento (a duração e a frequência são do remédio). Na frase que mistura
+    remédio e queixa ("tomo losartana de manhã e tenho tontura ao levantar") ficam só os trechos sem remédio."""
+    out = []
+    for s in re.split(r"(?<=[.!?])\s+|\n", text):
+        if not s.strip():
+            continue
+        if not mentioned_drugs(s):
+            out.append(s)
+            continue
+        parts = re.split(r"\s+(?:e|mas|porém)\s+", s)
+        out += [p for p in parts if not mentioned_drugs(p) and not DOSING.search(norm(p))]
+    return out
 
 
 @dataclass
@@ -422,12 +440,13 @@ def extract(
                 acc.add(name, duration(text), n, answer)
             elif name == "intensidade":
                 acc.add(name, intensity(text, answer), n, answer)
-            elif name == "frequencia":
-                acc.add(name, frequency(text), n, answer)
+            elif name == "frequencia":  # "toma 3 vezes ao dia" é a posologia do remédio, não a frequência da queixa
+                acc.add(name, None if DOSING.search(text) else frequency(text), n, answer)
             elif name == "localizacao":
                 acc.add(name, location(text, sem, implied[p]), n, answer)
             elif name in ("piora", "melhora"):
-                worse, relief = worsening_relief(text, sem, only)
+                # "desde ontem à noite" diz quando começou, não que piora à noite
+                worse, relief = worsening_relief(SINCE.sub(" ", text), sem, only)
                 for v in worse if name == "piora" else relief:
                     acc.add(name, v, n, answer)
 
@@ -468,7 +487,8 @@ def extract(
     for s in segments:
         if s.falante not in team_side:
             continue
-        fields_asked = [name for name, words in asked.items() if name in sem.fields and contains(seg_norm[s.n], words)]
+        questions = question_text(s.texto)  # só o que o profissional perguntou, não o que explicou
+        fields_asked = [name for name, words in asked.items() if name in sem.fields and contains(questions, words)]
         if not fields_asked:
             continue
         reply = s.n + 1 if s.n + 1 in patient_ns else None
@@ -599,7 +619,7 @@ def hda_text(queixas: list[QueixaDetalhada], extras: list[str]) -> str:
         detailed = any(getattr(q, f).valor for f in FIELD_ORDER[:-1])
         if i == 0 or detailed:
             sentences.append(hda_sentence(q, main=i == 0))
-        else:
+        elif q.rotulo.lower() not in queixas[0].associados.valor:  # a 1ª já a cita em "associada a …"
             plain.append(q)
     if plain:
         sentences.append(

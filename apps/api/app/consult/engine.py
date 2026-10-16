@@ -34,6 +34,8 @@ from app.consult.schemas import (
 )
 from app.consult.surgical import surgical_report
 from app.consult.text import (
+    FOLLOW_UP,
+    QUESTION_WHEN,
     contains,
     find,
     has_vocative,
@@ -41,6 +43,7 @@ from app.consult.text import (
     listener_questions,
     mentioned_drugs,
     norm,
+    question_text,
 )
 from app.reference import drugs, interactions, matches
 from app.timeline.context import PatientContext
@@ -89,13 +92,6 @@ THIRD_PERSON = re.compile(
     r"(?<!\w)(ela|ele)( nao| ja| quase| tambem| sempre| nunca)? (tem|teve|esta|ta|anda|andou|caiu|cai|sente|sentiu"
     r"|reclama|reclamou|fica|ficou|toma|tomou|e|era|estava|vem|veio|nao)(?!\w)|(?<!\w)(dele|dela)(?!\w)"
 )
-# pergunta ao paciente sem pronome nem "?": "o ar tem faltado quando caminha" (verbo na 3ª pessoa, sem "eu"/"ela")
-QUESTION_WHEN = re.compile(
-    r"(?<!\w)quando (caminha|anda|levanta|deita|sobe|desce|come|respira|urina|tosse|dorme|se esforca|faz esforco|abaixa"
-    r"|agacha|vira|se mexe|fica em pe|fica deitad[oa]|evacua|engole)(?!\w)"
-)
-# fragmento de pergunta do profissional que retoma o assunto: "e a febre", "e dor no peito falta de ar"
-FOLLOW_UP = re.compile(r"^e (a|o|as|os|de|do|da|na|no|dor|tosse|febre|falta|algum|alguma|quando|se|como)(?!\w)")
 MEASUREMENT = re.compile(r"\d+ (por|x) \d+|(deu|esta|ta|foi) \d+")
 FAMILY_RE = re.compile(r"(minha|meu) (mae|pai|irma|irmao|avo|avô|tia|tio|filha|filho)")
 FAMILY_DISEASE = (
@@ -334,9 +330,10 @@ class Engine:
 
     # ---------- Perguntas sugeridas ----------
     def team_asked(self, words: tuple[str, ...]) -> tuple[Segment, Segment | None] | None:
-        """A primeira fala do PROFISSIONAL com alguma das palavras (inclusive parafraseada) e a resposta do paciente na
-        fala seguinte. Fala do paciente sozinha não conta: dizer "sono" não responde a pergunta que ninguém fez."""
-        found = [s for s in self.segments if s.falante in TEAM_SIDE and contains(self.norm[s.n], words)]
+        """A primeira PERGUNTA do PROFISSIONAL com alguma das palavras (inclusive parafraseada) e a resposta do paciente
+        na fala seguinte. Fala do paciente sozinha não conta ("sono" dito pelo paciente não responde a pergunta que
+        ninguém fez), nem a do profissional que só comenta ("vou pedir exames para a falta de ar, tá?")."""
+        found = [s for s in self.segments if s.falante in TEAM_SIDE and contains(question_text(s.texto), words)]
         if not found:
             return None
         by_n = {s.n: s for s in self.segments}

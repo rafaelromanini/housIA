@@ -132,6 +132,8 @@ const SEMIO_LABEL: Record<SemioField, string> = {
   frequencia: "Frequência",
   associados: "Sintomas associados",
 };
+/** perguntas sugeridas abertas na lista; o resto fica em "Mais N perguntas" para o painel caber no tablet */
+const VISIBLE_QUESTIONS = 6;
 const SEMIO_ORDER: SemioField[] = ["inicio_duracao", "localizacao", "intensidade", "piora", "melhora", "frequencia", "associados"];
 
 /** Semiologia de cada queixa: o que já foi dito (com a fala de origem) e o que falta perguntar. */
@@ -271,6 +273,26 @@ export function SmartAppsPanel({
 
   const show = (key: AppKey) => !hidden.has(key) && APPS.find((a) => a.key === key)?.tab === tab;
   const pid = patient.id;
+
+  // uma pergunta sugerida: o texto, o motivo, o que ajuda a decidir, a diretriz de origem e a prioridade
+  const questionItem = (q: ConsultInsights["perguntas"][number]) => (
+    <li key={q.id ?? q.pergunta} className="rounded-md border bg-background p-2.5">
+      <p className="text-base font-bold leading-snug">“{r(q.pergunta)}”</p>
+      <p className="mt-0.5 text-sm text-muted-foreground">{r(q.motivo)}</p>
+      {q.discrimina && q.discrimina.length > 0 && (
+        <p className="mt-0.5 text-xs font-bold text-primary">Ajuda a decidir entre: {q.discrimina.map(r).join(" × ")}</p>
+      )}
+      {q.fonte && <p className="mt-0.5 text-xs text-muted-foreground">Fonte: {q.fonte}</p>}
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <Badge variant={PRIORITY[q.prioridade]} className="text-[11px]">
+          {PRIORITY_LABEL[q.prioridade]}
+        </Badge>
+        <OriginBadge origem={q.origem} />
+        <SourceRefs patientId={pid} refs={q.refs} label="motivo no prontuário" />
+      </div>
+    </li>
+  );
+
   const negatives = ins.linha_emocional.filter((p) => p.emocoes.some((e) => NEGATIVE.has(e))).length;
 
   return (
@@ -325,25 +347,19 @@ export function SmartAppsPanel({
           {ins.perguntas.length === 0 ? (
             <Empty>Nada pendente por enquanto.</Empty>
           ) : (
-            <ol className="space-y-2">
-              {ins.perguntas.map((q) => (
-                <li key={q.pergunta} className="rounded-md border bg-background p-2.5">
-                  <p className="text-base font-bold leading-snug">“{r(q.pergunta)}”</p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">{r(q.motivo)}</p>
-                  {q.discrimina && q.discrimina.length > 0 && (
-                    <p className="mt-0.5 text-xs font-bold text-primary">Ajuda a decidir entre: {q.discrimina.map(r).join(" × ")}</p>
-                  )}
-                  {q.fonte && <p className="mt-0.5 text-xs text-muted-foreground">Fonte: {q.fonte}</p>}
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <Badge variant={PRIORITY[q.prioridade]} className="text-[11px]">
-                      {PRIORITY_LABEL[q.prioridade]}
-                    </Badge>
-                    <OriginBadge origem={q.origem} />
-                    <SourceRefs patientId={pid} refs={q.refs} label="motivo no prontuário" />
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <>
+              <ol className="space-y-2">{ins.perguntas.slice(0, VISIBLE_QUESTIONS).map((q) => questionItem(q))}</ol>
+              {ins.perguntas.length > VISIBLE_QUESTIONS && (
+                <details className="mt-2 text-sm">
+                  <summary className="min-h-9 cursor-pointer font-bold text-primary">
+                    Mais {ins.perguntas.length - VISIBLE_QUESTIONS} perguntas
+                  </summary>
+                  <ol start={VISIBLE_QUESTIONS + 1} className="mt-1 space-y-2">
+                    {ins.perguntas.slice(VISIBLE_QUESTIONS).map((q) => questionItem(q))}
+                  </ol>
+                </details>
+              )}
+            </>
           )}
           {ins.perguntas_abordadas.length > 0 && (
             <details className="mt-2 text-sm">

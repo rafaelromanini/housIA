@@ -58,6 +58,15 @@ grupos:
     fonte: >-
       Porto, Semiologia Médica (queixas episódicas: quando começou, quantas vezes, circunstância e sintomas que
       acompanham).
+  - id: febril
+    rotulo: Febre
+    sintomas:
+      - febre
+      - febre_crianca
+    campos: [inicio_duracao, melhora, frequencia, associados]
+    fonte: >-
+      Porto, Semiologia Médica (febre: início, duração, padrão, antitérmicos usados e sintomas que a acompanham);
+      AIDPI Criança (Ministério da Saúde).
   - id: geral
     rotulo: Sintoma geral
     sintomas: []
