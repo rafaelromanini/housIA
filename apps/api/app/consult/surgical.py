@@ -27,7 +27,17 @@ from app.consult.schemas import (
     TemplateInfo,
     fala_ref,
 )
-from app.consult.surgical_checks import Scheduled, dictated_sides, negated, run_checks, scheduled_surgery, side_of
+from app.consult.surgical_checks import (
+    Scheduled,
+    affirmative,
+    clauses,
+    dictated_sides,
+    is_history,
+    negated,
+    run_checks,
+    scheduled_surgery,
+    side_of,
+)
 from app.consult.templates import ResolvedTemplate, first_hit, surgical_templates
 from app.consult.text import mentioned_drugs, norm
 from app.fhir_client import codes
@@ -67,9 +77,11 @@ def choose_template(
     ts = surgical_templates()
     best = None
     for s in segments:
-        for sentence in _sentences(s.texto):
-            t = norm(sentence)
+        for _, t in clauses(affirmative(s.texto)):
             hit = ts.detect(t)
+            # antecedente ("colecistectomia prévia", "cesárea anterior") não é o procedimento de agora
+            if hit and (is_history(t) or re.match(r"\s*anterior", t[t.find(hit[1]) + len(hit[1]) :])):
+                continue
             if hit:
                 # a frase "procedimento realizado: ..." vence; depois o sinônimo mais específico; depois o primeiro
                 score = (first_hit(t, PROCEDURE_WORDS) is not None, len(hit[1]), -s.n)
@@ -129,9 +141,9 @@ def control_orders(
 ) -> list[ProposedOrder]:
     """Exame de controle citado no ditado → ServiceRequest proposto (vai ao prontuário só com o relatório aprovado)."""
     for s in segments:
-        for clause in _clauses(s.texto):
+        for clause in _clauses(affirmative(s.texto)):
             t = norm(clause)
-            if not first_hit(t, tpl.exame_controle_words) or negated(t, tpl.exame_controle_words):
+            if not first_hit(t, tpl.exame_controle_words) or negated(t, tpl.exame_controle_words) or is_history(t):
                 continue
             sides = dictated_sides(segments, tpl.sitio) if tpl.sitio else []
             side = (sides[0][0] if sides else None) or (scheduled.lado if scheduled else None) or side_of(clause)

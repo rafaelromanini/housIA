@@ -429,6 +429,7 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
     try:
         if c.kind == "cirurgia":
             SurgicalReport.model_validate(note.get("relatorio_cirurgico"))
+            note = note | {"relatorio_cirurgico": _kept_orders(c, note["relatorio_cirurgico"])}
         else:
             ConsultNote.model_validate(note)
     except ValidationError as exc:
@@ -437,6 +438,18 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
     c.note_meta_json = (c.note_meta_json or {}) | {"revisada_por": user.name, "revisada_em": clock.now().isoformat()}
     log_action(db, user, "consulta.nota_revisada", "consultation", c.id, {"patient_id": c.patient_id})
     return out(c)
+
+
+def _order_id(order: dict) -> str | None:
+    ids = (order.get("recurso") or {}).get("identifier") or [{}]
+    return ids[0].get("value")
+
+
+def _kept_orders(c: Consultation, report: dict) -> dict:
+    """Na revisão, o cirurgião só retira pedidos propostos pelo HousIA: não cria nem altera o que vai ao FHIR."""
+    proposed = {_order_id(p): p for p in ((c.note_json or {}).get("relatorio_cirurgico") or {}).get("pedidos", [])}
+    kept = [proposed[_order_id(p)] for p in report.get("pedidos", []) if _order_id(p) in proposed]
+    return report | {"pedidos": list({_order_id(p): p for p in kept}.values())}
 
 
 def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:

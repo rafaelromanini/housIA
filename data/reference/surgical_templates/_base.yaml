@@ -8,7 +8,7 @@
 # ("direit" pega "direito" e "direita"). Espaço no fim (`"rpa "`) exige a palavra inteira.
 # `granular: true` separa por oração (vírgula) em vez de frase; `valor` é uma expressão regular que o trecho
 # precisa conter (ex.: um tempo); `somente_no_modelo: true` deixa o campo oculto até um modelo pedi-lo.
-versao: "1.0.0"
+versao: "1.1.0"
 id: base
 rotulo: Relatório cirúrgico — modelo base
 
@@ -114,14 +114,14 @@ campos:
     fonte: cfm_1638
   - campo: tecnica
     rotulo: Descrição da técnica
-    sinonimos: [pneumoperitonio, trocarte, incisao, seccionad, ligad, dissec, anastomose, retirad, aspiracao]
+    sinonimos: [pneumoperitonio, trocarte, incisao, artrotomia, osteotomia, seccionad, ligad, dissec, anastomose, retirad, aspiracao]
     obrigatorio: true
     motivo: A técnica descrita é o que comprova o procedimento cobrado.
     fonte: cfm_1638
   - campo: radioscopia_tempo
     rotulo: Radioscopia — tempo de exposição
     sinonimos: [radioscopia, fluoroscopia, escopia, intensificador de imagem]
-    valor: '\d+(?:[,.]\d+)?\s*(?:s|seg|segundos?|min|minutos?)(?![a-z])'
+    valor: '(?:\d+(?:[,.]\d+)?|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|trinta|quarenta)\s*(?:s|seg|segundos?|min|minutos?)(?![a-z])'
     grupo: radioscopia
     obrigatorio: false
     somente_no_modelo: true
@@ -207,5 +207,5 @@ especialidades:
 
 # Exame de imagem de controle: quando citado no ditado, vira pedido proposto (ServiceRequest) e pendência
 exame_controle:
-  sinonimos: [rx de controle, raio x de controle, raio-x de controle, radiografia de controle, rx pos-operatorio, radiografia pos-operatoria, rx na recuperacao]
+  sinonimos: [rx de controle, raio x de controle, raio-x de controle, radiografia de controle, rx pos-operatorio, raio x pos-operatorio, rx no pos-operatorio, radiografia pos-operatoria, radiografia no pos-operatorio, rx na recuperacao, controle radiografico, controle radiologico]
   descricao: Radiografia de controle pós-operatório

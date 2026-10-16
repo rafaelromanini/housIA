@@ -1,9 +1,9 @@
-versao: "1.0.0"
+versao: "1.1.0"
 id: artroplastia_quadril
 rotulo: Artroplastia de quadril
 especialidade: ortopedia
-detectar: [artroplastia total de quadril, artroplastia de quadril, artroplastia parcial de quadril, hemiartroplastia, protese total de quadril, protese de quadril, "atq "]
-sitio: [quadril, femur proximal, colo do femur, acetabulo]
+detectar: [artroplastia total de quadril, artroplastia total do quadril, artroplastia de quadril, artroplastia do quadril, artroplastia parcial de quadril, artroplastia parcial do quadril, hemiartroplastia, protese total de quadril, protese total do quadril, protese de quadril, protese do quadril, "atq "]
+sitio: [quadril, femur proximal, colo do femur, acetabulo, "atq "]
 profilaxia: [cefazolina]
 exame_controle:
   descricao: "Radiografia de bacia (AP) e do quadril {lado} — controle pós-operatório"

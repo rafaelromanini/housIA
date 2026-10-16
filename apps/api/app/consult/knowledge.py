@@ -90,7 +90,7 @@ class OpmeDef:
 
 @dataclass(frozen=True)
 class ProphylaxisDef:
-    """Antibioticoprofilaxia cirúrgica de adultos (ASHP/IDSA/SIS/SHEA 2013): dose, janela e redose."""
+    """Antibioticoprofilaxia cirúrgica (ASHP/IDSA/SIS/SHEA 2013): dose de adulto e pediátrica, janela e redose."""
 
     key: str
     name: str
@@ -99,6 +99,7 @@ class ProphylaxisDef:
     dose_g_heavy: float | None  # dose a partir de `heavy_kg` (ex.: cefazolina 3 g se peso >= 120 kg)
     heavy_kg: float | None
     dose_mg_kg: float | None
+    dose_mg_kg_ped: float | None  # pediatria (mg/kg), sem passar da dose de adulto
     window_min: int  # antes da incisão
     redose_h: float | None
     note: str
@@ -200,6 +201,7 @@ def prophylaxis() -> dict[str, ProphylaxisDef]:
             _num(r["dose_g_peso_alto"]),
             _num(r["peso_alto_kg"]),
             _num(r["dose_mg_kg"]),
+            _num(r["dose_mg_kg_pediatrica"]),
             int(r["janela_min"]),
             _num(r["redose_h"]),
             r["observacao"],

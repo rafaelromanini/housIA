@@ -1,11 +1,14 @@
 """Verificações cirúrgicas determinísticas sobre o ditado e o prontuário, cada uma com a sua fonte.
 
 - Cirurgia Segura (OMS): sign-in, time-out e sign-out marcados por voz ("time-out realizado") ou por botão;
-  termo de consentimento (Consent no prontuário ou citado no ditado).
-- Sítio e lateralidade: o lado ditado é conferido com o bodySite do ServiceRequest/Appointment agendado.
-- Contagem com sentido: "confere"/"correta" é ok; "não confere"/"faltando" é crítico.
+  só citar a etapa ("vamos fazer o time-out?", "sign-in pendente") não a marca. Termo de consentimento (Consent no
+  prontuário ou citado no ditado).
+- Sítio e lateralidade: o lado ditado é conferido com o bodySite do ServiceRequest/Appointment agendado; antecedentes
+  ("joelho esquerdo operado há 3 anos") e perguntas não contam.
+- Contagem com sentido: "confere"/"correta"/"nenhuma faltando" é ok; "não confere"/"não está batendo"/"faltando" é
+  crítico.
 - Antibioticoprofilaxia (data/reference/surgical_prophylaxis.csv, ASHP/IDSA 2013): agente recomendado para o
-  procedimento, janela antes da incisão, dose pelo peso do prontuário e redose pela duração.
+  procedimento, janela antes da incisão, dose pelo peso do prontuário (mg/kg em pediatria) e redose pela duração.
 - Garrote: tempo de isquemia acima de 2 horas.
 """
 
@@ -42,21 +45,43 @@ WORD_NUMBERS = {
     "onze": 11,
     "doze": 12,
 }
+MINUTE_WORDS = {
+    "cinco": 5,
+    "dez": 10,
+    "quinze": 15,
+    "vinte": 20,
+    "meia": 30,
+    "trinta": 30,
+    "quarenta": 40,
+    "cinquenta": 50,
+}
 NUM = r"(\d+(?:[,.]\d+)?|" + "|".join(WORD_NUMBERS) + ")"
 CLAUSE_SPLIT = re.compile(r"(?<!\d)[.;!?](?!\d)|,\s+|\n| mas ")
+SENTENCE_SPLIT = re.compile(r"(?<!\d)[.;!](?!\d)|\n")
+QUESTION = re.compile(r"[^.;!?\n]*\?")  # pergunta ("vamos fazer o time-out?") não registra que algo foi feito
 NEG_WORD = re.compile(r"(?<![a-z])(?:nao|sem|nunca|nenhum|nenhuma)(?![a-z])")
-NEG_AFTER = re.compile(r"^\W*nao(?![a-z])")  # "time-out não realizado", "radioscopia não utilizada"
+# "time-out não realizado", "time-out ainda não foi feito", "cefazolina 2 g não foi feita"
+NEG_AFTER = re.compile(r"^\W*(?:\d+(?:[,.]\d+)?\s*(?:g|mg|gramas?|miligramas?)\s+)?(?:ainda\s+)?(?:nao|nunca)(?![a-z])")
 CONJUNCTION = re.compile(r"(?<![a-z])(?:e|mas|porem)(?![a-z])")
 SIDE_RE = re.compile(r"(?<![a-z])(direit[oa]s?|esquerd[oa]s?|bilateral|bilaterais|ambos os lados)(?![a-z])")
+# antecedente ("colecistectomia prévia", "artroplastia do joelho esquerdo há 3 anos"): não é o que está sendo operado
+HISTORY = re.compile(
+    r"(?<![a-z])(?:previ[ao]s?|antecedentes?|anteriormente|pregress[ao]s?|historia de|historico de|"
+    r"ja (?:fez|foi|teve|realizou|operou|operad[ao]|submetid[ao])|"
+    r"ha (?:\d+|" + "|".join(WORD_NUMBERS) + r") (?:anos?|mes|meses))(?![a-z])"
+)
+_MINUTE = r"(\d{2}|" + "|".join(MINUTE_WORDS) + r")(?:\s+e\s+(cinco))?"
+_NOT_UNIT = r"(?!\s*(?:mg|g|ml|kg|gramas?|miligramas?|mililitros?)(?![a-z]))"
 CLOCK_AS = re.compile(
     r"(?<![a-z])(?:as|a partir das|desde as)\s+(\d{1,2}|" + "|".join(WORD_NUMBERS) + r")"
-    r"(?:\s*(?:h|:|horas?)\s*(?:e\s+)?(\d{2})?)?(?:\s*min(?:utos)?)?(?![a-z0-9])"
+    r"(?:\s*(?:h|:|horas?)(?![a-z]))?(?:\s*(?:e\s+)?" + _MINUTE + _NOT_UNIT + r")?(?:\s*min(?:utos)?)?(?![a-z0-9])"
 )
 CLOCK_H = re.compile(r"(?<![\d,.])(\d{1,2})(?:h|:)(\d{2})?(?!\d)")
 DURATION_H = re.compile(NUM + r"\s*(?:h|horas?)(?![a-z0-9])(?:\s*e\s*(\d{1,2})\s*(?:min|minutos?))?")
 DURATION_MIN = re.compile(r"(\d{1,3})\s*(?:min|minutos?)(?![a-z])")
 DOSE_RE = re.compile(NUM + r"\s*(g|gramas?|mg|miligramas?)(?![a-z])(\s*(?:/|por)\s*(?:kg|quilo))?")
 VOLUME_RE = re.compile(r"(\d{1,2}\.\d{3}|\d+)\s*(?:ml|mililitros?)(?![a-z])")
+VOLUME_L_RE = re.compile(NUM + r"\s*(?:l|litros?)(?![a-z])")
 
 # etapa: (rótulo, palavras do ditado, o que a etapa confere)
 WHO_STEPS: dict[str, tuple[str, tuple[str, ...], str]] = {
@@ -76,24 +101,56 @@ WHO_STEPS: dict[str, tuple[str, tuple[str, ...], str]] = {
         "procedimento registrado, contagens conferidas e peças identificadas",
     ),
 }
-CONSENT_WORDS = ("consentimento", "tcle", "termo assinado")
-COUNT_WORDS = ("contagem", "compressas", "compressa", "gazes", "instrumentais", "agulhas")
-COUNT_BAD = (
-    "nao confere",
-    "nao conferem",
-    "nao conferiu",
-    "nao bate",
-    "nao fecha",
-    "nao esta correta",
-    "faltando",
-    "falta uma",
-    "falta um",
-    "faltou",
-    "incorret",
-    "divergen",
-    "nao encontrad",
+# etapa feita: a palavra da etapa sozinha ("vamos fazer o time-out", "sign-in pendente") não registra a etapa
+WHO_DONE = (
+    "realizad",
+    "feito",
+    "feita",
+    "fizemos",
+    "conclui",
+    "complet",
+    "ok ",
+    "confirmad",
+    "checad",
+    "conferid",
+    "efetuad",
+    "executad",
+    "finalizad",
+    "aplicad",
 )
-COUNT_OK = ("confere", "conferem", "conferid", "correta", "corretas", "correto", "completa", "fechad", "bate")
+CONSENT_WORDS = ("consentimento", "tcle", "termo assinado")
+CONSENT_REFUSED = ("nega ", "negou", "recus", "revog")
+COUNT_WORDS = ("contagem", "compressas", "compressa", "gazes", "gaze ", "instrumentais", "agulhas")
+# o sentido vem da negação: "não confere"/"não está batendo" é divergência; "nenhuma compressa faltando" confere
+COUNT_BAD = (
+    "falt",
+    "incorret",
+    "errad",
+    "divergen",
+    "discrepan",
+    "incomplet",
+    "extraviad",
+    "sumiu",
+    "nao encontrad",
+    "nao localizad",
+)
+COUNT_OK = (
+    "confere",
+    "conferem",
+    "conferid",
+    "corret",
+    "complet",
+    "fechad",
+    "fecha ",
+    "bate",
+    "batem",
+    "ok ",
+    "certa ",
+    "certo ",
+    "encontrad",
+    "localizad",
+)
+ALLERGY_WORDS = ("alergi", "alergic")
 REDOSE_WORDS = ("redose", "repique", "nova dose", "repetid", "segunda dose", "dose adicional", "reforco")
 INCISION_WORDS = (
     "incisao",
@@ -113,6 +170,7 @@ SOURCE_RSI = "aorn_rsi"
 SOURCE_TOURNIQUET = "aorn_garrote"
 SOURCE_ATB = "ashp_2013"
 TOURNIQUET_MAX_MIN = 120
+ADULT_AGE = 18  # abaixo disso, dose pediátrica (mg/kg)
 BLOOD_LOSS_REDOSE_ML = 1500  # ASHP/IDSA 2013: redose também quando a perda passa de 1.500 mL
 DAY = 24 * 60
 
@@ -161,19 +219,69 @@ def side_of(text: str) -> str | None:
     return "bilateral"
 
 
-def clock_in(clause: str) -> int | None:
-    """Horário citado, em minutos desde a meia-noite ("às 8h", "8h30", "às 14:10", "às oito horas")."""
+def affirmative(text: str) -> str:
+    """Fala sem as perguntas: "vamos fazer o time-out?" ou "precisa de RX de controle?" não registram nada."""
+    return QUESTION.sub(" ", text)
+
+
+def is_history(clause: str) -> bool:
+    """Oração de antecedente ("colecistectomia prévia", "joelho esquerdo operado há 3 anos")."""
+    return bool(HISTORY.search(clause))
+
+
+def _minute(token: str | None, extra: str | None) -> int:
+    if not token:
+        return 0
+    value = MINUTE_WORDS[token] if token in MINUTE_WORDS else int(token)
+    return value + (5 if extra else 0)
+
+
+def clocks_in(clause: str) -> list[tuple[int, int]]:
+    """Horários citados, na ordem: (posição, minutos desde a meia-noite).
+
+    Aceita "às 8h", "8h30", "às 14:10", "às oito horas", "às 9 e meia", "às oito e quarenta".
+    """
+    out: list[tuple[int, int]] = []
+    taken: list[tuple[int, int]] = []
     for m in CLOCK_AS.finditer(clause):
-        hour, minute = int(_num(m.group(1))), int(m.group(2) or 0)
+        hour, minute = int(_num(m.group(1))), _minute(m.group(2), m.group(3))
         if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return hour * 60 + minute
+            out.append((m.start(), hour * 60 + minute))
+            taken.append(m.span())
     for m in CLOCK_H.finditer(clause):
-        if clause[: m.start()].endswith(("cada ", "de ", "por ", "durante ")):
+        if any(a <= m.start() < b for a, b in taken):
+            continue
+        if clause[: m.start()].endswith(("cada ", "de ", "por ", "durante ", "apos ", "ha ")):
             continue  # "a cada 4h", "garrote de 2h": duração, não horário
         hour, minute = int(m.group(1)), int(m.group(2) or 0)
         if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return hour * 60 + minute
-    return None
+            out.append((m.start(), hour * 60 + minute))
+    return sorted(out)
+
+
+def clock_in(clause: str) -> int | None:
+    """Primeiro horário citado, em minutos desde a meia-noite."""
+    found = clocks_in(clause)
+    return found[0][1] if found else None
+
+
+def clock_near(clause: str, hit: str, stop: tuple[str, ...] = ()) -> int | None:
+    """Horário da palavra-chave: o dito logo depois dela (até a palavra de outro evento) ou, senão, o dito antes.
+
+    "cefazolina às 8h incisão às 9h30": a incisão é às 9h30 e o antibiótico às 8h, mesmo sem pontuação.
+    """
+    idx = clause.find(hit)
+    if idx < 0:
+        return None
+    after = clause[idx:]
+    cut = first_hit(after[len(hit) :], stop) if stop else None
+    if cut:
+        after = after[: len(hit) + after[len(hit) :].find(cut)]
+    when = clock_in(after)
+    if when is not None:
+        return when
+    before = clause[:idx]
+    return None if stop and first_hit(before, stop) else clock_in(before)
 
 
 def duration_in(clause: str) -> int | None:
@@ -284,7 +392,23 @@ class Mention:
 
 
 def mentions(segments: list[Segment], words: tuple[str, ...]) -> list[Mention]:
-    return [Mention(c, fala_ref(s.n), s.n, raw) for s in segments for raw, c in clauses(s.texto) if first_hit(c, words)]
+    """Orações afirmativas (perguntas fora) que citam alguma das palavras."""
+    return [
+        Mention(c, fala_ref(s.n), s.n, raw)
+        for s in segments
+        for raw, c in clauses(affirmative(s.texto))
+        if first_hit(c, words)
+    ]
+
+
+def sentence_mentions(segments: list[Segment], words: tuple[str, ...]) -> list[tuple[Mention, str]]:
+    """Como `mentions`, com a frase inteira (normalizada) de cada oração: "time-out: lado e paciente confirmados"."""
+    out = []
+    for s in segments:
+        for sentence in SENTENCE_SPLIT.split(affirmative(s.texto)):
+            whole = norm(sentence)
+            out += [(Mention(c, fala_ref(s.n), s.n, raw), whole) for raw, c in clauses(sentence) if first_hit(c, words)]
+    return out
 
 
 @dataclass
@@ -297,15 +421,23 @@ class DrugDose:
     redose: bool
 
 
+def _drug_words() -> dict[str, tuple[str, ...]]:
+    return {key: tuple(syn(w) for w in d.words) for key, d in knowledge.prophylaxis().items()}
+
+
 def drug_mentions(segments: list[Segment]) -> list[DrugDose]:
-    table = knowledge.prophylaxis()
+    """Antibióticos dados: fora os negados ("cefazolina não foi feita"), as alergias e as perguntas."""
+    words = _drug_words()
+    every = tuple(w for ws in words.values() for w in ws)
     out: list[DrugDose] = []
     for s in segments:
-        parts = [c for _, c in clauses(s.texto)]
+        parts = [c for _, c in clauses(affirmative(s.texto))]
         for i, clause in enumerate(parts):
-            for key, d in table.items():
-                hit = first_hit(clause, tuple(syn(w) for w in d.words))
+            for key in knowledge.prophylaxis():
+                hit = first_hit(clause, words[key])
                 if not hit:
+                    continue
+                if negated(clause, words[key]) or first_hit(clause[: clause.find(hit)], ALLERGY_WORDS):
                     continue
                 m = DOSE_RE.search(clause[clause.find(hit) :])
                 grams = per_kg = None
@@ -316,17 +448,22 @@ def drug_mentions(segments: list[Segment]) -> list[DrugDose]:
                         per_kg = value if in_mg else value * 1000
                     else:
                         grams = value / 1000 if in_mg else value
-                # o horário pode vir na oração seguinte ("cefazolina 2 g, às 8h"), desde que não seja a incisão
-                when = clock_in(clause)
-                if when is None and i + 1 < len(parts) and not first_hit(parts[i + 1], INCISION_WORDS):
+                # o horário pode vir na oração seguinte ("cefazolina 2 g, às 8h"), desde que não seja de outro evento
+                others = tuple(w for w in every if w not in words[key]) + INCISION_WORDS + END_WORDS
+                when = clock_near(clause, hit, others)
+                if when is None and i + 1 < len(parts) and not first_hit(parts[i + 1], others):
                     when = clock_in(parts[i + 1])
                 out.append(DrugDose(key, grams, per_kg, when, fala_ref(s.n), bool(first_hit(clause, REDOSE_WORDS))))
     return out
 
 
-def event_clock(segments: list[Segment], words: tuple[str, ...]) -> tuple[int, str] | None:
+def event_clock(
+    segments: list[Segment], words: tuple[str, ...], others: tuple[str, ...] = ()
+) -> tuple[int, str] | None:
+    """Horário do evento (incisão, término): o dito junto da palavra, não o de outro evento na mesma oração."""
+    stop = others + tuple(w for ws in _drug_words().values() for w in ws)
     for m in mentions(segments, words):
-        when = clock_in(m.clause)
+        when = clock_near(m.clause, first_hit(m.clause, words) or "", stop)
         if when is not None:
             return when, m.ref
     return None
@@ -344,13 +481,30 @@ def dictated_sides(segments: list[Segment], site_words: tuple[str, ...]) -> list
     """(lado, trecho) de cada oração que cita o sítio do modelo e um lado."""
     out = []
     for s in segments:
-        for raw, clause in clauses(s.texto):
+        for raw, clause in clauses(affirmative(s.texto)):
             if site_words and not first_hit(clause, site_words):
                 continue
+            if is_history(clause):
+                continue  # "artroplastia do joelho esquerdo há 3 anos" é antecedente, não o lado operado agora
             side = side_of(clause)
             if side:
                 out.append((side, Mention(clause, fala_ref(s.n), s.n, raw)))
     return out
+
+
+def count_verdict(clause: str) -> str | None:
+    """ "confere", "nao_confere" ou None (sem resultado) para uma oração da contagem, pelo sentido.
+
+    "não confere", "não está batendo", "faltando uma compressa" → nao_confere; "confere", "correta", "nenhuma
+    compressa faltando", "sem divergência" → confere. Na dúvida (as duas coisas), vale a divergência.
+    """
+    bad = first_hit(clause, COUNT_BAD)
+    ok = first_hit(clause, COUNT_OK)
+    if (bad and not negated(clause, COUNT_BAD)) or (ok and negated(clause, COUNT_OK)):
+        return "nao_confere"
+    if ok or bad:
+        return "confere"
+    return None
 
 
 # ---------- verificações ----------
@@ -400,7 +554,13 @@ class Checks:
     def who(self) -> None:
         for step, (label, words, what) in WHO_STEPS.items():
             mark = self.marks.get(step) or {}
-            said = mentions(self.segments, words)
+            # a última menção que decide: negada ("time-out ainda não foi feito") ou feita ("time-out realizado")
+            said = sentence_mentions(self.segments, words)
+            decided = [
+                ("nao" if negated(m.clause, words) else "feito", m)
+                for m, whole in said
+                if negated(m.clause, words) or first_hit(whole, WHO_DONE)
+            ]
             if mark.get("feito"):
                 self.add(
                     step,
@@ -413,13 +573,19 @@ class Checks:
                     marcado_por=mark.get("por"),
                     em=mark.get("em"),
                 )
-            elif said and negated(said[-1].clause, words):
-                text = f"Ditado como não realizado (“{said[-1].quote}”): fazer a etapa antes de prosseguir."
-                self.add(step, "cirurgia_segura", label, "critico", text, SOURCE_OMS, [said[-1].ref])
+            elif decided and decided[-1][0] == "nao":
+                m = decided[-1][1]
+                text = f"Ditado como não realizado (“{m.quote}”): fazer a etapa antes de prosseguir."
+                self.add(step, "cirurgia_segura", label, "critico", text, SOURCE_OMS, [m.ref])
+            elif decided:
+                text = f"Realizado por voz: {what}."
+                self.add(step, "cirurgia_segura", label, "ok", text, SOURCE_OMS, [decided[-1][1].ref])
             elif said:
-                self.add(
-                    step, "cirurgia_segura", label, "ok", f"Realizado por voz: {what}.", SOURCE_OMS, [said[-1].ref]
+                m = said[-1][0]
+                text = (
+                    f"Citado sem confirmar a realização (“{m.quote}”): diga “{words[1]} realizado” ou marque na tela."
                 )
+                self.add(step, "cirurgia_segura", label, "pendente", text, SOURCE_OMS, [m.ref])
             else:
                 text = f"Ainda não registrado: diga “{words[1]} realizado” ou marque na tela."
                 self.add(step, "cirurgia_segura", label, "pendente", text, SOURCE_OMS, [])
@@ -428,8 +594,12 @@ class Checks:
         label = "Termo de consentimento"
         said = mentions(self.segments, CONSENT_WORDS)
         in_chart = self.scheduled.consentimento if self.scheduled else None
-        if said and negated(said[-1].clause, CONSENT_WORDS):
-            text = "Consentimento ditado como ausente: cirurgia eletiva não começa sem o termo assinado."
+        refused = said and (
+            negated(said[-1].clause, CONSENT_WORDS)
+            or first_hit(said[-1].clause, tuple(syn(w) for w in CONSENT_REFUSED))
+        )
+        if refused:
+            text = "Consentimento ditado como ausente ou recusado: cirurgia eletiva não começa sem o termo assinado."
             self.add("consentimento", "cirurgia_segura", label, "critico", text, SOURCE_MS, [said[-1].ref])
         elif in_chart or said:
             where = "no prontuário" if in_chart else "citado no ditado"
@@ -493,19 +663,23 @@ class Checks:
             )
 
     # ----- contagem -----
+    def _count_answers(self) -> list[Mention]:
+        """Resposta à pergunta da contagem na fala seguinte ("Contagem de compressas?" → "Confere, dez de dez")."""
+        out = []
+        for i, s in enumerate(self.segments[:-1]):
+            if any(first_hit(norm(q), COUNT_WORDS) for q in QUESTION.findall(s.texto)):
+                nxt = self.segments[i + 1]
+                first = clauses(affirmative(nxt.texto))[:1]
+                out += [Mention(c, fala_ref(nxt.n), nxt.n, raw) for raw, c in first if count_verdict(c)]
+        return out
+
     def count(self) -> None:
         label = "Contagem de compressas e instrumentais"
-        said = mentions(self.segments, COUNT_WORDS)
+        said = sorted([*mentions(self.segments, COUNT_WORDS), *self._count_answers()], key=lambda m: m.n)
         if not said:
             self.add("contagem", "contagem", label, "pendente", "Contagem ainda não ditada.", SOURCE_RSI, [])
             return
-        results: list[tuple[str, Mention]] = []
-        for m in said:
-            padded = f" {m.clause} "
-            if any(f" {w}" in padded for w in COUNT_BAD):  # "não confere" antes de "confere"
-                results.append(("nao_confere", m))
-            elif any(f" {w}" in padded for w in COUNT_OK):
-                results.append(("confere", m))
+        results = [(verdict, m) for m in said if (verdict := count_verdict(m.clause))]
         if not results:
             text = f"Contagem citada sem o resultado (“{said[-1].quote}”): ditar se confere ou não confere."
             self.add("contagem", "contagem", label, "atencao", text, SOURCE_RSI, [said[-1].ref])
@@ -532,20 +706,24 @@ class Checks:
     def tourniquet(self) -> None:
         if not self.tpl.get("garrote"):
             return
-        for m in mentions(self.segments, TOURNIQUET_WORDS):
-            minutes = duration_in(m.clause)
-            if minutes is None:
-                continue
-            if minutes > TOURNIQUET_MAX_MIN:
-                text = (
-                    f"Garrote por {fmt_h(minutes)} (acima de 2 h): avaliar reperfusão e examinar o membro no "
-                    "pós-operatório."
-                )
-                self.add("garrote", "intraoperatorio", "Tempo de garrote", "atencao", text, SOURCE_TOURNIQUET, [m.ref])
-            else:
-                text = f"Garrote por {fmt_h(minutes)} (até 2 h)."
-                self.add("garrote", "intraoperatorio", "Tempo de garrote", "ok", text, SOURCE_TOURNIQUET, [m.ref])
+        said = mentions(self.segments, TOURNIQUET_WORDS)
+        found = next(((minutes, [m.ref]) for m in said if (minutes := duration_in(m.clause)) is not None), None)
+        # sem a duração ditada: "garrote insuflado às 8h50" ... "desinsuflado às 11h10"
+        clocks = [(m.ref, when) for m in said for _, when in clocks_in(m.clause)]
+        if found is None and len(clocks) >= 2:
+            found = ((clocks[-1][1] - clocks[0][1]) % DAY, [clocks[0][0], clocks[-1][0]])
+        if found is None:
             return
+        minutes, refs = found
+        if minutes > TOURNIQUET_MAX_MIN:
+            text = (
+                f"Garrote por {fmt_h(minutes)} (acima de 2 h): avaliar reperfusão e examinar o membro no "
+                "pós-operatório."
+            )
+            self.add("garrote", "intraoperatorio", "Tempo de garrote", "atencao", text, SOURCE_TOURNIQUET, refs)
+        else:
+            text = f"Garrote por {fmt_h(minutes)} (até 2 h)."
+            self.add("garrote", "intraoperatorio", "Tempo de garrote", "ok", text, SOURCE_TOURNIQUET, refs)
 
     # ----- antibioticoprofilaxia -----
     def prophylaxis(self) -> None:
@@ -575,7 +753,7 @@ class Checks:
                 self.add("profilaxia_agente", "profilaxia", label, "info", text, SOURCE_ATB, refs)
         main = first[0]
         drug = table[main.key]
-        incision = event_clock(self.segments, INCISION_WORDS)
+        incision = event_clock(self.segments, INCISION_WORDS, END_WORDS)
         self._window(drug, main, incision)
         for d in first:
             self._dose(table[d.key], d)
@@ -616,6 +794,10 @@ class Checks:
             self.add(key, "profilaxia", label, "pendente", text, SOURCE_ATB, refs)
             return
         given = d.grams if d.grams is not None else d.per_kg * weight[0] / 1000
+        age = self.chart.r.age
+        if age is not None and age < ADULT_AGE and drug.dose_mg_kg_ped:
+            self._pediatric_dose(drug, key, label, given, age, weight, refs)
+            return
         if drug.dose_mg_kg:
             if weight is None:
                 text = f"{drug.name} é dosado por peso ({drug.dose_mg_kg:g} mg/kg) e o prontuário não tem peso."
@@ -655,11 +837,41 @@ class Checks:
             text = f"{drug.name} {fmt_g(given)}{weight_txt}: dose recomendada ({drug.note})."
             self.add(key, "profilaxia", label, "ok", text, SOURCE_ATB, refs)
 
+    def _pediatric_dose(
+        self,
+        drug: ProphylaxisDef,
+        key: str,
+        label: str,
+        given: float,
+        age: int,
+        weight: tuple[float, str] | None,
+        refs: list[str],
+    ) -> None:
+        """Criança e adolescente: mg/kg da tabela pediátrica, sem passar da dose de adulto."""
+        per_kg = drug.dose_mg_kg_ped or 0
+        if weight is None:
+            text = f"Paciente de {age} anos sem peso no prontuário: {drug.name} em pediatria é {per_kg:g} mg/kg."
+            self.add(key, "profilaxia", label, "pendente", text, SOURCE_ATB, refs)
+            return
+        adult = drug.dose_g or (drug.dose_mg_kg * weight[0] / 1000 if drug.dose_mg_kg else None)
+        expected = per_kg * weight[0] / 1000
+        expected = min(expected, adult) if adult else expected
+        text = (
+            f"{drug.name} {fmt_g(given)} para {weight[0]:g} kg ({age} anos); esperado ~{fmt_g(expected)} "
+            f"({per_kg:g} mg/kg em pediatria, sem passar da dose de adulto)."
+        )
+        if given < 0.8 * expected - 1e-6:
+            self.add(key, "profilaxia", label, "atencao", f"Subdose provável: {text}", SOURCE_ATB, refs)
+        elif (adult and given > adult + 1e-6) or given > 1.5 * expected + 1e-6:
+            self.add(key, "profilaxia", label, "atencao", f"Dose acima do esperado: {text}", SOURCE_ATB, refs)
+        else:
+            self.add(key, "profilaxia", label, "ok", text, SOURCE_ATB, refs)
+
     def _redose(
         self, drug: ProphylaxisDef, main: DrugDose, incision: tuple[int, str] | None, redoses: list[DrugDose]
     ) -> None:
         label = "Profilaxia: redose"
-        end = event_clock(self.segments, END_WORDS)
+        end = event_clock(self.segments, END_WORDS, INCISION_WORDS)
         duration = dictated_duration(self.segments)
         refs = [main.ref]
         elapsed: int | None = None  # minutos desde a dose pré-operatória
@@ -676,9 +888,11 @@ class Checks:
             refs += [incision[1], end[1]]
         blood = None
         for m in mentions(self.segments, ("sangramento", "perda sanguinea")):
-            v = VOLUME_RE.search(m.clause)
+            v, liters = VOLUME_RE.search(m.clause), VOLUME_L_RE.search(m.clause)
             if v:
                 blood = (int(v.group(1).replace(".", "")), m.ref)
+            elif liters:
+                blood = (round(_num(liters.group(1)) * 1000), m.ref)  # "sangramento de 2 litros"
         if redoses:
             text = f"Redose de {drug.name} registrada."
             self.add("profilaxia_redose", "profilaxia", label, "ok", text, SOURCE_ATB, [*refs, redoses[-1].ref])

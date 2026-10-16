@@ -1,9 +1,9 @@
-versao: "1.0.0"
+versao: "1.1.0"
 id: artroplastia_joelho
 rotulo: Artroplastia total de joelho
 especialidade: ortopedia
-detectar: [artroplastia total de joelho, artroplastia de joelho, protese total de joelho, protese de joelho, "atj "]
-sitio: [joelho]
+detectar: [artroplastia total de joelho, artroplastia total do joelho, artroplastia de joelho, artroplastia do joelho, protese total de joelho, protese total do joelho, protese de joelho, protese do joelho, "atj "]
+sitio: [joelho, "atj "]
 profilaxia: [cefazolina]
 exame_controle:
   descricao: "Radiografia do joelho {lado} (AP e perfil) — controle pós-operatório"
