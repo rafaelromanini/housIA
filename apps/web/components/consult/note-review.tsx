@@ -5,6 +5,7 @@ import { CircleCheck, ClipboardCopy, Download, FileCheck2, Loader2, Send, Shield
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { FeedbackButtons } from "@/components/ai/feedback";
+import { NpsPrompt } from "@/components/ai/nps-prompt";
 import { usePatient } from "@/components/patient/patient-context";
 import { SourceRefs } from "@/components/source-ref";
 import { Alert } from "@/components/ui/alert";
@@ -601,6 +602,7 @@ export function NoteReview({
           )}
         </div>
         <FeedbackButtons kind="consulta_nota" entityId={c.id} patientId={patient.id} />
+        {sent && <NpsPrompt />}
       </CardContent>
     </Card>
   );

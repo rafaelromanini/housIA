@@ -13,6 +13,7 @@
   },
   "internacao": {
     "inicio": "-6d3h",
+    "alta_prevista": "+20h",
     "tipo": "urgencia",
     "motivo": "Insuficiência cardíaca descompensada com hiperglicemia",
     "setores": [

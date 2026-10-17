@@ -18,6 +18,7 @@ INGREDIENT = "http://housia.dev/fhir/CodeSystem/principio-ativo"
 DRUG_CLASS = "http://housia.dev/fhir/CodeSystem/classe-terapeutica"
 LOCAL_SCALES = "http://housia.dev/fhir/CodeSystem/escalas"
 TAGS = "http://housia.dev/fhir/CodeSystem/tags"
+ALTA_PREVISTA = "http://housia.dev/fhir/StructureDefinition/alta-prevista"
 
 NO_KNOWN_ALLERGY = "716186003"
 LIVES_ALONE_LOINC = "63512-8"  # Quantas pessoas moram neste endereço?

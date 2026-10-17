@@ -9,7 +9,7 @@ FHIR R4. **Todos os horários são relativos à âncora** (o "agora" da carga): 
   "tag": "cenario-1", "titulo": "...", "esperado": "...",
   "paciente": {"nome", "sexo": "male|female", "nascimento", "cpf", "telefone", "endereco"},
   "internacao": {
-    "inicio": "-3d2h", "fim": "-1d" /* opcional: paciente já teve alta */, "tipo": "urgencia|eletiva", "motivo": "...",
+    "inicio": "-3d2h", "fim": "-1d" /* opcional: paciente já teve alta */, "tipo": "urgencia|eletiva", "motivo": "...", "alta_prevista": "+3h" /* opcional: previsão de alta (extensão do Encounter), usada em /gestao */,
     "setores": [{"id": "uti", "setor": "UTI Adulto", "leito": "04", "inicio": "-2d22h", "fim": "-3h"}, ...]
   },
   "encontros_anteriores": [{"inicio": "-41d", "motivo": "...", "duracao": "5h"}],   // idas ao PS (LACE "E")
