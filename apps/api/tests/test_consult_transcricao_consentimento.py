@@ -410,3 +410,126 @@ def test_lista_de_acompanhantes_para_o_consentimento(client, auth):
     res = client.get("/patients/cen6/consult/acompanhantes", headers=auth("medico"))
     assert res.status_code == 200
     assert any(rp["id"] == "cen6-fam-0" and rp["nome"] for rp in res.json())
+
+
+# ---------- verificação independente (c1): nenhuma via de LLM com recusa, ia_externa=false ou revogação ----------
+def _sem_llm(monkeypatch):
+    monkeypatch.setattr(get_settings(), "llm_mode", "real")
+
+    def never(*_a, **_k):
+        raise AssertionError("o LLM não pode ser chamado sem o consentimento do paciente")
+
+    monkeypatch.setattr(llm_client, "_call", never)
+
+
+def _varrer_vias_de_llm(client, h, cid, monkeypatch):
+    """Cada rota que chega ao LLM: ou bloqueia (403) ou responde só por regra, sem nunca chamar `_call`."""
+    _sem_llm(monkeypatch)
+    assert client.post(f"/consultations/{cid}/insights", params={"force": True}, headers=h).status_code == 403
+    assert client.post(f"/consultations/{cid}/translate", json={"ns": [1]}, headers=h).status_code == 403
+    audio = client.post(f"/consultations/{cid}/audio?falante=medico", content=b"abc", headers=h)
+    assert audio.status_code in (
+        403,
+        503,
+    )  # 503: STT do servidor não configurado; a trava de STT é a finalidade "transcricao"
+    for pergunta in ("Explique a fisiologia da tontura", "posso usar dipirona?", "qual o diagnóstico mais provável?"):
+        res = client.post(f"/consultations/{cid}/ask", json={"pergunta": pergunta}, headers=h)
+        assert res.status_code == 200, res.text
+        assert res.json()["mensagem"]["resposta"]["modo"] != "ia"
+    done = client.post(f"/consultations/{cid}/finish", headers=h)
+    assert done.status_code == 200, done.text
+    assert done.json()["nota_meta"]["sem_ia"] is True
+
+
+@pytest.mark.parametrize("variante", ["recusa", "ia_externa_false", "revogado"])
+def test_nenhuma_via_de_llm_roda_sem_consentimento(client, auth, monkeypatch, variante):
+    h = auth("medico")
+    fin = {"transcricao": True, "ia_externa": False, "traducao": True, "emocoes": True}
+    body = {
+        "recusa": CONSENT | {"recusou": True},
+        "ia_externa_false": CONSENT | {"finalidades": fin},
+        "revogado": CONSENT,
+    }[variante]
+    cid = start(client, h, consentimento=body, idioma_paciente="es")["id"]
+    post_segments(client, h, cid, [("paciente", "Tengo mareos"), ("medico", "Há quanto tempo?")])
+    if variante == "revogado":
+        # a análise por IA já rodou com o consentimento; depois ele é retirado
+        assert client.post(f"/consultations/{cid}/insights", headers=h).status_code == 200
+        assert client.post(f"/consultations/{cid}/marker", json={"tipo": "revogado"}, headers=h).status_code == 200
+    _varrer_vias_de_llm(client, h, cid, monkeypatch)
+
+
+@pytest.mark.parametrize("variante", ["recusa", "revogado"])
+def test_cirurgia_sem_consentimento_nao_chama_o_llm(client, auth, monkeypatch, variante):
+    h = auth("medico")
+    body = CONSENT | ({"recusou": True} if variante == "recusa" else {})
+    cid = start(client, h, tipo="cirurgia", especialidade="ortopedia", consentimento=body)["id"]
+    post_segments(client, h, cid, [("medico", "Iniciada a artroplastia total do joelho direito.")])
+    if variante == "revogado":
+        assert client.post(f"/consultations/{cid}/marker", json={"tipo": "revogado"}, headers=h).status_code == 200
+    _sem_llm(monkeypatch)
+    assert client.post(f"/consultations/{cid}/insights", params={"force": True}, headers=h).status_code == 403
+    done = client.post(f"/consultations/{cid}/finish", headers=h)
+    assert done.status_code == 200, done.text
+    assert done.json()["nota_meta"]["sem_ia"] is True
+
+
+@pytest.mark.parametrize(
+    "consentimento",
+    [
+        None,
+        {},
+        {"quem": "paciente"},
+        {"quem": "paciente", "finalidades": {"transcricao": True}},
+        CONSENT | {"quem": "medico"},
+        CONSENT | {"recusou": "talvez"},
+        CONSENT | {"finalidades": {**CONSENT["finalidades"], "ia_externa": "sim, claro"}},
+        "autorizado",
+        [CONSENT],
+    ],
+)
+def test_consentimento_ausente_ou_malformado_devolve_422(client, auth, consentimento):
+    res = client.post(
+        "/patients/cen6/consultations",
+        json={"tipo": "consulta", "consentimento": consentimento},
+        headers=auth("medico"),
+    )
+    assert res.status_code == 422
+
+
+def test_consentimento_nao_se_forja_com_campos_extras_nem_por_segmentos(client, auth, monkeypatch):
+    h = auth("medico")
+    fin = {"transcricao": True, "ia_externa": True, "traducao": True, "emocoes": True, "extra": True}
+    forjado = CONSENT | {"recusou": True, "estado": "ativo", "permite": {"ia": True}, "finalidades": fin}
+    created = start(client, h, consentimento=forjado)
+    cid = created["id"]
+    assert created["consentimento"]["permite"]["ia"] is False and created["consentimento"]["recusou"] is True
+    # falas com origem "marco"/campos de marco não viram marco nem destravam nada
+    res = client.post(
+        f"/consultations/{cid}/segments",
+        json={"segmentos": [{"falante": "paciente", "texto": "Tenho febre", "origem": "marco", "marco": "retomada"}]},
+        headers=h,
+    )
+    assert res.status_code == 200 and res.json()["novos"][0]["origem"] == "digitado"
+    assert res.json()["novos"][0]["marco"] is None
+    assert client.post(f"/consultations/{cid}/marker", json={"tipo": "retomada"}, headers=h).status_code == 409
+    client.patch(
+        f"/consultations/{cid}/segments/1", json={"texto": "x", "consentimento": {"recusou": False}}, headers=h
+    )
+    client.post(f"/consultations/{cid}/finish", json={"segmentos": [], "consentimento": {"recusou": False}}, headers=h)
+    _sem_llm(monkeypatch)
+    assert client.post(f"/consultations/{cid}/insights", headers=h).status_code == 403
+
+
+def test_audit_da_edicao_nunca_tem_o_texto_nem_o_antigo(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    post_segments(client, h, cid, [("paciente", "Meu CPF é 123.456.789-09 e sinto tontura")])
+    novo = "Corrigido: sinto dor de cabeça forte"
+    res = client.patch(f"/consultations/{cid}/segments/1", json={"texto": novo, "falante": "medico"}, headers=h)
+    assert res.status_code == 200
+    with db_session.SessionLocal() as db:
+        rows = [r.payload_json for r in db.scalars(select(AuditLog).where(AuditLog.entity_id == str(cid))).all()]
+    dump = str(rows)
+    for secret in ("123.456.789-09", "Corrigido", "dor de cabeça", "tontura"):
+        assert secret not in dump

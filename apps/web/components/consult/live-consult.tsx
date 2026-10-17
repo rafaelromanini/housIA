@@ -375,6 +375,7 @@ export function LiveConsult({
       setConsultation((prev) =>
         prev ? { ...prev, segmentos: updated.segmentos, consentimento: updated.consentimento, insights: updated.insights ?? prev.insights } : prev,
       );
+      if (tipo === "revogado") unsent.current = []; // revogado: o que não chegou ao servidor não entra mais (o /finish recusaria o corpo)
       setConfirmRevoke(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao registrar o marco de privacidade");
