@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult import acoes
+from app.consult import acoes, note_templates
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -871,6 +871,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     if language != "pt-BR":
         tips.insert(0, f"[Tradução para {LANGUAGE_LABELS.get(language, language)} disponível com o LLM real.]")
     no_record = "Sem registro na consulta."
+    template = note_templates.select(engine.kind, engine.specialty)
     return {
         "queixa_principal": {"texto": a.queixa_principal if a else no_record, "refs": first_refs},
         "hda": {"texto": a.hda if a else no_record, "refs": a.refs if a else []},
@@ -925,6 +926,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
         "cronologia": chrono,
         "pendencias": pendencias,
         "orientacoes_paciente": tips,
+        "secoes": note_templates.fill_dynamic(template, engine, ins),
     }
 
 
@@ -944,7 +946,9 @@ def accepted_payload(ins: Insights) -> dict:
 def run_note(
     engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str], language: str, rules_only: bool = False
 ):
+    template = note_templates.select(engine.kind, engine.specialty)
     variables = {
+        "template": note_templates.for_prompt(template),
         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
         "especialidade": SPECIALTIES.get(engine.specialty, engine.specialty),
         "idioma": LANGUAGE_LABELS.get(language, language),
@@ -988,6 +992,7 @@ def run_note(
     ):
         section: NoteSection = getattr(note, name)
         section.refs = [r for r in section.refs if r in valid]
+    note_templates.complete(note, template, engine, ins, valid)
     note.cids = v.keep(note.cids, "cids")
     # CID da nota precisa existir na tabela oficial; diagnóstico/hipótese não pode ser causa externa nem de outro sexo
     note.cids, bad_cids = screen(

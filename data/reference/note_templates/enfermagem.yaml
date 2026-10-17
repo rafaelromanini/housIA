@@ -1,0 +1,78 @@
+id: enfermagem
+versao: 1.0.0
+rotulo: Consulta de enfermagem (SAE)
+titulo: Nota de enfermagem
+tipo: enfermagem
+especialidades:
+- enfermagem
+automatico: true
+loinc:
+  codigo: 34746-8
+  display: Nurse note
+fonte: Resolução COFEN 736/2024 (Processo de Enfermagem e SAE)
+secoes:
+- key: queixa_principal
+  rotulo: Motivo do atendimento
+  soap: S
+  obrigatoria: true
+  dica: Motivo do atendimento nas palavras do paciente.
+  loinc: 10154-3
+- key: hda
+  rotulo: Histórico de enfermagem
+  soap: S
+  obrigatoria: false
+  dica: Hábitos, autocuidado, rede de apoio e queixas.
+  loinc: 10164-2
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: sinais_vitais
+  rotulo: Sinais vitais
+  soap: O
+  obrigatoria: false
+  dica: Pressão, frequências, saturação e temperatura do prontuário.
+  loinc: 8716-3
+  padrao: '{{pa}}; {{fc}}; {{fr}}; {{spo2}}; {{temp}}'
+- key: exame_fisico
+  rotulo: Exame físico de enfermagem
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi medido ou verbalizado.
+  loinc: 29545-1
+- key: dx_enfermagem
+  rotulo: Diagnósticos de enfermagem
+  soap: A
+  obrigatoria: true
+  dica: 'Problemas de enfermagem identificados (ex.: risco de queda, dor aguda, ansiedade).'
+  palavras:
+  - risco de queda
+  - caiu
+  - queda
+  - lesao por pressao
+  - curativo
+  - 'dor '
+  - dores
+  - ansiedade
+  - mobilidade
+  - higiene
+- key: avaliacao
+  rotulo: Avaliação e resultados esperados
+  soap: A
+  obrigatoria: true
+  dica: Resposta do paciente e resultados esperados do cuidado.
+  loinc: 51848-0
+- key: plano
+  rotulo: Prescrição e intervenções de enfermagem
+  soap: P
+  obrigatoria: true
+  dica: Intervenções, orientações e encaminhamentos.
+  loinc: 18776-5

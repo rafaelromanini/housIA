@@ -69,6 +69,7 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.copiloto_inserido": "Resposta do copiloto inserida na nota",
   "consulta.finalizada": "Consulta finalizada (nota gerada)",
   "consulta.nota_revisada": "Nota revisada pelo profissional",
+  "consulta.modelo_nota": "Modelo da nota trocado na revisão",
   "consulta.exportada": "Nota exportada (envio automático desligado)",
   "consulta.enviada": "Nota enviada ao prontuário",
   "cirurgia.prontidao": "Prontidão para faturamento verificada",
@@ -150,6 +151,8 @@ function summarize(e: AuditEntry): string {
       return `${p.marco} · fala ${p.n}`;
     case "consulta.fala_editada":
       return `fala ${p.n} · ${(p.campos as string[] | undefined)?.join(" e ") ?? ""}${p.nota_desatualizada ? " · nota desatualizada" : ""}`;
+    case "consulta.modelo_nota":
+      return `${p.de ?? "—"} → ${p.para ?? "—"} (v${p.versao ?? "?"})`;
     case "consulta.nota_revisada":
       return `${p.editado_pct ?? 0}% do texto editado (${p.palavras_alteradas ?? 0} palavra(s))`;
     case "consulta.enviada":

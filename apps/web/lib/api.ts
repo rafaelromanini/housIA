@@ -1126,7 +1126,35 @@ export interface NoteSection {
   texto: string;
   refs: string[];
 }
+/** Seção de um modelo de nota (data/reference/note_templates): rótulo, obrigatoriedade, dica e o LOINC da seção. */
+export interface NoteSectionDef {
+  key: string;
+  rotulo: string;
+  soap: "S" | "O" | "A" | "P";
+  obrigatoria: boolean;
+  dica: string;
+  loinc?: string | null;
+}
+/** Modelo de nota com que a nota foi gerada (cópia versionada guardada na própria nota). */
+export interface NoteModel {
+  id: string;
+  versao: string;
+  rotulo: string;
+  titulo: string;
+  tipo: "consulta" | "visita" | "enfermagem" | "ps" | "aps";
+  loinc: { codigo: string; display: string };
+  secoes: NoteSectionDef[];
+}
+export interface NoteTemplateInfo extends NoteModel {
+  fonte: string;
+  especialidades: string[];
+  sugerido: boolean;
+}
 export interface ConsultNote {
+  /** modelo da nota (seções, obrigatoriedade e LOINC); o servidor guarda e devolve */
+  modelo?: NoteModel;
+  /** seções do modelo que não são as nove clássicas (peso, vacinas, CIAP-2...), pela `key` do modelo */
+  secoes?: { key: string; texto: string; refs: string[] }[];
   queixa_principal: NoteSection;
   hda: NoteSection;
   antecedentes: NoteSection;

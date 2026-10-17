@@ -6,6 +6,7 @@ import base64
 import uuid
 from datetime import datetime
 
+from app.consult import note_templates
 from app.consult.schemas import LANGUAGE_LABELS
 from app.fhir_client import codes
 
@@ -39,7 +40,7 @@ def note_as_text(
     language: str,
     orders: list | None = None,
 ) -> str:
-    title = KIND_TITLE.get(kind, "Nota clínica")
+    title = (note.get("modelo") or {}).get("titulo") or KIND_TITLE.get(kind, "Nota clínica")
     lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}", ""]
     if kind == "cirurgia":
         report = note.get("relatorio_cirurgico", note)
@@ -66,8 +67,11 @@ def note_as_text(
         if report.get("pedidos"):
             lines.append("Pedidos propostos: " + "; ".join(p["descricao"] for p in report["pedidos"]))
     else:
-        for key, label in NOTE_SECTIONS:
-            lines.append(f"{label}: {note.get(key, {}).get('texto', '')}")
+        sections = note_templates.sections_for_view(note) or [
+            (key, label, note.get(key, {}).get("texto", "")) for key, label in NOTE_SECTIONS
+        ]
+        for _, label, text in sections:
+            lines.append(f"{label}: {text}")
         if note.get("cids"):
             lines.append("CID-10: " + "; ".join(f"{c['codigo']} {c['descricao']} ({c['tipo']})" for c in note["cids"]))
         if note.get("orientacoes_paciente"):
@@ -102,9 +106,12 @@ def document_reference(
     when: datetime,
     text: str,
     consultation_id: int,
+    loinc: tuple[str, str] | None = None,
+    title: str | None = None,
 ) -> dict:
-    code, display = LOINC_OPERATIVE_NOTE if kind == "cirurgia" else LOINC_CONSULT_NOTE
-    label = f"{KIND_TITLE.get(kind, 'Nota clínica')} (HousIA)"
+    """`loinc` e `title` vêm do modelo da nota (visita de enfermagem: 34746-8; visita médica: 11506-3)."""
+    code, display = loinc or (LOINC_OPERATIVE_NOTE if kind == "cirurgia" else LOINC_CONSULT_NOTE)
+    label = f"{title or KIND_TITLE.get(kind, 'Nota clínica')} (HousIA)"
     resource = {
         "resourceType": "DocumentReference",
         "status": "current",

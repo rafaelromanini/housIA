@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CircleCheck, ClipboardCopy, Download, FileCheck2, Loader2, Send, ShieldAlert, Trash2 } from "lucide-react";
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
@@ -19,25 +19,39 @@ import { Textarea } from "@/components/ui/textarea";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
-import { api, ApiError, type BillingItem, type ConsultNote, type Consultation, type NoteCoverage, type OpmeLine, type SurgicalReport } from "@/lib/api";
+import { api, ApiError, type BillingItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 
-const SECTIONS: { key: keyof ConsultNote; label: string; soap: string }[] = [
-  { key: "queixa_principal", label: "Queixa principal", soap: "S" },
-  { key: "hda", label: "História da doença atual", soap: "S" },
-  { key: "antecedentes", label: "Antecedentes", soap: "S" },
-  { key: "medicacoes", label: "Medicações em uso", soap: "S" },
-  { key: "alergias", label: "Alergias", soap: "S" },
-  { key: "exame_fisico", label: "Exame físico", soap: "O" },
-  { key: "exames_complementares", label: "Exames complementares", soap: "O" },
-  { key: "avaliacao", label: "Avaliação", soap: "A" },
-  { key: "plano", label: "Plano", soap: "P" },
+/** As nove seções clássicas moram em campos próprios da nota; as demais do modelo ficam em `secoes`. */
+const FIXED_KEYS = ["queixa_principal", "hda", "antecedentes", "medicacoes", "alergias", "exame_fisico", "exames_complementares", "avaliacao", "plano"];
+
+/** Seções usadas quando a nota ainda não traz o modelo (o servidor sempre devolve; isto cobre só respostas antigas em cache). */
+const DEFAULT_SECTIONS: NoteSectionDef[] = [
+  { key: "queixa_principal", rotulo: "Queixa principal", soap: "S", obrigatoria: false, dica: "" },
+  { key: "hda", rotulo: "História da doença atual", soap: "S", obrigatoria: false, dica: "" },
+  { key: "antecedentes", rotulo: "Antecedentes", soap: "S", obrigatoria: false, dica: "" },
+  { key: "medicacoes", rotulo: "Medicações em uso", soap: "S", obrigatoria: false, dica: "" },
+  { key: "alergias", rotulo: "Alergias", soap: "S", obrigatoria: false, dica: "" },
+  { key: "exame_fisico", rotulo: "Exame físico", soap: "O", obrigatoria: false, dica: "" },
+  { key: "exames_complementares", rotulo: "Exames complementares", soap: "O", obrigatoria: false, dica: "" },
+  { key: "avaliacao", rotulo: "Avaliação", soap: "A", obrigatoria: false, dica: "" },
+  { key: "plano", rotulo: "Plano", soap: "P", obrigatoria: false, dica: "" },
 ];
 
-const INCLUDE_TARGETS: { value: string; label: string }[] = [
-  ...SECTIONS.map((s) => ({ value: s.key as string, label: s.label })),
-  { value: "pendencia", label: "Pendências" },
-];
+/** Texto e fontes de uma seção do modelo, venha ela de um campo clássico ou de `secoes`. */
+function readSection(note: ConsultNote, key: string): { texto: string; refs: string[] } {
+  if (FIXED_KEYS.includes(key)) return (note as unknown as Record<string, { texto: string; refs: string[] }>)[key] ?? { texto: "", refs: [] };
+  return note.secoes?.find((s) => s.key === key) ?? { texto: "", refs: [] };
+}
+
+/** Mensagem do 422 de seção obrigatória vazia (ou o texto do erro). */
+function apiMessage(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) {
+    const detail = (e.body as { detail?: { mensagem?: string } } | null)?.detail;
+    if (detail && typeof detail === "object" && detail.mensagem) return detail.mensagem;
+  }
+  return e instanceof Error ? e.message : fallback;
+}
 
 /** Descartes da IA por falta de fonte válida (o servidor os grava em nota_meta; aparecem aqui como no passagem de plantão). */
 function DiscardedItems({ items }: { items: Record<string, unknown>[] }) {
@@ -66,10 +80,12 @@ function OutsideNote({
   coverage,
   disabled,
   onInclude,
+  targets,
 }: {
   coverage: NoteCoverage;
   disabled: boolean;
   onInclude: (n: number, destino: string) => Promise<void>;
+  targets: { value: string; label: string }[];
 }) {
   const [target, setTarget] = useState<Record<number, string>>({});
   const [working, setWorking] = useState<number | null>(null);
@@ -101,7 +117,7 @@ function OutsideNote({
                       onChange={(e) => setTarget((t) => ({ ...t, [f.n]: e.target.value }))}
                       className="h-9 w-44"
                     >
-                      {INCLUDE_TARGETS.map((t) => (
+                      {targets.map((t) => (
                         <option key={t.value} value={t.value}>
                           {t.label}
                         </option>
@@ -179,8 +195,57 @@ export function NoteReview({
   const note = draft as unknown as ConsultNote;
   const report = (draft as { relatorio_cirurgico?: SurgicalReport }).relatorio_cirurgico;
 
-  function setSection(key: keyof ConsultNote, texto: string) {
-    setDraft((d) => ({ ...d, [key]: { ...(d[key] as object), texto } }));
+  const sections = note.modelo?.secoes ?? DEFAULT_SECTIONS;
+  const includeTargets = [
+    ...sections.filter((s) => FIXED_KEYS.includes(s.key)).map((s) => ({ value: s.key, label: s.rotulo })),
+    { value: "pendencia", label: "Pendências" },
+  ];
+  const [templates, setTemplates] = useState<NoteTemplateInfo[]>([]);
+  useEffect(() => {
+    if (surgical) return;
+    let cancelled = false;
+    api<NoteTemplateInfo[]>(`/note-templates?especialidade=${encodeURIComponent(c.especialidade)}&tipo=${encodeURIComponent(c.tipo)}`)
+      .then((list) => !cancelled && setTemplates(list))
+      .catch(() => undefined); // sem a lista, a nota continua editável com o modelo que já tem
+    return () => {
+      cancelled = true;
+    };
+  }, [c.especialidade, c.tipo, surgical]);
+
+  function setSection(key: string, texto: string) {
+    if (FIXED_KEYS.includes(key)) {
+      setDraft((d) => ({ ...d, [key]: { ...(d[key] as object), texto } }));
+      return;
+    }
+    setDraft((d) => {
+      const list = ((d as { secoes?: { key: string; texto: string; refs: string[] }[] }).secoes ?? []).slice();
+      const i = list.findIndex((s) => s.key === key);
+      if (i >= 0) list[i] = { ...list[i], texto };
+      else list.push({ key, texto, refs: [] });
+      return { ...d, secoes: list };
+    });
+  }
+
+  /** Troca o modelo na revisão: o servidor completa as seções novas; o que já foi escrito aqui continua valendo. */
+  async function switchTemplate(id: string) {
+    setError(null);
+    try {
+      const updated = await api<Consultation>(`/consultations/${c.id}/note-template`, { method: "PUT", json: { modelo: id } });
+      onChange(updated);
+      const fresh = structuredClone(updated.nota) as unknown as ConsultNote;
+      const old = draft as unknown as ConsultNote;
+      for (const def of fresh.modelo?.secoes ?? []) {
+        const mine = readSection(old, def.key);
+        if (mine.texto.trim()) {
+          if (FIXED_KEYS.includes(def.key)) (fresh as unknown as Record<string, unknown>)[def.key] = mine;
+          else fresh.secoes = (fresh.secoes ?? []).map((s) => (s.key === def.key ? { ...s, texto: mine.texto, refs: mine.refs } : s));
+        }
+      }
+      setDraft(fresh as unknown as Record<string, unknown>);
+      setMessage("Modelo da nota trocado: confira as seções novas.");
+    } catch (e) {
+      setError(apiMessage(e, "Não foi possível trocar o modelo"));
+    }
   }
   function setOpme(code: string, patch: Partial<OpmeLine> | null) {
     setDraft((d) => {
@@ -214,7 +279,7 @@ export function NoteReview({
       setMessage("Revisão salva.");
       return updated;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao salvar");
+      setError(apiMessage(e, "Erro ao salvar"));
       return null;
     } finally {
       setBusy(null);
@@ -295,7 +360,7 @@ export function NoteReview({
     } catch (e) {
       const block = blockedBy(e);
       if (block) setBlocked(block);
-      else setError(e instanceof Error ? e.message : "Erro ao enviar");
+      else setError(apiMessage(e, "Erro ao enviar"));
     } finally {
       setBusy(null);
     }
@@ -467,21 +532,49 @@ export function NoteReview({
           </div>
         ) : (
           <div className="space-y-3">
-            {SECTIONS.map(({ key, label, soap }) => {
-              const section = note[key] as { texto: string; refs: string[] };
+            {note.modelo && !sent && templates.length > 0 && (
+              <div className="flex flex-wrap items-end gap-2 rounded-md border bg-secondary/40 p-3">
+                <div className="space-y-1">
+                  <Label htmlFor="modelo-nota">Modelo da nota</Label>
+                  <NativeSelect id="modelo-nota" value={note.modelo.id} onChange={(e) => void switchTemplate(e.target.value)} className="h-9 w-72">
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.rotulo}
+                        {t.sugerido ? " (sugerido)" : ""}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  v{note.modelo.versao} · documento LOINC {note.modelo.loinc.codigo} ({note.modelo.loinc.display}) · <span className="text-critico">*</span>{" "}
+                  seção obrigatória: sem ela a nota não é aprovada
+                </p>
+              </div>
+            )}
+            {sections.map(({ key, rotulo, soap, obrigatoria, dica }) => {
+              const section = readSection(note, key);
               return (
-                <div key={key} className="space-y-1">
+                <div key={key} className="space-y-1" data-testid={`secao-${key}`}>
                   <Label htmlFor={`sec-${key}`} className="flex items-center gap-2">
                     <span className="rounded bg-secondary px-1.5 font-mono text-xs">{soap}</span>
-                    {label}
+                    {rotulo}
+                    {obrigatoria && <span className="text-critico" aria-hidden> *</span>}
+                    {obrigatoria && <span className="sr-only">(obrigatória)</span>}
                   </Label>
                   <Textarea
                     id={`sec-${key}`}
                     value={r(section.texto)}
                     readOnly={sent}
+                    required={obrigatoria}
+                    aria-describedby={dica ? `dica-${key}` : undefined}
                     onChange={(e) => setSection(key, e.target.value)}
                     className="min-h-16"
                   />
+                  {dica && (
+                    <p id={`dica-${key}`} className="text-xs text-muted-foreground">
+                      {dica}
+                    </p>
+                  )}
                   <SourceRefs patientId={patient.id} refs={section.refs} />
                 </div>
               );
@@ -525,7 +618,7 @@ export function NoteReview({
               </div>
             )}
 
-            {c.cobertura && <OutsideNote coverage={c.cobertura} disabled={sent} onInclude={include} />}
+            {c.cobertura && <OutsideNote coverage={c.cobertura} disabled={sent} onInclude={include} targets={includeTargets} />}
             <DiscardedItems items={c.nota_meta?.descartados ?? []} />
 
             {note.pendencias.length > 0 && (

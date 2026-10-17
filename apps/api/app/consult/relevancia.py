@@ -300,7 +300,7 @@ def cited_falas(note: dict) -> set[int]:
     refs: list[str] = []
     for key in NOTE_SECTIONS:
         refs += (note.get(key) or {}).get("refs", [])
-    for key in ("cids", "cronologia", "pendencias"):
+    for key in ("cids", "cronologia", "pendencias", "secoes"):
         for item in note.get(key) or []:
             refs += item.get("refs", [])
     return {int(m.group(1)) for r in refs if (m := _FALA.match(r))}

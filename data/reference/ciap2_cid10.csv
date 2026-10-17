@@ -1,0 +1,18 @@
+cid_prefixo,ciap2,descricao,fonte
+I10,K86,Hipertensão sem complicações,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+I11,K87,Hipertensão com complicações,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+E11,T90,Diabetes não insulinodependente,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+E10,T89,Diabetes insulinodependente,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R51,N01,Cefaleia,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R42,N17,Vertigem/tontura,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R07.4,A11,Dor torácica NE,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R05,R05,Tosse,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R06.0,R02,Falta de ar/dispneia,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R10.4,D01,Dor abdominal generalizada/cólica,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R11,D10,Vômito,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R50,A03,Febre,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+N39.0,U71,Cistite/outra infecção urinária,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+M54.5,L03,Sintomas/queixas da região lombar,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+F41,P74,Distúrbio de ansiedade/estado de ansiedade,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+F32,P76,Perturbações depressivas,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
+R53,A04,Fraqueza/cansaço geral,CIAP-2 (WONCA); correspondência CID-10 x CIAP-2 de demonstração
