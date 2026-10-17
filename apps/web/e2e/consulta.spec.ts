@@ -22,6 +22,14 @@ async function openFresh(page: Page, patientId: string) {
   await expect(start).toBeVisible();
 }
 
+/** Etapa de consentimento (obrigatória antes de Iniciar): confirma o aviso lido ao paciente e inicia. */
+async function startWithConsent(page: Page) {
+  const start = page.getByRole("button", { name: "Iniciar", exact: true });
+  await expect(start).toBeDisabled();
+  await page.getByLabel("Li o aviso ao paciente e registrei a decisão dele").check();
+  await start.click();
+}
+
 async function simulate(page: Page) {
   await page.getByRole("tab", { name: /Simular consulta/ }).click();
   await page.getByLabel("Velocidade").selectOption("8");
@@ -36,7 +44,7 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
   await expect(page.getByText("Joana Ferreira Lima")).toBeVisible();
 
   await openFresh(page, "cen6");
-  await page.getByRole("button", { name: "Iniciar", exact: true }).click();
+  await startWithConsent(page);
 
   // antes da conversa: perguntas a partir do prontuário
   await expect(page.getByText("Atualiza a cada fala. Some da lista quando o profissional já perguntou, mesmo com outras palavras.")).toBeVisible();
@@ -80,7 +88,7 @@ test("centro cirúrgico: relatório por ditado com pendências anti-glosa e conc
   await login(page, "medico");
   await openFresh(page, "cen4");
   await page.getByLabel("Atendimento").selectOption("cirurgia");
-  await page.getByRole("button", { name: "Iniciar", exact: true }).click();
+  await startWithConsent(page);
   await simulate(page);
   await expect(page.getByText("Verificações automáticas")).toBeVisible();
   await expect(page.getByText(/Pinça de energia ultrassônica citado no ditado sem autorização/).first()).toBeVisible();
@@ -94,4 +102,32 @@ test("centro cirúrgico: relatório por ditado com pendências anti-glosa e conc
   // pendência crítica de faturamento: o envio pede justificativa (trava suave, auditada)
   await page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ }).click();
   await expect(page.getByLabel(/Justificativa do envio com pendência crítica/)).toBeVisible();
+});
+
+test("transcrição editável: 'fala N' da nota rola até a fala e a edição persiste depois de recarregar", async ({ page }) => {
+  await login(page, "medico");
+  await openFresh(page, "cen6");
+  await startWithConsent(page);
+  await simulate(page);
+  await page.getByRole("button", { name: "Finalizar e gerar nota" }).click();
+  await expect(page.getByText("Nota da consulta para revisão")).toBeVisible();
+
+  // a revisão mostra a transcrição ao lado da nota; clicar em "fala N" rola até a fala e a destaca
+  const link = page.getByRole("button", { name: /Ir para a fala \d+ da conversa/ }).first();
+  const label = (await link.getAttribute("aria-label")) ?? "";
+  const n = label.match(/fala (\d+)/)?.[1] ?? "1";
+  await link.click();
+  await expect(page.locator(`#fala-${n}`)).toHaveClass(/ring-2/);
+
+  // edição: texto novo, selo "editada" e persistência após recarregar
+  await page.getByRole("button", { name: `Editar a fala ${n}` }).click();
+  await page.getByLabel(`Texto da fala ${n}`).fill("Texto corrigido pelo profissional.");
+  await page.getByRole("button", { name: "Salvar correção" }).click();
+  const row = page.locator(`#fala-${n}`);
+  await expect(row).toContainText("Texto corrigido pelo profissional.");
+  await expect(row).toContainText("editada");
+  await expect(page.getByTestId("nota-desatualizada")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: /Nota para revisar/ }).first().click();
+  await expect(page.locator(`#fala-${n}`)).toContainText("Texto corrigido pelo profissional.");
 });

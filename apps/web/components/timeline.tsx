@@ -10,6 +10,7 @@ import {
   FlaskConical,
   OctagonAlert,
   Pill,
+  ShieldCheck,
   Stethoscope,
   Syringe,
   TriangleAlert,
@@ -34,6 +35,7 @@ export const KIND_META: Record<EventKind, { label: string; Icon: LucideIcon }> =
   transfer: { label: "Transferências", Icon: ArrowRightLeft },
   diagnosis: { label: "Diagnósticos", Icon: ClipboardList },
   io: { label: "Diurese/balanço", Icon: Droplets },
+  consent: { label: "Consentimentos", Icon: ShieldCheck },
 };
 
 const ALL_KINDS = Object.keys(KIND_META) as EventKind[];

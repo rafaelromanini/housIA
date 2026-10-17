@@ -1,21 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { History, Loader2, Mic, PlusCircle, ShieldOff } from "lucide-react";
+import { History, Loader2, Mic, PlusCircle, ShieldCheck, ShieldOff, Volume2 } from "lucide-react";
 
 import { LiveConsult } from "@/components/consult/live-consult";
 import { NoteReview } from "@/components/consult/note-review";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
+import { Transcript, VOICE_LANG, type SegmentPatch } from "@/components/consult/transcript";
 import { usePatient } from "@/components/patient/patient-context";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type ConsultConfig, type ConsultKind, type Consultation } from "@/lib/api";
+import { api, type ConsentPurposes, type ConsultConfig, type ConsultKind, type Consultation } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
@@ -40,6 +43,14 @@ export function ConsultPage() {
   const [tipo, setTipo] = useState<ConsultKind>(patient.internado ? "visita" : "consulta");
   const [especialidade, setEspecialidade] = useState(user?.role === "enfermagem" ? "enfermagem" : "clinica_medica");
   const [idioma, setIdioma] = useState("pt-BR");
+  // consentimento (etapa obrigatória antes de Iniciar): quem consentiu, finalidades e recusa
+  const companions = useApi<{ id: string; nome: string; parentesco: string }[]>(allowed ? `/patients/${patient.id}/consult/acompanhantes` : null);
+  const [quem, setQuem] = useState<"paciente" | "acompanhante" | "responsavel">("paciente");
+  const [relatedId, setRelatedId] = useState("");
+  const [finalidades, setFinalidades] = useState<ConsentPurposes>({ transcricao: true, ia_externa: true, traducao: true, emocoes: true });
+  const [recusou, setRecusou] = useState(false);
+  const [avisoLido, setAvisoLido] = useState(false);
+  const [tab, setTab] = useState<"nota" | "transcricao">("nota");
   const proLabel = user?.role === "enfermagem" ? "Enfermagem" : "Médico(a)";
   // no modo cirúrgico o seletor mostra só as especialidades com modelo de relatório (ortopedia, obstetrícia…)
   const surgicalMode = tipo === "cirurgia";
@@ -76,8 +87,20 @@ export function ConsultPage() {
     try {
       const c = await api<Consultation>(`/patients/${patient.id}/consultations`, {
         method: "POST",
-        json: { tipo, especialidade: chosenSpecialty, idioma_paciente: surgicalMode ? "pt-BR" : idioma },
+        json: {
+          tipo,
+          especialidade: chosenSpecialty,
+          idioma_paciente: surgicalMode ? "pt-BR" : idioma,
+          consentimento: {
+            quem,
+            related_person_id: quem !== "paciente" && relatedId ? relatedId : null,
+            finalidades,
+            recusou,
+          },
+        },
       });
+      setAvisoLido(false);
+      setRecusou(false);
       setCurrent(c);
       void history.reload();
     } catch (e) {
@@ -86,6 +109,35 @@ export function ConsultPage() {
       setOpening(false);
     }
   }
+
+  const patientLang = surgicalMode ? "pt-BR" : idioma;
+  const notice = config.data?.aviso_consentimento?.[patientLang] ?? config.data?.aviso_consentimento?.["pt-BR"] ?? "";
+  function readAloud() {
+    const u = new SpeechSynthesisUtterance(notice);
+    u.lang = VOICE_LANG[patientLang] ?? patientLang;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }
+
+  // "fala N" na nota revisada leva até a fala na transcrição (no tablet, troca para a aba da transcrição antes)
+  useEffect(() => {
+    const onFala = (e: Event) => {
+      if (tab === "transcricao" || window.matchMedia("(min-width: 1024px)").matches) return;
+      const n = (e as CustomEvent<number>).detail;
+      setTab("transcricao");
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("housia:fala", { detail: n })), 80);
+    };
+    window.addEventListener("housia:fala", onFala);
+    return () => window.removeEventListener("housia:fala", onFala);
+  }, [tab]);
+
+  const editSegment = useCallback(
+    async (n: number, patch: SegmentPatch) => {
+      if (!current) return;
+      setCurrent(await api<Consultation>(`/consultations/${current.id}/segments/${n}`, { method: "PATCH", json: patch }));
+    },
+    [current],
+  );
 
   if (!allowed) {
     return (
@@ -117,18 +169,59 @@ export function ConsultPage() {
             <PlusCircle aria-hidden /> Nova consulta
           </Button>
         </div>
+        <div role="tablist" aria-label="Nota ou transcrição" className="flex gap-1 rounded-lg bg-muted p-1 lg:hidden">
+          {(["nota", "transcricao"] as const).map((k) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              className={cn(
+                "min-h-10 flex-1 rounded-md px-3 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                tab === k ? "bg-card text-primary shadow-sm" : "text-muted-foreground",
+              )}
+            >
+              {k === "nota" ? "Nota" : `Transcrição (${current.segmentos.length})`}
+            </button>
+          ))}
+        </div>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-          <NoteReview consultation={current} onChange={setCurrent} canSend={config.data.envio_prontuario} />
-          <details className="self-start rounded-lg border bg-card p-3" open={false}>
-            <summary className="min-h-9 cursor-pointer font-bold">Smart Apps desta consulta</summary>
-            <div className="mt-2">
-              {current.insights?.relatorio_cirurgico ? (
-                <SurgicalPanel report={current.insights.relatorio_cirurgico} patientId={patient.id} />
-              ) : current.insights ? (
-                <SmartAppsPanel insights={current.insights} />
-              ) : null}
-            </div>
-          </details>
+          <div className={cn(tab === "nota" ? "block" : "hidden", "lg:block")}>
+            <NoteReview consultation={current} onChange={setCurrent} canSend={config.data.envio_prontuario} />
+          </div>
+          <div className={cn(tab === "transcricao" ? "block" : "hidden", "space-y-3 self-start lg:block")}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Transcrição</CardTitle>
+                <CardDescription>
+                  {current.status === "enviada"
+                    ? "Nota já enviada: a transcrição não pode mais ser editada."
+                    : "Corrija o texto ou quem falou; as regras rodam de novo e a nota fica marcada como desatualizada."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Transcript
+                  segments={current.segmentos}
+                  interim={null}
+                  proLabel={proLabel}
+                  patientLanguage={current.idioma_paciente}
+                  onEdit={current.status === "enviada" ? undefined : editSegment}
+                  speakers={current.tipo === "cirurgia" ? ["medico", "paciente", "acompanhante", "anestesista", "circulante", "instrumentador"] : undefined}
+                  maxHeight="max-h-[70vh]"
+                />
+              </CardContent>
+            </Card>
+            <details className="rounded-lg border bg-card p-3" open={false}>
+              <summary className="min-h-9 cursor-pointer font-bold">Smart Apps desta consulta</summary>
+              <div className="mt-2">
+                {current.insights?.relatorio_cirurgico ? (
+                  <SurgicalPanel report={current.insights.relatorio_cirurgico} patientId={patient.id} />
+                ) : current.insights ? (
+                  <SmartAppsPanel insights={current.insights} />
+                ) : null}
+              </div>
+            </details>
+          </div>
         </div>
       </div>
     );
@@ -188,12 +281,66 @@ export function ConsultPage() {
               {config.data.llm_mode === "mock" && " No modo demonstração a tradução fica marcada como pendente do LLM real."}
             </p>
           )}
-          <Alert variant="info">
-            Avise o paciente que a conversa será transcrita para apoiar o atendimento. O HousIA não grava áudio; o texto fica no
-            prontuário do HousIA e identificadores são retirados antes de ir para a IA.
-          </Alert>
+          <fieldset className="space-y-3 rounded-lg border bg-card p-3" data-testid="consentimento">
+            <legend className="flex items-center gap-1.5 px-1 font-bold">
+              <ShieldCheck aria-hidden className="size-4 text-primary" /> Consentimento do paciente
+            </legend>
+            <p className="rounded-md bg-info-bg p-2 text-sm" lang={patientLang}>
+              {notice}
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={readAloud}>
+              <Volume2 aria-hidden /> Ler em voz alta
+            </Button>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="quem-consentiu">Quem consentiu</Label>
+                <NativeSelect id="quem-consentiu" value={quem} onChange={(e) => setQuem(e.target.value as typeof quem)}>
+                  <option value="paciente">O próprio paciente</option>
+                  <option value="acompanhante">Acompanhante</option>
+                  <option value="responsavel">Responsável legal</option>
+                </NativeSelect>
+              </div>
+              {quem !== "paciente" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="related-person">Pessoa no prontuário</Label>
+                  <NativeSelect id="related-person" value={relatedId} onChange={(e) => setRelatedId(e.target.value)}>
+                    <option value="">Não listada</option>
+                    {(companions.data ?? []).map((rp) => (
+                      <option key={rp.id} value={rp.id}>
+                        {rp.nome}
+                        {rp.parentesco ? ` (${rp.parentesco})` : ""}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="recusou-ia" checked={recusou} onCheckedChange={(v) => setRecusou(v === true)} />
+              <Label htmlFor="recusou-ia">O paciente recusou a IA (a consulta segue só com as regras, sem IA externa)</Label>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Finalidades autorizadas">
+              {(config.data.finalidades ?? []).map((f) => (
+                <div key={f.value} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`fin-${f.value}`}
+                    checked={!recusou && finalidades[f.value]}
+                    disabled={recusou}
+                    onCheckedChange={(v) => setFinalidades((prev) => ({ ...prev, [f.value]: v === true }))}
+                  />
+                  <Label htmlFor={`fin-${f.value}`}>{f.label}</Label>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 border-t pt-2">
+              <Checkbox id="aviso-lido" checked={avisoLido} onCheckedChange={(v) => setAvisoLido(v === true)} />
+              <Label htmlFor="aviso-lido" className="font-bold">
+                Li o aviso ao paciente e registrei a decisão dele
+              </Label>
+            </div>
+          </fieldset>
           {error && <Alert variant="critico">{error}</Alert>}
-          <Button size="lg" onClick={() => void start()} disabled={opening}>
+          <Button size="lg" onClick={() => void start()} disabled={opening || !avisoLido}>
             {opening ? <Loader2 aria-hidden className="animate-spin" /> : <Mic aria-hidden />} Iniciar
           </Button>
         </CardContent>

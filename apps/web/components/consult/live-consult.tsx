@@ -10,6 +10,8 @@ import {
   MicOff,
   Pause,
   Play,
+  ShieldOff,
+  ShieldPlus,
   Radio,
   RefreshCw,
   Send,
@@ -21,7 +23,7 @@ import { useDemoPlayer, usePushToTalk, useServerRecorder, useSpeechCapture, spee
 import { CopilotPanel } from "@/components/consult/copilot-panel";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
-import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS } from "@/components/consult/transcript";
+import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS, type SegmentPatch } from "@/components/consult/transcript";
 import { usePatient } from "@/components/patient/patient-context";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -100,6 +102,13 @@ export function LiveConsult({
   cRef.current = c;
   const lastAi = useRef(0);
   const aiBusy = useRef(false);
+  // falas aceitas pela captura e ainda não confirmadas pelo servidor: se o envio falhar, vão no corpo do /finish
+  const unsent = useRef<SegmentIn[]>([]);
+  const consent = c.consentimento;
+  const consentState = consent?.estado ?? "ativo";
+  const canAI = consent ? consent.permite.ia : true;
+  const captureBlocked = consentState !== "ativo";
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
 
   useEffect(() => {
     const started = new Date(c.created_at).getTime();
@@ -117,7 +126,8 @@ export function LiveConsult({
 
   const translate = useCallback(
     async (ns: number[]) => {
-      if (cRef.current.idioma_paciente === "pt-BR" || ns.length === 0) return;
+      const allowed = cRef.current.consentimento ? cRef.current.consentimento.permite.traducao : true;
+      if (cRef.current.idioma_paciente === "pt-BR" || ns.length === 0 || !allowed) return;
       try {
         const out = await api<{ traducoes: Record<string, string> }>(`/consultations/${c.id}/translate`, { method: "POST", json: { ns } });
         setConsultation((prev) =>
@@ -133,12 +143,14 @@ export function LiveConsult({
   // envia em ordem (fila), mesmo com falas chegando rápido
   const send = useCallback(
     (items: SegmentIn[]) => {
+      unsent.current.push(...items);
       queue.current = queue.current.then(async () => {
         try {
           const res = await api<{ novos: Segment[]; insights: ConsultInsights }>(`/consultations/${c.id}/segments`, {
             method: "POST",
             json: { segmentos: items },
           });
+          unsent.current = unsent.current.filter((u) => !items.includes(u));
           apply(res.novos, res.insights);
           void translate(res.novos.map((s) => s.n));
         } catch (e) {
@@ -151,7 +163,7 @@ export function LiveConsult({
 
   const runAI = useCallback(
     async (force = false) => {
-      if (aiBusy.current) return;
+      if (aiBusy.current || !(cRef.current.consentimento?.permite.ia ?? true)) return;
       aiBusy.current = true;
       setAiRunning(true);
       lastAi.current = Date.now();
@@ -174,13 +186,13 @@ export function LiveConsult({
 
   // ciclos da IA: quando há falas novas, no máximo a cada 12 s (as regras já atualizam a cada fala)
   useEffect(() => {
-    if (!autoAI || surgical) return;
+    if (!autoAI || surgical || !canAI) return;
     const id = window.setInterval(() => {
       const cur = cRef.current;
       if (cur.segmentos.length > (cur.ia?.falas ?? 0) && Date.now() - lastAi.current > AI_EVERY_MS) void runAI();
     }, 3000);
     return () => window.clearInterval(id);
-  }, [autoAI, runAI, surgical]);
+  }, [autoAI, runAI, surgical, canAI]);
 
   // ---------- captura ----------
   const patientSide = speaker === "paciente" || speaker === "acompanhante";
@@ -212,7 +224,7 @@ export function LiveConsult({
     (texto) => setPushed((p) => ({ texto, n: (p?.n ?? 0) + 1 })),
     () => {
       resumeMic.current = mic.listening;
-      if (mic.listening) mic.stop();
+      if (mic.listening) void mic.stop();
     },
     () => {
       if (resumeMic.current) mic.start();
@@ -225,10 +237,10 @@ export function LiveConsult({
   const capturing = mic.listening || recorder.recording || demo.playing;
   const interim = demo.interim ?? (mic.interim ? { falante: speaker, texto: mic.interim } : null);
 
-  function stopAll() {
-    mic.stop();
-    recorder.stop();
+  /** Para toda captura e espera o último resultado do reconhecimento (ou o último trecho de áudio) entrar na fila. */
+  async function stopAll() {
     demo.pause();
+    await Promise.all([mic.stop(), recorder.stop()]);
   }
 
   // atalhos: Alt+1 profissional, Alt+2 paciente, Alt+3 acompanhante, Alt+0 detectar automaticamente;
@@ -321,17 +333,51 @@ export function LiveConsult({
   );
 
   async function finish() {
-    stopAll();
     setFinishing(true);
     setError(null);
+    // espera o último resultado do reconhecimento / trecho de áudio e a fila de envio; o que não chegou ao servidor
+    // (falha de rede, por exemplo) vai no corpo do /finish e entra de forma atômica antes da nota
+    await stopAll();
     await queue.current;
     try {
-      const updated = await api<Consultation>(`/consultations/${c.id}/finish`, { method: "POST" });
+      const updated = await api<Consultation>(`/consultations/${c.id}/finish`, {
+        method: "POST",
+        json: { segmentos: unsent.current },
+      });
+      unsent.current = [];
       setConsultation(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao gerar a nota");
     } finally {
       setFinishing(false);
+    }
+  }
+
+  // correção de uma fala (texto e/ou quem falou): o servidor reroda as regras e devolve a conversa inteira
+  const editSegment = useCallback(
+    async (n: number, patch: SegmentPatch) => {
+      await queue.current;
+      const updated = await api<Consultation>(`/consultations/${c.id}/segments/${n}`, { method: "PATCH", json: patch });
+      setConsultation((prev) =>
+        prev ? { ...prev, segmentos: updated.segmentos, insights: updated.insights ?? prev.insights, ia: updated.ia ?? prev.ia } : prev,
+      );
+    },
+    [c.id, setConsultation],
+  );
+
+  // pausa de privacidade, retomada e revogação do consentimento: viram marcos na transcrição
+  async function marker(tipo: "pausa" | "retomada" | "revogado") {
+    setError(null);
+    try {
+      await stopAll();
+      await queue.current;
+      const updated = await api<Consultation>(`/consultations/${c.id}/marker`, { method: "POST", json: { tipo } });
+      setConsultation((prev) =>
+        prev ? { ...prev, segmentos: updated.segmentos, consentimento: updated.consentimento, insights: updated.insights ?? prev.insights } : prev,
+      );
+      setConfirmRevoke(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao registrar o marco de privacidade");
     }
   }
 
@@ -395,7 +441,27 @@ export function LiveConsult({
                 <input type="checkbox" checked={autoAI} onChange={(e) => setAutoAI(e.target.checked)} className="size-4" /> IA automática
               </label>
             )}
-            <Button variant="outline" size="sm" onClick={() => void runAI(true)} disabled={aiRunning || c.segmentos.length === 0}>
+            {consent && consentState === "ativo" && (
+              <Button variant="outline" size="sm" onClick={() => void marker("pausa")}>
+                <Pause aria-hidden /> Pausa de privacidade
+              </Button>
+            )}
+            {consent && consentState === "pausado" && (
+              <Button variant="outline" size="sm" onClick={() => void marker("retomada")}>
+                <ShieldPlus aria-hidden /> Retomar transcrição
+              </Button>
+            )}
+            {consent && consentState !== "revogado" &&
+              (confirmRevoke ? (
+                <Button variant="destructive" size="sm" onClick={() => void marker("revogado")}>
+                  <ShieldOff aria-hidden /> Confirmar revogação
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setConfirmRevoke(true)}>
+                  <ShieldOff aria-hidden /> Revogar consentimento
+                </Button>
+              ))}
+            <Button variant="outline" size="sm" onClick={() => void runAI(true)} disabled={aiRunning || c.segmentos.length === 0 || !canAI}>
               <RefreshCw aria-hidden /> Analisar agora
             </Button>
             <Button size="sm" onClick={() => void finish()} disabled={finishing || c.segmentos.length === 0}>
@@ -405,6 +471,18 @@ export function LiveConsult({
           </div>
         </CardContent>
       </Card>
+
+      {consent && (consent.recusou || !consent.permite.ia || consentState !== "ativo") && (
+        <Alert variant={consentState === "ativo" ? "info" : "atencao"} role="status" data-testid="aviso-consentimento">
+          {consentState === "revogado"
+            ? "Consentimento revogado: a captura foi encerrada. Finalize para gerar a nota só com as regras."
+            : consentState === "pausado"
+              ? "Pausa de privacidade: nada está sendo transcrito. Retome quando o paciente autorizar."
+              : consent.recusou
+                ? "O paciente recusou a IA: as regras do HousIA analisam a conversa e a nota sai sem IA."
+                : "IA externa não autorizada: só as regras do HousIA analisam a conversa."}
+        </Alert>
+      )}
 
       {error && (
         <Alert variant="critico" role="alert">
@@ -430,7 +508,7 @@ export function LiveConsult({
                       aria-label={label}
                       title={label}
                       onClick={() => {
-                        stopAll();
+                        void stopAll();
                         setMode(key);
                         if (key === "microfone" && mode !== "microfone") setSpeaker(startSpeaker(key));
                       }}
@@ -478,8 +556,8 @@ export function LiveConsult({
                     size="lg"
                     variant={mic.listening ? "destructive" : "default"}
                     className="w-full"
-                    onClick={() => (mic.listening ? mic.stop() : mic.start())}
-                    disabled={!speechSupported()}
+                    onClick={() => (mic.listening ? void mic.stop() : mic.start())}
+                    disabled={!speechSupported() || captureBlocked}
                   >
                     {mic.listening ? <MicOff aria-hidden /> : <Mic aria-hidden />}
                     {mic.listening ? "Pausar transcrição" : "Iniciar transcrição ao vivo"}
@@ -504,7 +582,8 @@ export function LiveConsult({
                     size="lg"
                     variant={recorder.recording ? "destructive" : "default"}
                     className="w-full"
-                    onClick={() => (recorder.recording ? recorder.stop() : void recorder.start())}
+                    onClick={() => (recorder.recording ? void recorder.stop() : void recorder.start())}
+                    disabled={captureBlocked || (consent ? !consent.permite.transcricao_servidor : false)}
                   >
                     {recorder.recording ? <MicOff aria-hidden /> : <Mic aria-hidden />}
                     {recorder.recording ? "Parar gravação" : "Gravar e transcrever no servidor"}
@@ -522,7 +601,7 @@ export function LiveConsult({
                     placeholder={`Fala de ${speaker === "desconhecido" ? "quem estiver falando" : speakerLabel(speaker, proLabel).toLowerCase()}…`}
                     aria-label="Fala"
                   />
-                  <Button type="submit" disabled={!typed.trim()}>
+                  <Button type="submit" disabled={!typed.trim() || captureBlocked}>
                     <Send aria-hidden /> Enviar
                   </Button>
                 </form>
@@ -534,7 +613,7 @@ export function LiveConsult({
                     <span className="font-bold">Roteiro sintético:</span> {script.data?.titulo ?? "carregando…"}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button onClick={demo.playing ? demo.pause : demo.play} disabled={!script.data || demo.done}>
+                    <Button onClick={demo.playing ? demo.pause : demo.play} disabled={!script.data || demo.done || captureBlocked}>
                       {demo.playing ? <Pause aria-hidden /> : <Play aria-hidden />}
                       {demo.done ? "Roteiro concluído" : demo.playing ? "Pausar" : demoStart > 0 ? "Continuar simulação" : "Simular consulta"}
                     </Button>
@@ -561,7 +640,14 @@ export function LiveConsult({
             </CardContent>
           </Card>
 
-          <Transcript segments={c.segmentos} interim={interim} proLabel={proLabel} patientLanguage={c.idioma_paciente} />
+          <Transcript
+            segments={c.segmentos}
+            interim={interim}
+            proLabel={proLabel}
+            patientLanguage={c.idioma_paciente}
+            onEdit={editSegment}
+            speakers={speakers.filter((sp) => sp !== "desconhecido")}
+          />
         </section>
 
         <section aria-label="Assistente" className="space-y-3">

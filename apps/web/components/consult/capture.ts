@@ -43,6 +43,8 @@ export function useSpeechCapture(lang: string, onFinal: (text: string) => void) 
   const [error, setError] = useState<string | null>(null);
   const rec = useRef<Recognition | null>(null);
   const wanted = useRef(false);
+  const running = useRef(false);
+  const flushing = useRef<(() => void)[]>([]);
   const langRef = useRef(lang);
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
@@ -89,21 +91,35 @@ export function useSpeechCapture(lang: string, onFinal: (text: string) => void) 
           /* já reiniciado */
         }
       } else {
+        running.current = false;
         setListening(false);
+        // o 'end' vem depois do último resultado final: quem esperava o flush já pode seguir
+        flushing.current.splice(0).forEach((done) => done());
       }
     };
     rec.current = r;
     wanted.current = true;
     setError(null);
     r.start();
+    running.current = true;
     setListening(true);
   }, []);
 
-  const stop = useCallback(() => {
+  /** Para a captura e devolve uma Promise resolvida quando o reconhecimento entrega o último resultado ('end'),
+   * para que a fala em andamento não se perca ao finalizar. Tem um limite de 2,5 s para nunca travar a tela. */
+  const stop = useCallback((): Promise<void> => {
     wanted.current = false;
-    rec.current?.stop();
     setListening(false);
     setInterim("");
+    if (!rec.current || !running.current) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, 2500);
+      flushing.current.push(() => {
+        window.clearTimeout(timer);
+        resolve();
+      });
+      rec.current?.stop();
+    });
   }, []);
 
   // trocar o idioma (ex.: paciente fala espanhol) reinicia o reconhecimento no novo idioma
@@ -197,6 +213,7 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
   const recorder = useRef<MediaRecorder | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wanted = useRef(false);
+  const stopped = useRef<(() => void)[]>([]);
   const onChunkRef = useRef(onChunk);
   onChunkRef.current = onChunk;
 
@@ -211,6 +228,7 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
       const blob = new Blob(chunks, { type: r.mimeType || "audio/webm" });
       if (blob.size > 2000) onChunkRef.current(blob);
       if (wanted.current) cycle();
+      else stopped.current.splice(0).forEach((done) => done()); // último trecho entregue à fila de envio
     };
     recorder.current = r;
     r.start();
@@ -230,16 +248,33 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
     cycle();
   }, [cycle]);
 
-  const stop = useCallback(() => {
+  /** Para a gravação; a Promise resolve quando o último trecho foi entregue para envio (o upload segue na fila). */
+  const stop = useCallback((): Promise<void> => {
     wanted.current = false;
     if (timer.current) clearTimeout(timer.current);
-    if (recorder.current?.state === "recording") recorder.current.stop();
+    const active = recorder.current?.state === "recording";
+    const done = active
+      ? new Promise<void>((resolve) => {
+          const t = window.setTimeout(resolve, 2500);
+          stopped.current.push(() => {
+            window.clearTimeout(t);
+            resolve();
+          });
+        })
+      : Promise.resolve();
+    if (active) recorder.current?.stop();
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
     setRecording(false);
+    return done;
   }, []);
 
-  useEffect(() => () => stop(), [stop]);
+  useEffect(
+    () => () => {
+      void stop();
+    },
+    [stop],
+  );
   return { recording, error, start, stop };
 }
 

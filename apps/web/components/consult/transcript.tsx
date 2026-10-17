@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Languages, Volume2 } from "lucide-react";
+import { Languages, Pause, Pencil, Play, ShieldOff, Volume2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { reidentify } from "@/components/ai/ai-badge";
 import { usePatient } from "@/components/patient/patient-context";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
 import type { Segment, Speaker } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -39,25 +41,67 @@ export function speakerLabel(s: Speaker, proLabel: string) {
 
 export const clock = (t: number) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
-const VOICE_LANG: Record<string, string> = { "pt-BR": "pt-BR", es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT", de: "de-DE", zh: "zh-CN", ar: "ar-SA", ht: "fr-HT" };
+export const VOICE_LANG: Record<string, string> = { "pt-BR": "pt-BR", es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT", de: "de-DE", zh: "zh-CN", ar: "ar-SA", ht: "fr-HT" };
 
 /** Transcrição ao vivo: falas com quem falou, tempo, tradução e destaque quando um Smart App cita a fala. */
+const MARKER_META = {
+  pausa: { label: "Pausa de privacidade", Icon: Pause },
+  retomada: { label: "Transcrição retomada", Icon: Play },
+  revogado: { label: "Consentimento revogado", Icon: ShieldOff },
+} as const;
+
+export type SegmentPatch = { texto?: string; falante?: Speaker };
+
+/** Transcrição: falas com quem falou, tempo, tradução, marcos de privacidade e, se `onEdit` vier, correção da fala. */
 export function Transcript({
   segments,
   interim,
   proLabel,
   patientLanguage,
+  onEdit,
+  speakers,
+  maxHeight = "max-h-[62vh]",
 }: {
   segments: Segment[];
   interim: { falante: Speaker; texto: string } | null;
   proLabel: string;
   patientLanguage: string;
+  onEdit?: (n: number, patch: SegmentPatch) => Promise<void>;
+  speakers?: Speaker[];
+  maxHeight?: string;
 }) {
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [draftSpeaker, setDraftSpeaker] = useState<Speaker>("medico");
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const speakerOptions = speakers ?? (["medico", "paciente", "acompanhante"] as Speaker[]);
+
+  async function save(s: Segment) {
+    const patch: SegmentPatch = {};
+    if (draft.trim() && draft.trim() !== s.texto) patch.texto = draft.trim();
+    if (draftSpeaker !== s.falante) patch.falante = draftSpeaker;
+    if (Object.keys(patch).length === 0) {
+      setEditing(null);
+      return;
+    }
+    setSaving(true);
+    setEditError(null);
+    try {
+      await onEdit?.(s.n, patch);
+      setEditing(null);
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "Erro ao salvar a correção");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const box = useRef<HTMLDivElement>(null);
   const [focus, setFocus] = useState<number | null>(null);
   const [onlyClinical, setOnlyClinical] = useState(false);
-  const hidden = segments.filter((s) => s.relevancia === "social" || s.relevancia === "administrativa").length;
-  const shown = onlyClinical ? segments.filter((s) => s.relevancia !== "social" && s.relevancia !== "administrativa") : segments;
+  const hidden = segments.filter((s) => s.origem !== "marco" && (s.relevancia === "social" || s.relevancia === "administrativa")).length;
+  const shown = onlyClinical ? segments.filter((s) => s.origem === "marco" || (s.relevancia !== "social" && s.relevancia !== "administrativa")) : segments;
   const { patient } = usePatient();
 
   // acompanha a conversa enquanto a pessoa está no fim da lista
@@ -100,7 +144,7 @@ export function Transcript({
       </div>
     <div
       ref={box}
-      className="max-h-[62vh] min-h-64 overflow-y-auto rounded-md border bg-background p-3"
+      className={cn(maxHeight, "min-h-64 overflow-y-auto rounded-md border bg-background p-3")}
       aria-live="polite"
       aria-label="Transcrição da conversa"
     >
@@ -110,7 +154,26 @@ export function Transcript({
         </p>
       )}
       <ol className="space-y-2">
-        {shown.map((s) => (
+        {shown.map((s) =>
+          s.origem === "marco" && s.marco ? (
+            <li
+              key={s.n}
+              id={`fala-${s.n}`}
+              data-marco={s.marco}
+              className="flex items-center gap-2 rounded-md border border-dashed border-atencao-border bg-atencao-bg px-2 py-1.5 text-sm text-atencao"
+            >
+              {(() => {
+                const { Icon, label } = MARKER_META[s.marco];
+                return (
+                  <>
+                    <Icon aria-hidden className="size-4" />
+                    <span className="font-bold">{label}</span>
+                    <span className="tabular-nums text-xs">{clock(s.t)}</span>
+                  </>
+                );
+              })()}
+            </li>
+          ) : (
           <li
             key={s.n}
             id={`fala-${s.n}`}
@@ -129,6 +192,30 @@ export function Transcript({
               <span className="tabular-nums text-muted-foreground">
                 {clock(s.t)} · fala {s.n}
               </span>
+              {s.editado_em && (
+                <span
+                  className="rounded border border-info-border bg-info-bg px-1.5 text-info"
+                  title={`Corrigida por ${s.editado_por ?? "profissional"}${s.texto_original ? ` — original: “${s.texto_original}”` : ""}`}
+                >
+                  editada
+                </span>
+              )}
+              {onEdit && editing !== s.n && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto min-h-8 px-2"
+                  aria-label={`Editar a fala ${s.n}`}
+                  onClick={() => {
+                    setEditing(s.n);
+                    setDraft(s.texto);
+                    setDraftSpeaker(s.falante);
+                    setEditError(null);
+                  }}
+                >
+                  <Pencil aria-hidden />
+                </Button>
+              )}
               {s.falante_auto && <span className="text-muted-foreground">(quem falou: detectado automaticamente)</span>}
               {(s.relevancia === "social" || s.relevancia === "administrativa") && (
                 <span className="rounded border px-1.5 text-muted-foreground">
@@ -137,7 +224,36 @@ export function Transcript({
                 </span>
               )}
             </div>
-            <p className="leading-snug">{s.texto}</p>
+            {editing === s.n ? (
+              <div className="space-y-2" data-testid={`editar-fala-${s.n}`}>
+                <Label htmlFor={`texto-fala-${s.n}`}>Texto da fala {s.n}</Label>
+                <Textarea id={`texto-fala-${s.n}`} value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} maxLength={2000} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor={`falante-fala-${s.n}`}>Quem falou</Label>
+                  <NativeSelect
+                    id={`falante-fala-${s.n}`}
+                    value={draftSpeaker}
+                    onChange={(e) => setDraftSpeaker(e.target.value as Speaker)}
+                    className="h-10 w-48"
+                  >
+                    {(speakerOptions.includes(s.falante) ? speakerOptions : [...speakerOptions, s.falante]).map((sp) => (
+                      <option key={sp} value={sp}>
+                        {speakerLabel(sp, proLabel)}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                  <Button size="sm" onClick={() => void save(s)} disabled={saving || !draft.trim()}>
+                    Salvar correção
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
+                    Cancelar
+                  </Button>
+                </div>
+                {editError && <p className="text-sm text-critico">{editError}</p>}
+              </div>
+            ) : (
+              <p className="leading-snug">{s.texto}</p>
+            )}
             {s.traducao && (
               <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
                 <Languages aria-hidden className="mt-0.5 size-4 shrink-0" />
@@ -150,7 +266,8 @@ export function Transcript({
               </p>
             )}
           </li>
-        ))}
+          ),
+        )}
         {interim && (
           <li className="rounded-md border border-dashed p-2" aria-live="off">
             <div className="mb-0.5 flex items-center gap-2 text-xs">

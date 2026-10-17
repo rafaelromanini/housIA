@@ -83,6 +83,12 @@ def demo_script(script_id: str, _: User = Depends(clinician)) -> dict:
     return script
 
 
+@router.get("/patients/{patient_id}/consult/acompanhantes")
+def companions(patient_id: str, fhir: FhirSource = Depends(get_fhir), _: User = Depends(clinician)) -> list[dict]:
+    """RelatedPerson do paciente (quem pode consentir como acompanhante ou responsável)."""
+    return service.companions(fhir, patient_id)
+
+
 @router.post("/patients/{patient_id}/consultations")
 def create_consultation(
     patient_id: str,

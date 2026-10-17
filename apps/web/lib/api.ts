@@ -79,7 +79,7 @@ export interface PatientDetail {
   } | null;
 }
 
-export type EventKind = "vital" | "lab" | "med_order" | "med_admin" | "note" | "procedure" | "transfer" | "diagnosis" | "io";
+export type EventKind = "vital" | "lab" | "med_order" | "med_admin" | "note" | "procedure" | "transfer" | "diagnosis" | "io" | "consent";
 
 export interface ClinicalEvent {
   id: string;
@@ -599,7 +599,14 @@ export interface Segment {
   texto: string;
   idioma: string;
   traducao: string | null;
-  origem: "microfone" | "servidor" | "digitado" | "demo";
+  origem: "microfone" | "servidor" | "digitado" | "demo" | "marco";
+  /** edição pelo profissional (#2): o original fica guardado; editado_em acende o selo "editada" */
+  texto_original?: string | null;
+  falante_original?: Speaker | null;
+  editado_por?: string | null;
+  editado_em?: string | null;
+  /** marco de privacidade (origem "marco"): não é fala */
+  marco?: "pausa" | "retomada" | "revogado" | null;
   /** clínica, social ou administrativa (regra; a IA só reclassifica fala sem medicamento, dose, alergia ou alarme) */
   relevancia?: Relevance | null;
   relevancia_origem?: "regra" | "ia";
@@ -1172,6 +1179,7 @@ export interface Consultation {
   idioma_paciente: string;
   status: "em_andamento" | "finalizada" | "enviada";
   segmentos: Segment[];
+  consentimento?: ConsentInfo | null;
   insights: ConsultInsights | null;
   ia: {
     modo: "real" | "mock";
@@ -1195,6 +1203,10 @@ export interface Consultation {
     cobertura?: NoteCoverage | null;
     revisada_por: string | null;
     revisada_em: string | null;
+    /** paciente recusou a IA externa: nota só das regras */
+    sem_ia?: boolean;
+    /** a transcrição foi editada depois da nota: seções que citam as falas editadas */
+    desatualizada?: { falas: number[]; secoes: string[]; em: string; por: string } | null;
   } | null;
   fhir_ref: string | null;
   roteiro_demo: string | null;
@@ -1207,7 +1219,31 @@ export interface Consultation {
   finished_at: string | null;
   sent_at: string | null;
 }
+export interface ConsentPurposes {
+  transcricao: boolean;
+  ia_externa: boolean;
+  traducao: boolean;
+  emocoes: boolean;
+}
+export interface ConsentInput {
+  quem: "paciente" | "acompanhante" | "responsavel";
+  related_person_id?: string | null;
+  finalidades: ConsentPurposes;
+  recusou: boolean;
+}
+export interface ConsentInfo extends Omit<ConsentInput, "related_person_id"> {
+  quem_nome: string | null;
+  related_person_id: string | null;
+  estado: "ativo" | "pausado" | "revogado";
+  em: string;
+  por: string;
+  fhir_ref: string | null;
+  permite: { ia: boolean; traducao: boolean; transcricao_servidor: boolean; emocoes: boolean };
+}
+
 export interface ConsultConfig {
+  aviso_consentimento: Record<string, string>;
+  finalidades: { value: keyof ConsentPurposes; label: string }[];
   llm_mode: "real" | "mock";
   stt_servidor: boolean;
   envio_prontuario: boolean;

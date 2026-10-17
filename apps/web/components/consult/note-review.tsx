@@ -325,6 +325,28 @@ export function NoteReview({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {c.nota_meta?.sem_ia && (
+          <Alert variant="info" data-testid="nota-sem-ia">
+            <ShieldAlert aria-hidden />
+            <span>
+              <Badge variant="outline">sem IA</Badge> O paciente não autorizou IA externa: esta nota foi montada só pelas regras do HousIA, a
+              partir da transcrição.
+            </span>
+          </Alert>
+        )}
+        {c.nota_meta?.desatualizada && !sent && (
+          <Alert variant="atencao" role="status" data-testid="nota-desatualizada">
+            <ShieldAlert aria-hidden />
+            <span>
+              <b>Nota desatualizada:</b> a transcrição foi corrigida depois da nota (fala{c.nota_meta.desatualizada.falas.length > 1 ? "s" : ""}{" "}
+              {c.nota_meta.desatualizada.falas.join(", ")}).{" "}
+              {c.nota_meta.desatualizada.secoes.length > 0
+                ? `Confira as seções que citam essas falas: ${c.nota_meta.desatualizada.secoes.join(", ")}.`
+                : "Nenhuma seção cita essas falas, mas confira se o texto novo muda algo."}{" "}
+              Salvar a revisão da nota confirma que ela está de acordo.
+            </span>
+          </Alert>
+        )}
         {sent && c.fhir_ref && (
           <Alert variant="ok">
             <CircleCheck aria-hidden />

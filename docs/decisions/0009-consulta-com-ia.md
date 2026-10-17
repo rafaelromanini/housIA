@@ -143,3 +143,13 @@ aprovada pelo profissional.
 - Para uso real, valem as exigências da [ADR 0004](0004-regulatorio-e-lgpd.md), mais: consentimento do paciente para
   transcrição, STT on-premise ou contratado com contrato de operador, política de retenção da transcrição e
   validação clínica das sugestões em tempo real.
+
+12. **Consentimento registrado e transcrição editável.** Toda consulta nasce com um `consentimento` (quem consentiu,
+   finalidades `transcricao`, `ia_externa`, `traducao`, `emocoes`, ou recusa), guardado em `extra_json` e, com
+   `EHR_WRITEBACK`, criado como `Consent` R4 (`scope=patient-privacy`, uma sub-`provision` por finalidade) que aparece na
+   timeline. Recusa ou `ia_externa=false` bloqueiam análise, tradução e STT (403) e a nota sai só das regras
+   (`nota_meta.modo="regras"`, `sem_ia`); `emocoes=false` desliga o cálculo de emoções. Pausa, retomada e revogação são
+   marcos (`origem="marco"`) na transcrição: não são fala para as regras, a IA nem a cobertura. A fala pode ser corrigida
+   (`PATCH /consultations/{id}/segments/{n}`): as regras rodam de novo, o original fica guardado, o audit registra só o
+   número da fala e os campos, e a nota já gerada fica `desatualizada` com as seções que citam a fala. O `/finish` aceita
+   as falas ainda na fila de captura, anexadas na mesma transação.

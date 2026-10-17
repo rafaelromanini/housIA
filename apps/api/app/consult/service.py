@@ -179,6 +179,21 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
 
 
 # ---------- criar / listar ----------
+def companions(fhir: FhirSource, patient_id: str) -> list[dict]:
+    record, _, _ = _chart(fhir, patient_id)
+    out_: list[dict] = []
+    for rp in record.related_persons:
+        rel = (rp.get("relationship") or [{}])[0]
+        out_.append(
+            {
+                "id": rp["id"],
+                "nome": ((rp.get("name") or [{}])[0]).get("text", "Acompanhante"),
+                "parentesco": rel.get("text") or ((rel.get("coding") or [{}])[0]).get("display", ""),
+            }
+        )
+    return out_
+
+
 def _consent_record(fhir: FhirSource, user: User, patient_id: str, record: PatientRecord, body: ConsultCreate) -> dict:
     """Consentimento por finalidade: valida quem consentiu, monta o Consent R4 e o cria no FHIR com EHR_WRITEBACK."""
     cons = consentimento.normalize(body.consentimento)

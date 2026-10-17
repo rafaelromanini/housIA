@@ -404,3 +404,9 @@ def test_emocoes_false_deixa_as_emocoes_vazias(client, auth):
     assert {t["rotulo"] for t in desligado["queixas"]} == {t["rotulo"] for t in ligado["queixas"]}
     done = client.post(f"/consultations/{sem}/finish", headers=h).json()
     assert done["insights"]["emocoes"] == []
+
+
+def test_lista_de_acompanhantes_para_o_consentimento(client, auth):
+    res = client.get("/patients/cen6/consult/acompanhantes", headers=auth("medico"))
+    assert res.status_code == 200
+    assert any(rp["id"] == "cen6-fam-0" and rp["nome"] for rp in res.json())
