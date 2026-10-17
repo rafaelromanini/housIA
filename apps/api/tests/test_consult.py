@@ -15,6 +15,7 @@ from app.consult.text import keyword_status, mentioned_drugs
 from app.db import session as db_session
 from app.db.models import AuditLog
 from app.llm import client as llm_client
+from tests.conftest import CONSENT
 
 SCRIPT = demo_scripts()["cen6_consulta"]["falas"]
 
@@ -27,7 +28,9 @@ def _fresh_chart_cache():
 
 
 def start(client, h, pid="cen6", **body):
-    res = client.post(f"/patients/{pid}/consultations", json={"tipo": "consulta"} | body, headers=h)
+    res = client.post(
+        f"/patients/{pid}/consultations", json={"tipo": "consulta", "consentimento": CONSENT} | body, headers=h
+    )
     assert res.status_code == 200, res.text
     return res.json()
 
@@ -183,7 +186,8 @@ def test_audit_never_stores_the_transcript(client, auth):
 
 
 def test_gestor_cannot_open_consultations(client, auth):
-    assert client.post("/patients/cen6/consultations", json={}, headers=auth("gestor")).status_code == 403
+    res = client.post("/patients/cen6/consultations", json={"consentimento": CONSENT}, headers=auth("gestor"))
+    assert res.status_code == 403
 
 
 def test_appointments_list_today_with_consultation_status(client, auth):
@@ -336,7 +340,10 @@ def test_specialty_profile_changes_suggested_questions(client, auth):
     clin = start(client, h)["insights"]["perguntas"]
     assert not any("jato" in q["pergunta"] for q in clin)
     assert (
-        client.post("/patients/cen6/consultations", json={"especialidade": "astrologia"}, headers=h).status_code == 422
+        client.post(
+            "/patients/cen6/consultations", json={"especialidade": "astrologia", "consentimento": CONSENT}, headers=h
+        ).status_code
+        == 422
     )
 
 

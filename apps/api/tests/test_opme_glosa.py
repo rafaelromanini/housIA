@@ -19,6 +19,7 @@ from app.consult import service as consult_service
 from app.consult.knowledge import demo_scripts
 from app.db import session as db_session
 from app.db.models import AuditLog
+from tests.conftest import CONSENT
 from tests.test_surgical import dictate, report_of, start
 
 LABEL = "(01)07891234567895(17)271231(10)LOTE123(21)SN1"
@@ -149,7 +150,9 @@ def test_manual_guide_plus_dictation_gives_correct_reconciliation_outside_the_sc
     assert put_guide(client, h, cid, itens=[], tiss_xml="<a/>").status_code == 422  # duas origens
     assert client.put(f"/consultations/{cid}/opme-autorizado", json={}, headers=h).status_code == 422
     # só vale em cirurgia em andamento
-    consulta = client.post("/patients/cen6/consultations", json={"tipo": "consulta"}, headers=h).json()
+    consulta = client.post(
+        "/patients/cen6/consultations", json={"tipo": "consulta", "consentimento": CONSENT}, headers=h
+    ).json()
     assert put_guide(client, h, consulta["id"], itens=[{"codigo": "DEMO-OPME-001"}]).status_code == 409
 
 
@@ -434,7 +437,9 @@ def test_negated_material_does_not_count(client, auth):
 def test_opme_is_editable_in_review_and_server_keeps_authority(client, auth):
     h = auth("medico")
     c = client.post(
-        "/patients/cen4/consultations", json={"tipo": "cirurgia", "especialidade": "cirurgia_geral"}, headers=h
+        "/patients/cen4/consultations",
+        json={"tipo": "cirurgia", "especialidade": "cirurgia_geral", "consentimento": CONSENT},
+        headers=h,
     ).json()
     cid = c["id"]
     dictate(client, h, cid, [(f["falante"], f["texto"]) for f in demo_scripts()["cen4_cirurgia"]["falas"]])
@@ -964,7 +969,9 @@ def test_claim_is_created_on_send_and_not_for_clinic_notes(client, auth, store, 
         Claim.model_validate(store.get(*sent["claim"].split("/")))
     finally:
         cleanup(store, created)
-    consulta = client.post("/patients/cen6/consultations", json={"tipo": "consulta"}, headers=h).json()
+    consulta = client.post(
+        "/patients/cen6/consultations", json={"tipo": "consulta", "consentimento": CONSENT}, headers=h
+    ).json()
     from tests.test_consult import SCRIPT, say
 
     say(client, h, consulta["id"], SCRIPT)

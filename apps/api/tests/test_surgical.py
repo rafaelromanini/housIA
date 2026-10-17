@@ -17,6 +17,7 @@ from app.consult import surgical
 from app.consult.knowledge import SPECIALTIES, demo_scripts, prophylaxis
 from app.consult.schemas import Segment
 from app.consult.templates import BaseTemplate, ProcedureTemplate, problems, surgical_templates
+from tests.conftest import CONSENT
 
 SURGICAL_SPECIALTIES = {
     "ortopedia",
@@ -66,7 +67,9 @@ def _fresh_chart_cache():
 
 def start(client, h, pid="cen4b", especialidade="ortopedia"):
     res = client.post(
-        f"/patients/{pid}/consultations", json={"tipo": "cirurgia", "especialidade": especialidade}, headers=h
+        f"/patients/{pid}/consultations",
+        json={"tipo": "cirurgia", "especialidade": especialidade, "consentimento": CONSENT},
+        headers=h,
     )
     assert res.status_code == 200, res.text
     return res.json()
@@ -383,7 +386,9 @@ def test_who_checklist_by_voice_and_button(client, auth):
     assert check(rep, "sign_in")["status"] == "ok" and check(rep, "sign_out")["status"] == "critico"
     assert client.post(f"/consultations/{c['id']}/checklist", json={"etapa": "outra"}, headers=h).status_code == 422
 
-    consult = client.post("/patients/cen6/consultations", json={"tipo": "consulta"}, headers=h).json()
+    consult = client.post(
+        "/patients/cen6/consultations", json={"tipo": "consulta", "consentimento": CONSENT}, headers=h
+    ).json()
     assert (
         client.post(f"/consultations/{consult['id']}/checklist", json={"etapa": "sign_in"}, headers=h).status_code
         == 409

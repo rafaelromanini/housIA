@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
-from app.consult import antiglosa, knowledge, opme, service, stt
+from app.consult import antiglosa, consentimento, knowledge, opme, service, stt
 from app.consult import ask as copilot
-from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, SegmentsIn, Speaker
+from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
 from app.db.models import User
 from app.db.session import get_db
@@ -29,6 +29,8 @@ def config(_: User = Depends(get_current_user)) -> dict:
         "stt_servidor": stt.enabled(),
         "envio_prontuario": s.ehr_writeback,
         "idiomas": [{"value": k, "label": v} for k, v in LANGUAGE_LABELS.items()],
+        "aviso_consentimento": consentimento.NOTICES,
+        "finalidades": [{"value": k, "label": v} for k, v in consentimento.PURPOSES.items()],
         "especialidades": [
             {"value": k, "label": v, "foco": knowledge.SPECIALTY_FOCUS.get(k, ""), "cirurgica": k in surgical}
             for k, v in knowledge.SPECIALTIES.items()
@@ -112,6 +114,35 @@ def add_segments(
 ) -> dict:
     """Recebe falas transcritas e devolve os Smart Apps atualizados na hora (camada de regras)."""
     return service.append_segments(db, fhir, user, cid, body.segmentos)
+
+
+@router.patch("/consultations/{cid}/segments/{n}")
+def edit_segment(
+    cid: int,
+    n: int,
+    body: SegmentEdit,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Corrige o texto e/ou o falante de uma fala: as regras rodam de novo e a nota existente fica desatualizada."""
+    return service.edit_segment(db, fhir, user, cid, n, body)
+
+
+class MarkerIn(BaseModel):
+    tipo: Marker
+
+
+@router.post("/consultations/{cid}/marker")
+def marker(
+    cid: int,
+    body: MarkerIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Pausa de privacidade, retomada ou revogação do consentimento: vira um marco na transcrição (não é fala)."""
+    return service.add_marker(db, fhir, user, cid, body.tipo)
 
 
 class ChecklistIn(BaseModel):
@@ -315,10 +346,17 @@ def translate(
 
 @router.post("/consultations/{cid}/finish")
 def finish(
-    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+    cid: int,
+    body: FinishIn | None = Body(None),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
 ) -> dict:
-    """Encerra a captura e gera a nota (ou o relatório cirúrgico) para revisão."""
-    return service.finish(db, fhir, user, cid)
+    """Encerra a captura e gera a nota (ou o relatório cirúrgico) para revisão.
+
+    O corpo opcional traz as falas que ainda estavam na fila de captura: entram de forma atômica antes da nota.
+    """
+    return service.finish(db, fhir, user, cid, body)
 
 
 @router.put("/consultations/{cid}/note")

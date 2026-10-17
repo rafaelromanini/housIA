@@ -23,6 +23,14 @@ ANCHOR = datetime.combine(date.today(), time(15, 0), tzinfo=ZoneInfo("America/Sa
 clock.freeze(ANCHOR + timedelta(minutes=1))
 
 
+# Consentimento completo do paciente (#13): toda consulta criada pela API precisa de um (ou de uma recusa)
+CONSENT = {
+    "quem": "paciente",
+    "finalidades": {"transcricao": True, "ia_externa": True, "traducao": True, "emocoes": True},
+    "recusou": False,
+}
+
+
 @pytest.fixture(scope="session")
 def store() -> LocalFhirStore:
     return LocalFhirStore.from_resources(build_demo_resources(anchor=ANCHOR))

@@ -46,6 +46,9 @@ const ACTION_LABEL: Record<string, string> = {
   "jornada.contato_registrado": "Contato pós-alta registrado",
   "consulta.iniciada": "Consulta iniciada",
   "consulta.visualizada": "Consulta visualizada",
+  "consulta.consentimento": "Consentimento do paciente registrado (por finalidade)",
+  "consulta.marco_privacidade": "Marco de privacidade (pausa, retomada ou revogação)",
+  "consulta.fala_editada": "Fala da transcrição corrigida (o texto não vai para o registro)",
   "consulta.audio": "Áudio transcrito (o áudio não é guardado)",
   "consulta.analise_ia": "Análise da consulta pela IA",
   "consulta.traducao": "Falas traduzidas",
@@ -140,6 +143,12 @@ function summarize(e: AuditEntry): string {
       return `${p.canal} · ${p.atendeu ? "atendeu" : "sem sucesso"}${(p.alarmes as string[] | undefined)?.length ? ` · alarme: ${(p.alarmes as string[]).join(", ")}` : ""}`;
     case "consulta.finalizada":
       return `${p.falas} fala(s) · ${p.modo} · ${Math.round(Number(p.duracao_s ?? 0) / 60)} min`;
+    case "consulta.consentimento":
+      return p.recusou ? "Recusou a IA (consulta só com as regras)" : `Consentiu: ${p.quem}`;
+    case "consulta.marco_privacidade":
+      return `${p.marco} · fala ${p.n}`;
+    case "consulta.fala_editada":
+      return `fala ${p.n} · ${(p.campos as string[] | undefined)?.join(" e ") ?? ""}${p.nota_desatualizada ? " · nota desatualizada" : ""}`;
     case "consulta.nota_revisada":
       return `${p.editado_pct ?? 0}% do texto editado (${p.palavras_alteradas ?? 0} palavra(s))`;
     case "consulta.enviada":

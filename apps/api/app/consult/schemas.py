@@ -16,7 +16,8 @@ Origin = Literal["regra", "ia"]
 Confidence = Literal["baixa", "media", "alta"]
 Priority = Literal["alta", "media", "baixa"]
 ConsultKind = Literal["consulta", "visita", "cirurgia"]
-CaptureSource = Literal["microfone", "servidor", "digitado", "demo"]
+CaptureSource = Literal["microfone", "servidor", "digitado", "demo", "marco"]  # marco: pausa/retomada/revogação
+Marker = Literal["pausa", "retomada", "revogado"]
 Language = Literal["pt-BR", "es", "en", "fr", "it", "de", "zh", "ar", "ht"]
 
 LANGUAGE_LABELS: dict[str, str] = {
@@ -48,6 +49,19 @@ class Segment(BaseModel):
     origem: CaptureSource = "digitado"
     relevancia: Literal["clinica", "social", "administrativa"] | None = None  # None: ainda não classificada
     relevancia_origem: Literal["regra", "ia"] = "regra"
+    # edição pelo profissional (#2): o texto e o falante originais ficam guardados; o selo "editada" vem de editado_em
+    texto_original: str | None = None
+    falante_original: Speaker | None = None
+    editado_por: str | None = None
+    editado_em: str | None = None
+    marco: Marker | None = None  # só nos marcos de privacidade (origem "marco"): não é fala, as regras e a IA ignoram
+
+
+class SegmentEdit(BaseModel):
+    """Correção de uma fala (texto e/ou quem falou) pelo profissional."""
+
+    texto: str | None = Field(None, min_length=1, max_length=2000)
+    falante: Speaker | None = None
 
 
 class SegmentIn(BaseModel):
@@ -62,10 +76,33 @@ class SegmentsIn(BaseModel):
     segmentos: list[SegmentIn] = Field(..., min_length=1, max_length=50)
 
 
+class FinishIn(BaseModel):
+    """Corpo opcional do /finish: falas que ainda estavam na fila de captura (último resultado do reconhecimento)."""
+
+    segmentos: list[SegmentIn] = Field(default_factory=list, max_length=50)
+
+
+class ConsentPurposes(BaseModel):
+    transcricao: bool
+    ia_externa: bool  # análise, tradução e nota por IA externa (LLM); sem isso só as regras rodam
+    traducao: bool
+    emocoes: bool  # análise multidimensional (emoções)
+
+
+class Consentimento(BaseModel):
+    """Consentimento do paciente para a consulta, por finalidade (vira um Consent FHIR R4)."""
+
+    quem: Literal["paciente", "acompanhante", "responsavel"]
+    related_person_id: str | None = Field(None, max_length=64)
+    finalidades: ConsentPurposes
+    recusou: bool = False
+
+
 class ConsultCreate(BaseModel):
     tipo: ConsultKind = "consulta"
     especialidade: str = "clinica_medica"
     idioma_paciente: Language = "pt-BR"
+    consentimento: Consentimento  # obrigatório: sem registro de consentimento (ou recusa) não há consulta
 
 
 # ---------- Smart Apps ----------

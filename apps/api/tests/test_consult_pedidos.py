@@ -24,6 +24,7 @@ from app.db.models import AuditLog
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
 from app.timeline.record import PatientRecord
+from tests.conftest import CONSENT
 from tests.test_consult import start
 
 
@@ -308,7 +309,9 @@ def test_rascunhos_citam_so_refs_validas_e_o_modo_cirurgico_nao_gera(client, aut
     refs = set(all_refs(ins["pedidos"]))
     assert refs and all(re.match(r"^[A-Z][A-Za-z]+/[\w.-]+$", r) for r in refs)
     surgery = client.post(
-        "/patients/cen4b/consultations", json={"tipo": "cirurgia", "especialidade": "ortopedia"}, headers=h
+        "/patients/cen4b/consultations",
+        json={"tipo": "cirurgia", "especialidade": "ortopedia", "consentimento": CONSENT},
+        headers=h,
     )
     sid = surgery.json()["id"]
     out = say(client, h, sid, ("medico", "Vou pedir hemograma e começar cefazolina 2 g."))
@@ -318,7 +321,9 @@ def test_rascunhos_citam_so_refs_validas_e_o_modo_cirurgico_nao_gera(client, aut
 # ---------- sugestões das regras ----------
 def test_protocolo_pendente_vira_sugestao_de_pedido(client, auth):
     h = auth("medico")
-    created = client.post("/patients/cen7e/consultations", json={"tipo": "consulta"}, headers=h).json()
+    created = client.post(
+        "/patients/cen7e/consultations", json={"tipo": "consulta", "consentimento": CONSENT}, headers=h
+    ).json()
     sugestoes = {d["chave"]: d for d in created["insights"]["pedidos"]}
     hba1c = sugestoes["hba1c"]
     assert hba1c["fonte_pedido"] == "protocolo" and hba1c["acao"] == "solicitar" and hba1c["loinc"] == "4548-4"

@@ -378,6 +378,8 @@ def scheduled_surgery(record: PatientRecord) -> Scheduled | None:
     side = side_of(site or "") or side_of((appointment or {}).get("description", ""))
     consent = None
     for c in record.resources.get("Consent", []):
+        if any(cd.get("code") == "patient-privacy" for cd in (c.get("scope") or {}).get("coding", [])):
+            continue  # consentimento da consulta com IA (#13), não o termo cirúrgico
         linked = [(d.get("reference") or {}).get("reference") for d in (c.get("provision") or {}).get("data", [])]
         if c.get("status") == "active" and (not chosen or not linked or f"ServiceRequest/{chosen['id']}" in linked):
             consent = f"Consent/{c['id']}"

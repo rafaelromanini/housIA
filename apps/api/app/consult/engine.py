@@ -242,6 +242,8 @@ class Engine:
     ):
         self.chart = ChartView(record, events, ctx, now)
         self.r = record
+        self.all_segments = segments  # inclui os marcos de privacidade (#13), que numeram mas não são fala
+        segments = [s for s in segments if s.origem != "marco"]
         self.segments = segments
         self.specialty = specialty
         self.kind = kind
@@ -302,8 +304,8 @@ class Engine:
     def emotions(self) -> tuple[list[Emotion], list[EmotionPoint], CommMetrics]:
         hits: dict[tuple[str, str], list[Segment]] = {}
         timeline: list[EmotionPoint] = []
-        defs = knowledge.emotions()
-        for s in self.patient_segments:
+        defs = [] if self.extra.get("sem_emocoes") else knowledge.emotions()  # emocoes=false no consentimento (#13)
+        for s in self.patient_segments if defs else []:
             # negação vale para emoção ("não estou preocupada") e uma pista anula outra ("não entendi" ≠ confiança)
             found = [
                 d
@@ -1230,7 +1232,7 @@ class Engine:
             return Insights(
                 tipo="cirurgia",
                 especialidade=self.specialty,
-                falas_analisadas=len(self.segments),
+                falas_analisadas=len(self.all_segments),
                 modo="regras",
                 descartados=self.dropped,
                 relatorio_cirurgico=report,
@@ -1270,7 +1272,7 @@ class Engine:
         return Insights(
             tipo=self.kind,
             especialidade=self.specialty,
-            falas_analisadas=len(self.segments),
+            falas_analisadas=len(self.all_segments),
             modo="regras",
             queixas=tags,
             emocoes=emotions,

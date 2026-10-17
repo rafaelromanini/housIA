@@ -10,8 +10,21 @@ from pydantic import BaseModel
 from app.fhir_client import codes
 from app.timeline.record import PatientRecord, coding, med_info, note_text, parse_dt, ref_id
 
-EventKind = Literal["vital", "lab", "med_order", "med_admin", "note", "procedure", "transfer", "diagnosis", "io"]
-KINDS: tuple[str, ...] = ("vital", "lab", "med_order", "med_admin", "note", "procedure", "transfer", "diagnosis", "io")
+EventKind = Literal[
+    "vital", "lab", "med_order", "med_admin", "note", "procedure", "transfer", "diagnosis", "io", "consent"
+]
+KINDS: tuple[str, ...] = (
+    "vital",
+    "lab",
+    "med_order",
+    "med_admin",
+    "note",
+    "procedure",
+    "transfer",
+    "diagnosis",
+    "io",
+    "consent",
+)
 
 
 class ClinicalEvent(BaseModel):
@@ -86,6 +99,7 @@ class TimelineBuilder:
         self._observations()
         self._procedures()
         self._notes()
+        self._consents()
         self.events.sort(key=lambda e: (e.timestamp, e.id))
         return self.events
 
@@ -264,6 +278,31 @@ class TimelineBuilder:
                 text=text,
                 value={"tipo": label, "autor": author},
             )
+
+    def _consents(self) -> None:
+        for d in self.r.resources.get("Consent", []):
+            if not any(cd.get("code") == "patient-privacy" for cd in (d.get("scope") or {}).get("coding", [])):
+                continue  # só o consentimento da consulta com IA; o termo cirúrgico tem a própria checagem
+            self._add(
+                eid=f"Consent/{d['id']}",
+                ts=parse_dt(d.get("dateTime")),
+                kind="consent",
+                summary=_consents_summary(d),
+                source_ref=f"Consent/{d['id']}",
+                value={"status": d.get("status")},
+            )
+
+
+def _consents_summary(d: dict) -> str:
+    """Consentimento da consulta com IA: o que foi autorizado (ou a recusa/revogação), a partir da provision."""
+    status = d.get("status")
+    parts = (d.get("provision") or {}).get("provision") or []
+    allowed = [p["purpose"][0].get("display", "") for p in parts if p.get("type") == "permit" and p.get("purpose")]
+    if status == "inactive":
+        return "Consentimento para a consulta com IA revogado"
+    if status == "rejected" or not allowed:
+        return "Consulta com IA: o paciente recusou o uso de IA (consentimento registrado)"
+    return f"Consentimento para a consulta com IA: {', '.join(a.lower() for a in allowed)}"
 
 
 def build_timeline(record: PatientRecord) -> list[ClinicalEvent]:

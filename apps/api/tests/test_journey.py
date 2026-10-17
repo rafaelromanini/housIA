@@ -15,7 +15,7 @@ from app.fhir_client.client import LocalFhirStore, set_fhir
 from app.journey import metrics, reference
 from app.journey.rules import RULES
 from app.seed.scenarios import build_demo_resources
-from tests.conftest import ANCHOR
+from tests.conftest import ANCHOR, CONSENT
 from tests.test_discharge import RISKY
 from tests.test_surgical import dictate
 
@@ -375,7 +375,9 @@ def test_overdue_aps_protocol_cites_exam_and_booking_resolves(client, auth, jsto
 def test_non_adherence_signal_from_recent_consultation(client, auth, jstore):
     h = auth()
     cid = client.post(
-        "/patients/cen7e/consultations", json={"tipo": "consulta", "especialidade": "clinica_medica"}, headers=h
+        "/patients/cen7e/consultations",
+        json={"tipo": "consulta", "especialidade": "clinica_medica", "consentimento": CONSENT},
+        headers=h,
     ).json()["id"]
     dictate(
         client,

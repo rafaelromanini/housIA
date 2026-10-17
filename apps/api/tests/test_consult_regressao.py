@@ -21,6 +21,7 @@ from app.llm import client as llm_client
 from app.patients.service import load_record
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
+from tests.conftest import CONSENT
 from tests.test_consult import FakeClient
 
 CORPUS = regression_corpus()
@@ -187,7 +188,9 @@ def consult(client, auth):
     h = auth("medico")
 
     def _new(pid: str = "cen6") -> tuple[int, dict]:
-        res = client.post(f"/patients/{pid}/consultations", json={"tipo": "consulta"}, headers=h)
+        res = client.post(
+            f"/patients/{pid}/consultations", json={"tipo": "consulta", "consentimento": CONSENT}, headers=h
+        )
         assert res.status_code == 200, res.text
         return res.json()["id"], h
 

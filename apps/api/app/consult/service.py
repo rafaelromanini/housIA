@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, object_session
 from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, relevancia, stt, summary
+from app.consult import ai, antiglosa, consentimento, gs1, hipoteses, knowledge, opme, relevancia, stt, summary
 from app.consult import ask as copilot
 from app.consult import orders as order_drafts
 from app.consult.edicao import edit_percent
@@ -30,8 +30,10 @@ from app.consult.export import urn as export_urn
 from app.consult.schemas import (
     ConsultCreate,
     ConsultNote,
+    FinishIn,
     Insights,
     Segment,
+    SegmentEdit,
     SegmentIn,
     SurgicalReport,
     fala_ref,
@@ -84,6 +86,8 @@ def _engine(c: Consultation, record, events, ctx, segments: list[Segment]) -> En
     extra = dict(c.extra_json or {})
     if c.kind != "cirurgia":
         extra["medrec_runs"] = _medrec_runs(c)  # só para ler: não é gravado em extra_json
+    if not consentimento.flags(c.extra_json).emocoes:
+        extra["sem_emocoes"] = True  # emocoes=false no consentimento: o engine não calcula emoções
     return Engine(record, events, ctx, segments, c.specialty, c.kind, clock.now(), extra)
 
 
@@ -129,9 +133,16 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
         merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
         ai.reconcile_ai_allergies(engine, merged)
         base = merged
-    result = hipoteses.apply(base, c.extra_json)
+    result = _consent_filter(c, hipoteses.apply(base, c.extra_json))
     summary.mark_new(result, c.insights_json)
     return result
+
+
+def _consent_filter(c: Consultation, ins: Insights) -> Insights:
+    """Sem consentimento para emoções, nada delas sobra: nem o que a IA acrescentou na mescla."""
+    if not consentimento.flags(c.extra_json).emocoes:
+        ins.emocoes, ins.linha_emocional = [], []
+    return ins
 
 
 def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
@@ -146,6 +157,7 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "especialidade": c.specialty,
         "especialidade_rotulo": knowledge.SPECIALTIES.get(c.specialty, c.specialty),
         "idioma_paciente": c.patient_language,
+        "consentimento": consentimento.public((c.extra_json or {}).get("consentimento")),
         "status": c.status,
         "segmentos": [s.model_dump() for s in segments],
         "cobertura": relevancia.coverage(segments, c.note_json) if c.kind != "cirurgia" else None,
@@ -167,10 +179,41 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
 
 
 # ---------- criar / listar ----------
+def _consent_record(fhir: FhirSource, user: User, patient_id: str, record: PatientRecord, body: ConsultCreate) -> dict:
+    """Consentimento por finalidade: valida quem consentiu, monta o Consent R4 e o cria no FHIR com EHR_WRITEBACK."""
+    cons = consentimento.normalize(body.consentimento)
+    who_name = None
+    if cons.quem != "paciente" and cons.related_person_id:
+        related = next((rp for rp in record.related_persons if rp.get("id") == cons.related_person_id), None)
+        if related is None:
+            raise HTTPException(422, "Acompanhante ou responsável não encontrado no prontuário deste paciente.")
+        who_name = ((related.get("name") or [{}])[0]).get("text")
+    when = clock.now().isoformat()
+    resource = consentimento.build_consent(patient_id, cons, who_name, when)
+    ref = None
+    if get_settings().ehr_writeback:
+        resource = fhir.create(resource)
+        ref = f"Consent/{resource['id']}"
+        clear_chart_cache()  # o Consent entra na linha do tempo do paciente
+    return {
+        "quem": cons.quem,
+        "quem_nome": who_name,
+        "related_person_id": cons.related_person_id if cons.quem != "paciente" else None,
+        "finalidades": cons.finalidades.model_dump(),
+        "recusou": cons.recusou,
+        "estado": "ativo",
+        "em": when,
+        "por": user.name,
+        "fhir_ref": ref,
+        "consent": resource,
+    }
+
+
 def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: ConsultCreate) -> dict:
     if body.especialidade not in knowledge.SPECIALTIES:
         raise HTTPException(422, "Especialidade desconhecida")
     record, events, ctx = _chart(fhir, patient_id)
+    consent = _consent_record(fhir, user, patient_id, record, body)
     visits = [
         e
         for e in record.encounters.values()
@@ -182,6 +225,7 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
     ]
     script = next((s for s in scripts if s.get("especialidade") == body.especialidade), scripts[0] if scripts else None)
     extra = {"roteiro": script["id"], "opme_autorizado": script.get("opme_autorizado", [])} if script else {}
+    extra["consentimento"] = consent
     c = Consultation(
         patient_id=patient_id,
         encounter_id=encounter_id,
@@ -204,6 +248,21 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
         "consultation",
         c.id,
         {"patient_id": patient_id, "tipo": c.kind, "especialidade": c.specialty, "idioma": c.patient_language},
+        commit=False,
+    )
+    log_action(
+        db,
+        user,
+        "consulta.consentimento",
+        "consultation",
+        c.id,
+        {
+            "patient_id": patient_id,
+            "quem": consent["quem"],
+            "finalidades": consent["finalidades"],
+            "recusou": consent["recusou"],
+            "fhir_ref": consent["fhir_ref"],
+        },
     )
     return out(c)
 
@@ -233,12 +292,23 @@ def get(db: Session, user: User, cid: int) -> dict:
 
 
 # ---------- falas (tempo real) ----------
-def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: list[SegmentIn]) -> dict:
-    c = _get(db, cid)
-    if c.status != "em_andamento":
-        raise HTTPException(409, "Consulta finalizada: não aceita novas falas.")
-    record, events, ctx = _chart(fhir, c.patient_id)
-    segments = _segments(c)
+def _require_capture(c: Consultation) -> consentimento.Flags:
+    """A captura só segue com o consentimento em vigor e fora da pausa de privacidade."""
+    f = consentimento.flags(c.extra_json)
+    if not f.captura:
+        raise HTTPException(403, "Consentimento revogado: a captura foi encerrada.")
+    if f.pausado:
+        raise HTTPException(409, "Pausa de privacidade ativa: retome a transcrição para continuar.")
+    return f
+
+
+def _require_ai(c: Consultation, what: str, purpose: str = "ia") -> None:
+    if not getattr(consentimento.flags(c.extra_json), purpose):
+        raise HTTPException(403, f"O paciente não autorizou {what}: só as regras do HousIA analisam esta consulta.")
+
+
+def _add_segments(c: Consultation, segments: list[Segment], items: list[SegmentIn]) -> list[Segment]:
+    """Acrescenta as falas (numeração, falante automático, relevância) sem confirmar a transação."""
     elapsed = max(0.0, (clock.now() - c.created_at).total_seconds())
     new: list[Segment] = []
     for item in items:
@@ -249,6 +319,7 @@ def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: 
         if speaker == "desconhecido":
             speaker, auto = infer_speaker(text), True
         language = item.idioma or (c.patient_language if speaker in PATIENT_SIDE else "pt-BR")
+        previous = next((s for s in reversed(segments) if s.origem != "marco"), None)
         seg = Segment(
             n=len(segments) + 1,
             t=item.t if item.t is not None else elapsed,
@@ -256,12 +327,16 @@ def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: 
             falante_auto=auto,
             texto=text,
             idioma=language,
-            origem=item.origem,
-            relevancia=relevancia.classify(text, segments[-1] if segments else None, speaker),
+            origem="digitado" if item.origem == "marco" else item.origem,  # marco só nasce em /marker
+            relevancia=relevancia.classify(text, previous, speaker),
         )
         segments.append(seg)
         new.append(seg)
     c.segments_json = [s.model_dump() for s in segments]
+    return new
+
+
+def _refresh_insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> Insights:
     ins = _insights(c, record, events, ctx, segments)
     c.insights_json = ins.model_dump(mode="json")
     if c.kind == "cirurgia" and ins.relatorio_cirurgico and "prontidao_inicial" not in (c.extra_json or {}):
@@ -269,14 +344,190 @@ def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: 
         c.extra_json = (c.extra_json or {}) | {
             "prontidao_inicial": antiglosa.snapshot(ins.relatorio_cirurgico.prontidao)  # type: ignore[arg-type]
         }
+    return ins
+
+
+def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: list[SegmentIn]) -> dict:
+    c = _get(db, cid)
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: não aceita novas falas.")
+    _require_capture(c)
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    new = _add_segments(c, segments, items)
+    _refresh_insights(c, record, events, ctx, segments)
     db.commit()
     return {"novos": [s.model_dump() for s in new], "insights": c.insights_json, "total": len(segments)}
+
+
+# ---------- transcrição editável (#2) ----------
+NOTE_LABELS = {
+    "queixa_principal": "Queixa principal",
+    "hda": "HDA",
+    "antecedentes": "Antecedentes",
+    "medicacoes": "Medicações",
+    "alergias": "Alergias",
+    "exame_fisico": "Exame físico",
+    "exames_complementares": "Exames complementares",
+    "avaliacao": "Avaliação",
+    "plano": "Plano",
+    "cids": "CIDs",
+    "cronologia": "Cronologia",
+    "pendencias": "Pendências",
+    "orientacoes_paciente": "Orientações ao paciente",
+}
+NOTE_PROVENANCE = {"copiloto", "incluidas", "condicoes_propostas"}  # proveniência, não texto da nota
+
+
+def _cites(node, ref: str) -> bool:
+    if isinstance(node, dict):
+        return any((k == "refs" and ref in v) or _cites(v, ref) for k, v in node.items())
+    if isinstance(node, list):
+        return any(_cites(v, ref) for v in node)
+    return False
+
+
+def sections_citing(note: dict | None, ref: str) -> list[str]:
+    """Seções da nota (ou campos do relatório cirúrgico) que citam a fala."""
+    found: list[str] = []
+    for key, value in (note or {}).items():
+        if key in NOTE_PROVENANCE:
+            continue
+        if key == "relatorio_cirurgico" and isinstance(value, dict):
+            for k2, v2 in value.items():
+                if k2 == "campos" and isinstance(v2, list):
+                    found += [f.get("rotulo") or f.get("campo", "") for f in v2 if _cites(f, ref)]
+                elif _cites(v2, ref):
+                    found.append(k2.replace("_", " ").capitalize())
+        elif _cites(value, ref):
+            found.append(NOTE_LABELS.get(key, key.replace("_", " ").capitalize()))
+    return list(dict.fromkeys(f for f in found if f))
+
+
+def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, body: SegmentEdit) -> dict:
+    """O profissional corrige o texto e/ou o falante de uma fala. As regras rodam de novo sobre a conversa corrigida;
+    se a nota já existe, ela fica marcada como desatualizada com as seções que citam a fala."""
+    c = _get(db, cid)
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário: a transcrição não pode mais ser editada.")
+    if body.texto is None and body.falante is None:
+        raise HTTPException(422, "Informe o texto e/ou o falante da fala.")
+    segments = _segments(c)
+    idx = next((i for i, s in enumerate(segments) if s.n == n), None)
+    if idx is None:
+        raise HTTPException(404, "Fala não encontrada")
+    seg = segments[idx]
+    if seg.origem == "marco":
+        raise HTTPException(409, "Marcos de privacidade não são falas: não podem ser editados.")
+    changed: list[str] = []
+    if body.texto is not None:
+        text = body.texto.strip()
+        if not text:
+            raise HTTPException(422, "O texto da fala não pode ficar vazio.")
+        if text != seg.texto:
+            seg.texto_original = seg.texto_original if seg.texto_original is not None else seg.texto
+            seg.texto, seg.traducao = text, None  # a tradução antiga não vale para o texto novo
+            changed.append("texto")
+    if body.falante is not None and body.falante != seg.falante:
+        seg.falante_original = seg.falante_original or seg.falante
+        seg.falante, seg.falante_auto = body.falante, False
+        seg.idioma = c.patient_language if body.falante in PATIENT_SIDE else "pt-BR"
+        changed.append("falante")
+    if not changed:
+        return out(c)
+    previous = next((s for s in reversed(segments[:idx]) if s.origem != "marco"), None)
+    seg.relevancia, seg.relevancia_origem = relevancia.classify(seg.texto, previous, seg.falante), "regra"
+    now = clock.now().isoformat()
+    seg.editado_por, seg.editado_em = user.name, now
+    c.segments_json = [s.model_dump() for s in segments]
+    record, events, ctx = _chart(fhir, c.patient_id)
+    _refresh_insights(c, record, events, ctx, segments)
+    if c.status == "em_andamento" and c.ai_meta_json:
+        # a análise da IA vale só até a fala anterior à edição: o próximo ciclo reanalisa a conversa corrigida
+        c.ai_meta_json = c.ai_meta_json | {"falas": min(c.ai_meta_json.get("falas", 0), n - 1)}
+    stale = c.note_json is not None
+    if stale:
+        meta = dict(c.note_meta_json or {})
+        before = meta.get("desatualizada") or {}
+        sections = list(dict.fromkeys([*before.get("secoes", []), *sections_citing(c.note_json, fala_ref(n))]))
+        meta["desatualizada"] = {
+            "falas": sorted({*before.get("falas", []), n}),
+            "secoes": sections,
+            "em": now,
+            "por": user.name,
+        }
+        c.note_meta_json = meta
+    # o audit guarda qual fala e quais campos mudaram, nunca o texto (nem o antigo nem o novo)
+    log_action(
+        db,
+        user,
+        "consulta.fala_editada",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "n": n, "campos": changed, "nota_desatualizada": stale},
+    )
+    return out(c)
+
+
+# ---------- marcos de privacidade (#13) ----------
+def add_marker(db: Session, fhir: FhirSource, user: User, cid: int, kind: str) -> dict:
+    """Pausa, retomada ou revogação: entra na transcrição como marco (não é fala) e no audit_log."""
+    c = _get(db, cid)
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: não aceita marcos de privacidade.")
+    cons = dict((c.extra_json or {}).get("consentimento") or {})
+    if not cons:
+        raise HTTPException(409, "Esta consulta não tem consentimento registrado.")
+    estado = cons.get("estado", "ativo")
+    if estado == "revogado":
+        raise HTTPException(409, "Consentimento já revogado: a captura foi encerrada.")
+    if kind == "pausa" and estado == "pausado":
+        raise HTTPException(409, "A transcrição já está em pausa.")
+    if kind == "retomada" and estado != "pausado":
+        raise HTTPException(409, "A transcrição não está em pausa.")
+    segments = _segments(c)
+    now = clock.now()
+    seg = Segment(
+        n=len(segments) + 1,
+        t=max(0.0, (now - c.created_at).total_seconds()),
+        falante="desconhecido",
+        texto=consentimento.MARKER_TEXT[kind],
+        idioma="pt-BR",
+        origem="marco",
+        marco=kind,  # type: ignore[arg-type]
+        relevancia="administrativa",
+    )
+    segments.append(seg)
+    c.segments_json = [s.model_dump() for s in segments]
+    cons["estado"] = consentimento.MARKER_STATE[kind]
+    cons.setdefault("marcos", [])
+    cons["marcos"] = [*cons["marcos"], {"tipo": kind, "n": seg.n, "em": now.isoformat(), "por": user.name}]
+    if kind == "revogado":
+        resource = dict(cons.get("consent") or {}) | {"status": "inactive"}
+        cons["consent"] = resource
+        if cons.get("fhir_ref") and resource.get("id"):
+            fhir.update(resource)
+            clear_chart_cache()
+    c.extra_json = (c.extra_json or {}) | {"consentimento": cons}
+    record, events, ctx = _chart(fhir, c.patient_id)
+    _refresh_insights(c, record, events, ctx, segments)
+    log_action(
+        db,
+        user,
+        "consulta.marco_privacidade",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "marco": kind, "n": seg.n},
+    )
+    return out(c)
 
 
 def transcribe_audio(
     db: Session, fhir: FhirSource, user: User, cid: int, audio: bytes, content_type: str, speaker: str
 ) -> dict:
     c = _get(db, cid)
+    _require_capture(c)
+    _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
     try:
         text = stt.transcribe(audio, content_type, language)
@@ -678,6 +929,7 @@ def _order_resources(c: Consultation, author: str, when: datetime) -> list[dict]
 # ---------- IA (ciclos) ----------
 def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = False) -> dict:
     c = _get(db, cid)
+    _require_ai(c, "a análise por IA externa")
     record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)
     meta = c.ai_meta_json or {}
@@ -729,7 +981,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         "descartados": merged.descartados,
         "saida": saida,
     }
-    final = hipoteses.apply(merged, c.extra_json)
+    final = _consent_filter(c, hipoteses.apply(merged, c.extra_json))
     summary.mark_new(final, c.insights_json)
     c.insights_json = final.model_dump(mode="json")
     log_action(
@@ -751,6 +1003,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
 
 def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int] | None) -> dict:
     c = _get(db, cid)
+    _require_ai(c, "a tradução por IA externa", "traducao")
     if c.patient_language == "pt-BR":
         return {"traducoes": {}}
     record, _, _ = _chart(fhir, c.patient_id)
@@ -758,7 +1011,7 @@ def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int]
     targets = {
         s.n: ("pt-BR" if s.falante in PATIENT_SIDE else c.patient_language)
         for s in segments
-        if (ns is None or s.n in ns) and not s.traducao
+        if (ns is None or s.n in ns) and not s.traducao and s.origem != "marco"
     }
     try:
         done = ai.run_translation(segments, targets, _pseudo(record))
@@ -773,18 +1026,27 @@ def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int]
 
 
 # ---------- nota, revisão e envio ----------
-def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
+def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn | None = None) -> dict:
+    """Encerra e gera a nota. As falas do corpo (a fila de captura que ainda não tinha chegado) entram na mesma
+    transação, antes da nota: se a geração falhar, nada delas fica gravado."""
     c = _get(db, cid)
     record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)
-    if not segments:
+    pending = body.segmentos if body else []
+    if pending:
+        if c.status != "em_andamento":
+            raise HTTPException(409, "Consulta finalizada: não aceita novas falas.")
+        _require_capture(c)
+        _add_segments(c, segments, pending)
+    if not [s for s in segments if s.origem != "marco"]:
         raise HTTPException(422, "A consulta não tem falas transcritas.")
+    rules_only = not consentimento.flags(c.extra_json).ia
     engine = _engine(c, record, events, ctx, segments)
     valid = _valid_refs(record, events, ctx, segments)
     pseudo = _pseudo(record)
     try:
         if c.kind == "cirurgia":
-            merged, result = ai.run_surgical(engine, engine.run(), pseudo, valid)
+            merged, result = ai.run_surgical(engine, engine.run(), pseudo, valid, rules_only)
             c.insights_json = merged.model_dump(mode="json")
             note: dict = {"relatorio_cirurgico": merged.relatorio_cirurgico.model_dump(mode="json")}
             dropped = merged.descartados
@@ -795,15 +1057,18 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
             ins = Insights.model_validate(c.insights_json) if c.insights_json else engine.run()
             if ins.falas_analisadas != len(segments):
                 ins = _insights(c, record, events, ctx, segments)
-            note_model, result, dropped = ai.run_note(engine, ins, pseudo, valid, c.patient_language)
+                c.insights_json = ins.model_dump(mode="json")
+            note_model, result, dropped = ai.run_note(engine, ins, pseudo, valid, c.patient_language, rules_only)
             note = hipoteses.apply_to_note(note_model.model_dump(mode="json"), hipoteses.apply(ins, c.extra_json))
             note = _apply_copilot(note, (c.extra_json or {}).get("copiloto", {}).get("insercoes", []), valid)
     except LLMError as exc:
+        db.rollback()  # as falas do corpo não ficam gravadas sem a nota
         log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc)})
         raise HTTPException(502, str(exc)) from exc
     c.note_json = note
     c.note_meta_json = {
-        "modo": result.mode,
+        "modo": "regras" if rules_only else result.mode,
+        "sem_ia": rules_only,  # paciente recusou a IA externa: nota só das regras, com a marca "sem IA"
         "modelo": result.model,
         "prompt_version": result.prompt_version,
         "gerada_em": clock.now().isoformat(),
@@ -824,7 +1089,9 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
         {
             "patient_id": c.patient_id,
             "falas": len(segments),
-            "modo": result.mode,
+            "falas_no_corpo": len(pending),
+            "modo": "regras" if rules_only else result.mode,
+            "sem_ia": rules_only,
             "itens_descartados": len(dropped),
             "especialidade": c.specialty,
             "tipo": c.kind,
@@ -879,7 +1146,11 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
     c.note_json = note
     if c.kind == "cirurgia":
         _rescore_note(c)
-    c.note_meta_json = (c.note_meta_json or {}) | {"revisada_por": user.name, "revisada_em": clock.now().isoformat()}
+    c.note_meta_json = (c.note_meta_json or {}) | {
+        "revisada_por": user.name,
+        "revisada_em": clock.now().isoformat(),
+        "desatualizada": None,  # a revisão após a edição da transcrição reconcilia a nota
+    }
     pct, changed = edit_percent((c.extra_json or {}).get("nota_original"), note)
     payload = {"patient_id": c.patient_id, "editado_pct": pct, "palavras_alteradas": changed} | (
         {"opme": changes} if changes else {}
@@ -1334,6 +1605,12 @@ def ask(db: Session, fhir: FhirSource, user: User, cid: int, question: str, via:
     else:
         resp = copilot.answer_by_rules(actx)
         result = None
+        if resp is None and not consentimento.flags(c.extra_json).ia:
+            resp = copilot.Resposta(
+                intencao="sem_resposta",
+                aviso="O paciente não autorizou IA externa: respondo só por regra (exames e valores, alergias, o que "
+                "mudou, 'posso usar X?', dose por TFG, interação entre medicamentos e alertas).",
+            )
         if resp is None:
             try:
                 resp, result = copilot.run_ai(actx, pseudo, valid, copilot.rules_tools(actx))

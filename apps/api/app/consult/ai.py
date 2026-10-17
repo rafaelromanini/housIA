@@ -927,7 +927,9 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     }
 
 
-def run_note(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str], language: str):
+def run_note(
+    engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str], language: str, rules_only: bool = False
+):
     variables = {
         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
         "especialidade": SPECIALTIES.get(engine.specialty, engine.specialty),
@@ -948,7 +950,12 @@ def run_note(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[st
         "transcricao": transcript_text(engine.segments, pseudo),
     }
     result = generate_structured(
-        "consult_note", variables, ConsultNote, mock=lambda _v: mock_note(engine, ins, language), effort="medium"
+        "consult_note",
+        variables,
+        ConsultNote,
+        mock=lambda _v: mock_note(engine, ins, language),
+        effort="medium",
+        **({"rules_only": True} if rules_only else {}),  # só a recusa da IA externa muda a chamada
     )
     note = result.output
     v = RefValidator(valid)
@@ -1009,7 +1016,7 @@ def run_translation(segments: list[Segment], targets: dict[int, str], pseudo: Ps
 
 
 # ---------- relatório cirúrgico ----------
-def run_surgical(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str]):
+def run_surgical(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str], rules_only: bool = False):
     report = ins.relatorio_cirurgico
     fields = [f.model_dump(include={"campo", "rotulo", "texto", "refs"}) for f in report.campos]
     result = generate_structured(
@@ -1028,6 +1035,7 @@ def run_surgical(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: se
             "cids": [c.model_dump() for c in report.cids],
         },
         effort="low",
+        **({"rules_only": True} if rules_only else {}),  # só a recusa da IA externa muda a chamada
     )
     by_key = {f.campo: f for f in result.output.campos}
     v = RefValidator(valid)

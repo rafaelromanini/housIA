@@ -128,15 +128,19 @@ def generate_structured[T: BaseModel](
     schema: type[T],
     mock: Callable[[dict[str, Any]], dict[str, Any]],
     effort: str | None = None,
+    rules_only: bool = False,
 ) -> LLMResult:
-    """`effort` sobrescreve LLM_EFFORT (ex.: "low" para as análises em tempo real da consulta)."""
+    """`effort` sobrescreve LLM_EFFORT (ex.: "low" para as análises em tempo real da consulta).
+
+    `rules_only` (paciente recusou a IA externa) nunca chama o LLM: devolve a saída determinística do `mock`.
+    """
     settings = get_settings()
     prompt = load_prompt(prompt_name)
 
-    if settings.llm_mode == "mock":
+    if settings.llm_mode == "mock" or rules_only:
         return LLMResult(
             output=schema.model_validate(mock(variables)),
-            model="mock-deterministico",
+            model="mock-deterministico" if settings.llm_mode == "mock" else "regras-deterministicas",
             prompt_version=prompt.version,
             mode="mock",
         )

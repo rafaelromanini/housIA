@@ -310,6 +310,7 @@ def coverage(segments: list[Segment], note: dict | None) -> dict | None:
     """{"total", "citadas", "percentual", "fora": [...]}: falas clínicas que alguma seção da nota cita × as que não."""
     if not note or "relatorio_cirurgico" in note:
         return None
+    segments = [s for s in segments if s.origem != "marco"]
     cited = cited_falas(note)
     clinical = [s for s in segments if s.relevancia == "clinica" and len(norm(s.texto).split()) >= MIN_WORDS]
     out = [s for s in clinical if s.n not in cited]
