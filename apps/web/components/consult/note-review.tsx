@@ -389,7 +389,9 @@ export function NoteReview({
       await navigator.clipboard.writeText(out.texto);
       setMessage("Texto copiado: cole no prontuário.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Não foi possível copiar");
+      const block = blockedBy(e); // pendência crítica: o mesmo painel de justificativa do envio
+      if (block) setBlocked(block);
+      else setError(e instanceof Error ? e.message : "Não foi possível copiar");
     } finally {
       setBusy(null);
     }
@@ -414,7 +416,9 @@ export function NoteReview({
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Não foi possível exportar");
+      const block = blockedBy(e);
+      if (block) setBlocked(block);
+      else setError(e instanceof Error ? e.message : "Não foi possível exportar");
     } finally {
       setBusy(null);
     }

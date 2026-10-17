@@ -41,7 +41,8 @@ from app.consult.schemas import (
     fala_ref,
 )
 from app.consult.surgical import ORDER_SYSTEM
-from app.consult.text import norm
+from app.consult.text import NEG_WORDS, norm
+from app.consult.text import clauses as text_clauses
 from app.db.models import Alert, Consultation, MedrecRun, User
 from app.fhir_client.client import FhirSource
 from app.llm.client import LLMError
@@ -459,7 +460,7 @@ def apply_insight_action(
         raise HTTPException(409, "Consulta finalizada: os insights não podem mais ser alterados.")
     if action not in acoes.ACTIONS:
         raise HTTPException(422, "Ação inválida.")
-    if action == "descartar" and len(reason.strip()) < acoes.MIN_MOTIVO:
+    if action == "descartar" and len(acoes.efetivo(reason)) < acoes.MIN_MOTIVO:
         raise HTTPException(422, "Para descartar um insight, registre um motivo (mín. 10 caracteres).")
     record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)
@@ -469,6 +470,13 @@ def apply_insight_action(
     kind, item = found
     if action == "feita" and kind != "pergunta":
         raise HTTPException(422, "Só uma pergunta pode ser marcada como feita.")
+    if (
+        action in acoes.HIDING
+        and getattr(item, "severidade", None) == "critico"
+        and len(acoes.efetivo(reason)) < acoes.MIN_MOTIVO
+    ):
+        # alerta crítico some da lista (e da trava de envio) só com motivo: "não se aplica" sem motivo não escapa dela
+        raise HTTPException(422, "Para tirar um alerta crítico da consulta, registre o motivo (mín. 10 caracteres).")
     label = acoes.label_of(kind, item)
     c.insight_actions_json = acoes.record(
         c.insight_actions_json, kind, item, action, reason, user.name, clock.now().isoformat(), label
@@ -1246,6 +1254,15 @@ def _require_review(c: Consultation) -> None:
         )
 
 
+def _allergy_registered(name: str, clauses: list[str]) -> bool:
+    """A nota registra a alergia quando cita o alérgeno numa oração sem negação ("Nega alergia a camarão" não vale)."""
+    for clause in clauses:
+        position = clause.find(name) if name else -1
+        if position >= 0 and not NEG_WORDS & set(clause[:position].split()[-4:]):
+            return True
+    return False
+
+
 def clinical_pending(c: Consultation) -> list[dict]:
     """Pendências críticas de segurança ainda abertas na nota: [{codigo, texto, refs}].
 
@@ -1278,10 +1295,10 @@ def clinical_pending(c: Consultation) -> list[dict]:
     if not c.insights_json:
         return found
     ins = Insights.model_validate(c.insights_json)
-    registered = norm((note.get("alergias") or {}).get("texto", ""))
+    registered = text_clauses((note.get("alergias") or {}).get("texto", ""))
     for al in ins.alergias:
         names = [norm(x) for x in re.split(r"[/,]", al.alergeno) if x.strip()]
-        if al.fonte == "relatado" and not any(n and n in registered for n in names):
+        if al.fonte == "relatado" and not any(_allergy_registered(n, registered) for n in names):
             found.append(
                 {
                     "codigo": "alergia_nao_registrada",
@@ -1301,7 +1318,7 @@ def _gate_clinical(db: Session, user: User, c: Consultation, justification: str 
     if not pending:
         return
     text = (justification or "").strip()
-    if len(text) < MIN_JUSTIFICATION_NOTA:
+    if len(acoes.efetivo(text)) < MIN_JUSTIFICATION_NOTA:
         raise HTTPException(
             409,
             {
@@ -1324,6 +1341,28 @@ def _gate_clinical(db: Session, user: User, c: Consultation, justification: str 
         {"patient_id": c.patient_id, "justificativa": text, "pendencias": codes, "quantidade": len(pending)},
         commit=False,
     )
+
+
+def _gate_clinical_export(c: Consultation) -> None:
+    """Copiar ou baixar a nota é sair dela do mesmo jeito que enviar: a pendência crítica só passa se o envio já foi
+    liberado com justificativa que cobre todas as pendências de agora (a justificativa vem no /send)."""
+    pending = clinical_pending(c)
+    if not pending:
+        return
+    given = (c.extra_json or {}).get("justificativa_pendencias") or {}
+    covered = len(acoes.efetivo(given.get("texto"))) >= MIN_JUSTIFICATION_NOTA and {
+        p["codigo"] for p in pending
+    } <= set(given.get("regras") or [])
+    if not covered:
+        raise HTTPException(
+            409,
+            {
+                "codigo": "pendencia_critica",
+                "mensagem": f"Há {len(pending)} pendência(s) crítica(s) de segurança abertas. Resolva-as ou envie com "
+                "justificativa antes de copiar ou baixar a nota.",
+                "pendencias": pending,
+            },
+        )
 
 
 def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:
@@ -1410,6 +1449,8 @@ def _claim(c: Consultation, record: PatientRecord, report: dict, refs: dict[str,
 def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     """Texto para colar no prontuário + recurso FHIR (e os pedidos propostos), sem enviar nada."""
     c = _get(db, cid)
+    _require_review(c)
+    _gate_clinical_export(c)
     text, doc = _document(db, fhir, user, c)
     log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
     orders = _orders(c, _author(doc), clock.now())

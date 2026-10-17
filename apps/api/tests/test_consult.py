@@ -387,5 +387,11 @@ def test_export_reidentifies_tokens_sent_to_the_llm(client, auth):
     note = client.post(f"/consultations/{cid}/finish", headers=h).json()["nota"]
     note["hda"]["texto"] = "[PACIENTE] veio com a filha ([FAMILIAR]) relatando tontura."
     client.put(f"/consultations/{cid}/note", json=note | {"atestacao": True}, headers=h)
+    # pendência crítica aberta: copiar/baixar só depois do envio justificado
+    assert client.get(f"/consultations/{cid}/export", headers=h).status_code == 409
+    sent = client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco discutido com a paciente"}, headers=h
+    )
+    assert sent.status_code == 200, sent.text
     text = client.get(f"/consultations/{cid}/export", headers=h).json()["texto"]
     assert "Joana Ferreira Lima veio com a filha (Fernanda Lima Duarte)" in text and "[PACIENTE]" not in text

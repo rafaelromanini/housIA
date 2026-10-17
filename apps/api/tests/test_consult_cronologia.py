@@ -144,6 +144,13 @@ def test_llm_error_still_returns_a_rules_note_with_a_notice(client, auth, monkey
     assert notas.unsourced(note) == []
     # a nota é revisável e exportável como qualquer outra
     review(client, h, cid, note | {"orientacoes_paciente": note["orientacoes_paciente"]})
+    # o alerta crítico não aceito continua valendo sem a IA: copiar/baixar pede o envio com justificativa
+    blocked = client.get(f"/consultations/{cid}/export", headers=h)
+    assert blocked.status_code == 409 and detail(blocked)["codigo"] == "pendencia_critica"
+    sent = client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco discutido com a paciente"}, headers=h
+    )
+    assert sent.status_code == 200, sent.text
     assert client.get(f"/consultations/{cid}/export", headers=h).status_code == 200
 
 
@@ -196,6 +203,9 @@ def test_surgical_export_lists_the_pending_items(client, auth):
     h = auth("medico")
     cid, note = surgery_finished(client, h)
     review(client, h, cid, note)
+    assert client.get(f"/consultations/{cid}/export", headers=h).status_code == 409  # campo obrigatório vazio
+    sent = client.post(f"/consultations/{cid}/send", json={"justificativa": "Campos no prontuário físico"}, headers=h)
+    assert sent.status_code == 200, sent.text
     text = client.get(f"/consultations/{cid}/export", headers=h).json()["texto"]
     assert "Pendências:" in text
 
@@ -293,3 +303,27 @@ def test_detail_helper_reads_string_errors():
             return {"detail": "texto simples"}
 
     assert detail(R()) == {"mensagem": "texto simples"}
+
+
+# ======================= verificação: o que a fala citada não sustenta não vira evento =======================
+def test_negated_or_third_party_or_conditional_speech_is_not_an_event():
+    assert events(("medico", "Nao vou pedir exame nenhum hoje")) == []
+    assert events(("medico", "Evite pedir exame sem necessidade"))[0]["tipo"] == "orientacao"
+    assert events(("paciente", "Meu marido começou o diurético ontem")) == []
+    assert events(("paciente", "O doutor me receitou losartana, mas eu não comecei")) == []
+    # "Sr." não encerra a frase: a condicional inteira fica fora dos achados
+    assert not [
+        e for e in events(("medico", "Se o sr. tiver edema, procure o pronto socorro")) if e["tipo"] == "achado"
+    ]
+
+
+def test_new_guards_keep_the_real_decisions():
+    by = {(e["tipo"], e["texto"]) for e in events(("medico", "Sem dor no peito, vou pedir um hemograma"))}
+    assert any(t == "exame" for t, _ in by)
+    assert [e["texto"] for e in events(("paciente", "Comecei a losartana, não tomo mais o outro"))] == [
+        "Iniciou Losartana"
+    ]
+    assert [e["texto"] for e in events(("paciente", "Comecei aquele diurético semana passada."))] == [
+        "Iniciou diurético"
+    ]
+    assert any(e["tipo"] == "achado" for e in events(("medico", "Dra. Ana examinou: abdome flácido e indolor.")))

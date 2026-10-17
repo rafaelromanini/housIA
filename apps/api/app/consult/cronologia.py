@@ -169,8 +169,31 @@ def clock(seconds: float) -> str:
     return f"{int(seconds) // 60:02d}:{int(seconds) % 60:02d}"
 
 
+_ABBREVIATION = re.compile(r"(?<![a-zà-ú])(sr|sra|srta|dr|dra|prof|profa)\.$", re.IGNORECASE)
+CONDITIONAL = re.compile(r"(^|[,;]\s*)(se|caso|quando|talvez)\s")  # "se tiver edema, procure…" não é achado
+THIRD_PARTY = re.compile(
+    r"(?<![a-z])(meu|minha) (marido|esposa|mulher|esposo|pai|mae|filh[oa]|irma[oa]?|avo|avos|vizinh[oa]|amig[oa]|"
+    r"colega|sogr[oa]|neto|neta|tio|tia)(?![a-z])"
+)
+NEGATED_START = re.compile(
+    r"(?<![a-z])(mas|porem|contudo|entretanto|so que|e ainda)\s+(?:\w+\s+){0,2}(nao|nunca|jamais)\s+(?:\w+\s+){0,2}"
+    r"(comec|inici|tom|us)\w*"
+)
+NEGATED_ASK = re.compile(r"(?<![a-z])(nao|nem|sem|nenhum|nenhuma|evit\w*|dispens\w*|desnecessari\w*)(?![a-z])")
+
+
 def sentences(text: str) -> list[str]:
-    return [s.strip() for s in _SENTENCES.split(text.strip()) if s.strip()]
+    """Frases da fala; "Sr." e "Dra." não encerram a frase."""
+    out: list[str] = []
+    for piece in _SENTENCES.split(text.strip()):
+        piece = piece.strip()
+        if not piece:
+            continue
+        if out and _ABBREVIATION.search(out[-1]):
+            out[-1] = f"{out[-1]} {piece}"
+        else:
+            out.append(piece)
+    return out
 
 
 def _trim(text: str, size: int = 200) -> str:
@@ -198,6 +221,8 @@ def findings(segments: list[Segment]) -> list[dict]:
             if is_question(sent):
                 continue
             t = norm(sent)
+            if CONDITIONAL.search(t):
+                continue  # hipótese ("se tiver edema, procure o pronto-socorro") não é achado do exame
             for label, pattern, physical in FINDINGS:
                 if pattern.search(t):
                     out.append({"n": s.n, "t": s.t, "rotulo": label, "texto": _trim(sent), "exame_fisico": physical})
@@ -214,7 +239,11 @@ def _patient_decisions(s: Segment) -> list[tuple[str, str]]:
         for m in PATIENT_DECISION.finditer(t):
             if NEGATION & set(t[: m.start()].split()[-3:]):
                 continue
+            if THIRD_PARTY.search(t[: m.start()]):
+                continue  # "meu marido começou o diurético": o remédio não é do paciente
             rest = t[m.end() :]
+            if NEGATED_START.search(rest):
+                continue  # "o doutor me receitou losartana, mas eu não comecei"
             clause = re.split(r"[.,;:!?]", rest, maxsplit=1)[0]
             terms = [h[3] for h in _drug_hits(clause.strip())] or [
                 label for key, label in CLASS_WORDS.items() if f" {key}" in f" {clause}"
@@ -238,7 +267,9 @@ def _team_events(s: Segment, segments: list[Segment]) -> list[tuple[str, str, st
         if stop:
             for _, _, _, term in _drug_hits(t.strip()):
                 out.append(("medicamento", f"Suspender ou evitar {term}", "suspensao"))
-        if EXAM_ASK.search(t):
+        ask = EXAM_ASK.search(t)
+        clause_start = max(t.rfind(",", 0, ask.start()), t.rfind(";", 0, ask.start())) + 1 if ask else 0
+        if ask and not NEGATED_ASK.search(t[clause_start : ask.end()]):  # "não vou pedir exame nenhum" não é pedido
             out.append(("exame", f"Exame pedido: {_trim(sent, 140)}", "exame"))
         if RETURN.search(t):
             out.append(("retorno", f"Retorno: {_trim(sent, 140)}", "retorno"))

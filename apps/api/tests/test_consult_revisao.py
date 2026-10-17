@@ -348,3 +348,63 @@ def test_draft_stays_comparable_after_export(client, auth):
     assert client.post(f"/consultations/{cid}/send", headers=h).status_code == 200
     diff = client.get(f"/consultations/{cid}/note/diff", headers=h).json()
     assert diff["editado_pct"] == 0.0 and diff["atestacao"] is True  # revisou sem mudar nada: 0% editado, mas atestou
+
+
+# ======================= verificação: saídas que contornariam a trava =======================
+def test_export_is_blocked_by_critical_pending_until_the_send_was_justified(client, auth):
+    h = auth("medico")
+    cid, note = consult_finished(client, h, accept_critical=False)
+    review(client, h, cid, note)
+    blocked = client.get(f"/consultations/{cid}/export", headers=h)  # copiar/baixar também é sair da nota
+    assert blocked.status_code == 409 and detail(blocked)["codigo"] == "pendencia_critica"
+    ok = client.post(f"/consultations/{cid}/send", json={"justificativa": "Risco discutido com a paciente"}, headers=h)
+    assert ok.status_code == 200, ok.text
+    assert client.get(f"/consultations/{cid}/export", headers=h).status_code == 200
+
+
+@pytest.mark.parametrize("invisible", ["​" * 12, "  　 " * 4, "\t\n\r" * 5, "​⁠﻿" * 4])
+def test_invisible_characters_are_not_a_justification(client, auth, invisible):
+    h = auth("medico")
+    cid, note = consult_finished(client, h, accept_critical=False)
+    review(client, h, cid, note)
+    res = client.post(f"/consultations/{cid}/send", json={"justificativa": invisible}, headers=h)
+    assert res.status_code == 409 and detail(res)["codigo"] == "pendencia_critica"
+    assert not audit("consulta.envio_com_pendencia")
+
+
+def test_critical_alert_cannot_be_hidden_without_a_reason(client, auth):
+    """ "Não se aplica" tirava o alerta crítico da lista (e da trava de envio) sem motivo nenhum."""
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(client, h, cid, SCRIPT)
+    critical = [m for m in ins["sugestoes_medicamentos"] if m["severidade"] == "critico"]
+    assert critical
+    for reason in ("", "   ", "curto", "​" * 12):
+        for action in ("nao_se_aplica", "descartar"):
+            res = client.post(
+                f"/consultations/{cid}/insight-actions",
+                json={"item_key": critical[0]["item_key"], "acao": action, "motivo": reason},
+                headers=h,
+            )
+            assert res.status_code == 422, (action, reason, res.text)
+    ok = client.post(
+        f"/consultations/{cid}/insight-actions",
+        json={
+            "item_key": critical[0]["item_key"],
+            "acao": "nao_se_aplica",
+            "motivo": "Paciente não usa mais este fármaco",
+        },
+        headers=h,
+    )
+    assert ok.status_code == 200, ok.text
+
+
+def test_negated_allergy_in_the_note_is_not_a_registration(client, auth):
+    h = auth("medico")
+    cid, note = consult_finished(client, h)
+    denied = json.loads(json.dumps(note))
+    denied["alergias"]["texto"] = "Nega alergia a camarão."
+    review(client, h, cid, denied)
+    blocked = client.post(f"/consultations/{cid}/send", headers=h)
+    assert blocked.status_code == 409
+    assert "alergia_nao_registrada" in [p["codigo"] for p in detail(blocked)["pendencias"]]
