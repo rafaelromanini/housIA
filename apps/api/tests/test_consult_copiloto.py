@@ -323,3 +323,10 @@ def test_validate_descarta_frase_sem_fonte():
     ia_sem_ref = copilot.Frase(texto="d", fonte="KDIGO", origem="ia")
     kept, dropped = copilot.validate([ok, sem_fonte, so_fonte, ia_sem_ref], {"Observation/1"})
     assert [f.texto for f in kept] == ["a", "c"] and {d["texto"] for d in dropped} == {"b", "d"}
+
+
+def test_alergias_nao_repete_criticidade_e_posso_usar_nao_diz_que_foi_dito(cons):
+    client, h, cid = cons
+    assert text_of(ask(client, h, cid, "alergias")).count("criticidade") == 1
+    msg = ask(client, h, cid, "posso usar amoxicilina")
+    assert "disse que vai prescrever" not in text_of(msg)

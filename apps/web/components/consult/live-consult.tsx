@@ -236,7 +236,7 @@ export function LiveConsult({
   useEffect(() => {
     if (surgical) return;
     const down = (e: KeyboardEvent) => {
-      if (e.altKey && e.key.toLowerCase() === "q" && !e.repeat) {
+      if (e.altKey && (e.code === "KeyQ" || e.key.toLowerCase() === "q") && !e.repeat) {
         e.preventDefault();
         pttStart();
       }

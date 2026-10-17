@@ -280,7 +280,7 @@ def intent_alergias(ctx: Ctx) -> Resposta | None:
         Frase(
             texto=f"{a.alergeno}"
             + (f" — {a.reacao}" if a.reacao else "")
-            + f" (criticidade {a.criticidade})"
+            + ("" if "criticidade" in (a.reacao or "") else f" (criticidade {a.criticidade})")
             + ("; relatada na consulta, ainda não registrada" if a.fonte == "relatado" else "")
             + ".",
             refs=a.refs,
@@ -425,7 +425,10 @@ def _evaluate(ctx: Ctx, ing: str, term: str) -> list[MedSuggestion]:
 
 def _clean(m: MedSuggestion) -> Frase:
     refs = [r for r in m.refs if r != HYPOTHETICAL]
-    return Frase(texto=m.texto.replace(PLANNED_SUFFIX, ""), refs=refs, fonte=m.fonte)
+    texto = m.texto.replace(PLANNED_SUFFIX, "").replace(
+        "que o profissional disse que vai prescrever", "perguntado agora"
+    )
+    return Frase(texto=texto, refs=refs, fonte=m.fonte)
 
 
 def intent_posso(ctx: Ctx) -> Resposta | None:
