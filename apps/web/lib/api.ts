@@ -1122,9 +1122,48 @@ export interface ConsultInsights {
   /** itens que o profissional descartou ou marcou como não se aplica */
   ocultos?: number;
 }
+/** Uma frase da seção com a fonte: refs e quem a escreveu (ia, regra ou profissional). */
+export interface NoteSentence {
+  texto: string;
+  refs: string[];
+  origem: "ia" | "regra" | "profissional";
+}
 export interface NoteSection {
   texto: string;
   refs: string[];
+  /** proveniência do texto, frase a frase (o servidor reconcilia com a edição) */
+  frases?: NoteSentence[];
+}
+export type ChronoKind = "queixa" | "negativa" | "achado" | "medicamento" | "exame" | "orientacao" | "retorno" | "emocao";
+export interface ChronoItem {
+  quando: string;
+  texto: string;
+  refs: string[];
+  tipo?: ChronoKind;
+  falante?: string | null;
+}
+/** Diff por seção entre o rascunho da IA (imutável) e a nota atual. */
+export interface NoteDiffSection {
+  secao: string;
+  rotulo: string;
+  pct_editado: number;
+  palavras_alteradas: number;
+  antes: string;
+  depois: string;
+}
+export interface NoteDiff {
+  consulta_id: number;
+  editado_pct: number;
+  palavras_alteradas: number;
+  revisada_por: string | null;
+  revisada_em: string | null;
+  atestacao: boolean;
+  secoes: NoteDiffSection[];
+}
+export interface CidOption {
+  codigo: string;
+  descricao: string;
+  tipo: string;
 }
 /** Seção de um modelo de nota (data/reference/note_templates): rótulo, obrigatoriedade, dica e o LOINC da seção. */
 export interface NoteSectionDef {
@@ -1165,7 +1204,7 @@ export interface ConsultNote {
   avaliacao: NoteSection;
   plano: NoteSection;
   cids: CidSuggestion[];
-  cronologia: { quando: string; texto: string; refs: string[] }[];
+  cronologia: ChronoItem[];
   pendencias: NoteSection[];
   orientacoes_paciente: string[];
   /** propostas de Condition das hipóteses confirmadas ou provisórias (o servidor as mantém) */
@@ -1248,6 +1287,11 @@ export interface Consultation {
     sem_ia?: boolean;
     /** a transcrição foi editada depois da nota: seções que citam as falas editadas */
     desatualizada?: { falas: number[]; secoes: string[]; em: string; por: string } | null;
+    /** "Revisei e assumo a responsabilidade": sem isso o servidor recusa exportar e enviar */
+    atestacao?: boolean;
+    /** nota montada sem a IA ("IA indisponível") */
+    aviso?: string | null;
+    versoes?: { n: number; por: string; em: string; editado_pct: number; atestada: boolean; secoes: Record<string, number> }[];
   } | null;
   fhir_ref: string | null;
   roteiro_demo: string | null;

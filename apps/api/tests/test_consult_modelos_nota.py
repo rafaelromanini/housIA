@@ -18,7 +18,7 @@ from app.llm.client import LLMResult
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
 from tests.conftest import CONSENT
-from tests.test_consult import SCRIPT, say, start
+from tests.test_consult import SCRIPT, accept_critical, say, start
 
 FIXED = set(note_templates.FIXED_SECTIONS)
 
@@ -32,7 +32,7 @@ def _fresh_chart_cache():
 
 def finish(client, h, **body) -> dict:
     cid = start(client, h, **body)["id"]
-    say(client, h, cid, SCRIPT)
+    accept_critical(client, h, cid, say(client, h, cid, SCRIPT))  # sem isso o envio pede justificativa (#15)
     done = client.post(f"/consultations/{cid}/finish", headers=h)
     assert done.status_code == 200, done.text
     return done.json()
@@ -177,11 +177,13 @@ def test_secao_obrigatoria_vazia_impede_a_aprovacao(client, auth):
             s["texto"] = "Caderneta em dia"
         if s["key"] == "dnpm":
             s["texto"] = "Desenvolvimento adequado para a idade"
-    ok = client.put(f"/consultations/{cid}/note", json=nota, headers=h)
+    ok = client.put(f"/consultations/{cid}/note", json=nota | {"atestacao": True}, headers=h)
     assert ok.status_code == 200, ok.text
     saved = {s["key"]: s["texto"] for s in ok.json()["nota"]["secoes"]}
     assert saved["vacinas"] == "Caderneta em dia"
-    exported = client.post(f"/consultations/{cid}/send", headers=h).json()
+    sent = client.post(f"/consultations/{cid}/send", headers=h)
+    assert sent.status_code == 200, sent.text
+    exported = sent.json()
     assert "Vacinação: Caderneta em dia" in exported["texto"] and "Peso:" in exported["texto"]
 
 
@@ -214,7 +216,7 @@ def test_nota_antiga_do_cen6_continua_renderizando(client, auth):
     assert lida["secoes"] == []
     # editar e aprovar a nota antiga funciona (o corpo não traz modelo nem secoes)
     legado["plano"]["texto"] = "Suspender ibuprofeno; retorno em 2 semanas."
-    assert client.put(f"/consultations/{cid}/note", json=legado, headers=h).status_code == 200
+    assert client.put(f"/consultations/{cid}/note", json=legado | {"atestacao": True}, headers=h).status_code == 200
     exp = client.get(f"/consultations/{cid}/export", headers=h).json()
     assert "Queixa principal:" in exp["texto"] and "Plano: Suspender ibuprofeno" in exp["texto"]
     assert exp["recurso"]["type"]["coding"][0]["code"] == "11488-4"
@@ -229,8 +231,10 @@ def loinc_of_export(client, h, **body) -> str:
             s["texto"] = "Preenchido pelo profissional"
     for k in ("queixa_principal", "avaliacao", "plano"):
         nota[k]["texto"] = nota[k]["texto"] or "Registrado"
-    assert client.put(f"/consultations/{cid}/note", json=nota, headers=h).status_code == 200
-    doc = client.post(f"/consultations/{cid}/send", headers=h).json()["recurso"]
+    assert client.put(f"/consultations/{cid}/note", json=nota | {"atestacao": True}, headers=h).status_code == 200
+    sent = client.post(f"/consultations/{cid}/send", headers=h)
+    assert sent.status_code == 200, sent.text
+    doc = sent.json()["recurso"]
     return doc["type"]["coding"][0]["code"]
 
 
@@ -266,7 +270,7 @@ def test_prompt_da_nota_recebe_o_modelo():
     from app.llm.client import load_prompt
 
     p = load_prompt("consult_note")
-    assert p.version == "1.4.0" and "$template" in p.user and "secoes" in p.system
+    assert p.version == "1.5.0" and "$template" in p.user and "secoes" in p.system
 
 
 # ---------- as outras vias continuam enxergando as seções dinâmicas ----------

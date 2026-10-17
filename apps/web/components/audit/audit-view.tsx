@@ -71,6 +71,7 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.nota_revisada": "Nota revisada pelo profissional",
   "consulta.modelo_nota": "Modelo da nota trocado na revisão",
   "consulta.exportada": "Nota exportada (envio automático desligado)",
+  "consulta.envio_com_pendencia": "Nota enviada com pendência crítica justificada",
   "consulta.enviada": "Nota enviada ao prontuário",
   "cirurgia.prontidao": "Prontidão para faturamento verificada",
   "impacto.linha_de_base": "Linha de base de tempo informada (Impacto)",
@@ -155,6 +156,8 @@ function summarize(e: AuditEntry): string {
       return `${p.de ?? "—"} → ${p.para ?? "—"} (v${p.versao ?? "?"})`;
     case "consulta.nota_revisada":
       return `${p.editado_pct ?? 0}% do texto editado (${p.palavras_alteradas ?? 0} palavra(s))`;
+    case "consulta.envio_com_pendencia":
+      return `${p.quantidade ?? 0} pendência(s) crítica(s) justificada(s)`;
     case "consulta.enviada":
     case "consulta.exportada":
       return p.tempo_ate_envio_s == null ? "" : `${Math.round(Number(p.tempo_ate_envio_s) / 60)} min após a finalização`;

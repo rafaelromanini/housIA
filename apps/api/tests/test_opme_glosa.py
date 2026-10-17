@@ -20,6 +20,7 @@ from app.consult.knowledge import demo_scripts
 from app.db import session as db_session
 from app.db.models import AuditLog
 from tests.conftest import CONSENT
+from tests.test_consult import approve
 from tests.test_surgical import dictate, report_of, start
 
 LABEL = "(01)07891234567895(17)271231(10)LOTE123(21)SN1"
@@ -513,6 +514,7 @@ def test_implant_traceability_bundle_discharge_card_and_handoff(client, auth, st
     assert done.status_code == 200, done.text
 
     # exportar (sem enviar): o Bundle de transação traz Device, Procedure.usedReference e o Claim, todos válidos
+    approve(client, h, cid)
     export = client.get(f"/consultations/{cid}/export", headers=h).json()
     bundle = export["bundle"]
     Bundle.model_validate(bundle)
@@ -530,6 +532,7 @@ def test_implant_traceability_bundle_discharge_card_and_handoff(client, auth, st
     monkeypatch.setattr(consult_service.get_settings(), "ehr_writeback", True)
     created: list[str] = []
     try:
+        approve(client, h, cid)
         sent = client.post(f"/consultations/{cid}/send", headers=h)
         assert sent.status_code == 200, sent.text
         sent = sent.json()
@@ -832,14 +835,17 @@ def test_send_with_critical_pending_needs_justification_and_audit_records_it(cli
     ready = done.json()["nota"]["relatorio_cirurgico"]["prontidao"]
     assert ready["criticas"] >= 1 and not ready["pronto"]
 
+    approve(client, h, cid)
     blocked = client.post(f"/consultations/{cid}/send", headers=h)
     assert blocked.status_code == 409
     detail = blocked.json()["detail"]
     assert detail["codigo"] == "prontidao_critica" and detail["pendencias"] and detail["pendencias"][0]["fonte"]
+    approve(client, h, cid)
     short = client.post(f"/consultations/{cid}/send", json={"justificativa": "urgente"}, headers=h)
     assert short.status_code == 409
 
     text = "Cirurgia de urgência: autorização complementar do bisturi ultrassônico solicitada ao convênio."
+    approve(client, h, cid)
     ok = client.post(f"/consultations/{cid}/send", json={"justificativa": text}, headers=h)
     assert ok.status_code == 200, ok.text
     assert ok.json()["bundle"]["resourceType"] == "Bundle"  # EHR_WRITEBACK desligado: exporta
@@ -880,6 +886,7 @@ def test_send_with_critical_pending_needs_justification_and_audit_records_it(cli
     )
     dictate(client, h, cid2, falas)
     assert client.post(f"/consultations/{cid2}/finish", headers=h).status_code == 200
+    approve(client, h, cid2)
     clean = client.post(f"/consultations/{cid2}/send", headers=h)
     assert clean.status_code == 200, clean.text
     envio = [r for r in audit_rows("cirurgia.prontidao") if r["momento"] == "envio"][-1]
@@ -900,9 +907,11 @@ def test_line_justification_bypass_is_audited_with_text_rule_and_send_gate(clien
     assert change["justificativa"] == text and change["regras"] == ["opme_sem_guia"]
 
     # o contorno é real: a pendência crítica "sem guia" some; o que sobrar ainda trava o envio
+    approve(client, h, cid)
     sent = client.post(f"/consultations/{cid}/send", headers=h)
     if sent.status_code == 409:
         assert "opme_sem_guia" not in {p["regra"] for p in sent.json()["detail"]["pendencias"]}
+        approve(client, h, cid)
         sent = client.post(f"/consultations/{cid}/send", json={"justificativa": text}, headers=h)
     assert sent.status_code == 200, sent.text
     envio = [r for r in audit_rows("cirurgia.prontidao") if r["momento"] == "envio"][-1]
@@ -914,6 +923,7 @@ def test_line_justification_bypass_is_audited_with_text_rule_and_send_gate(clien
     assert res.status_code == 200, res.text
     change = next(c for c in audit_rows("consulta.nota_revisada")[-1]["opme"] if c["codigo"] == "DEMO-OPME-009")
     assert change["justificativa"] is None and change["justificativa_anterior"] == text and "regras" not in change
+    approve(client, h, cid)
     again = client.post(f"/consultations/{cid}/send", headers=h)
     assert again.status_code == 409
     assert "opme_sem_guia" in {p["regra"] for p in again.json()["detail"]["pendencias"]}
@@ -927,6 +937,7 @@ def test_claim_draft_validates_as_r4(client, auth, store, monkeypatch):
     dictate(client, h, cid, [(f["falante"], f["texto"]) for f in demo_scripts()["cen4b_artroplastia"]["falas"]])
     client.put(f"/consultations/{cid}/faturamento", json={"numero_guia": "AUT-77"}, headers=h)
     client.post(f"/consultations/{cid}/finish", headers=h)
+    approve(client, h, cid)
     export = client.get(f"/consultations/{cid}/export", headers=h).json()
     claim = next(e["resource"] for e in export["bundle"]["entry"] if e["resource"]["resourceType"] == "Claim")
     model = Claim.model_validate(claim)
@@ -942,6 +953,7 @@ def test_claim_draft_validates_as_r4(client, auth, store, monkeypatch):
     dictate(client, h, cid2, [(f["falante"], f["texto"]) for f in demo_scripts()["cen4b_artroplastia"]["falas"]])
     client.put(f"/consultations/{cid2}/faturamento", json={"convenio": "SUS"}, headers=h)
     client.post(f"/consultations/{cid2}/finish", headers=h)
+    approve(client, h, cid2)
     sus = next(
         e["resource"]
         for e in client.get(f"/consultations/{cid2}/export", headers=h).json()["bundle"]["entry"]
@@ -963,6 +975,7 @@ def test_claim_is_created_on_send_and_not_for_clinic_notes(client, auth, store, 
     client.post(f"/consultations/{cid}/finish", headers=h)
     created: list[str] = []
     try:
+        approve(client, h, cid)
         sent = client.post(f"/consultations/{cid}/send", headers=h).json()
         created = [sent["fhir_ref"], *sent["pedidos"], sent["claim"]]
         assert "dispositivos" not in sent and "procedimento" not in sent  # nenhuma etiqueta lida: sem Device
@@ -976,5 +989,6 @@ def test_claim_is_created_on_send_and_not_for_clinic_notes(client, auth, store, 
 
     say(client, h, consulta["id"], SCRIPT)
     client.post(f"/consultations/{consulta['id']}/finish", headers=h)
+    approve(client, h, consulta["id"])
     exp = client.get(f"/consultations/{consulta['id']}/export", headers=h).json()
     assert "bundle" not in exp
