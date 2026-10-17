@@ -182,6 +182,8 @@ def parse_when(piece: str, now_year: int, birth_year: int) -> When | None:
     if m := AGO.search(piece):
         n = _number(m.group(1))
         years = n if m.group(2).startswith("ano") else max(round(n / 12), 0)
+        if now_year - years < birth_year:  # "há 200 anos": antes de a pessoa nascer não vale
+            return None
         unit = "ano" if m.group(2).startswith("ano") else "mes" if n == 1 else "mes"
         label = f"há {n} {'ano' if n == 1 else 'anos'}" if unit == "ano" else f"há {n} {'mês' if n == 1 else 'meses'}"
         return When(f"{label} (≈ {now_year - years})", now_year - years, now_year - years)
@@ -226,6 +228,8 @@ def _asserted(text: str, span: Span, piece_before: str) -> bool:
     before = clause[:rel_s]
     if HYPOTHETICAL.search(before) or DOUBT.search(before) or listener_question(clause):
         return False
+    # "meu pai tem diabetes e eu tenho asma": quem fala retoma a si mesmo, o parente fica para trás
+    piece_before = re.split(r"\b(?:e|mas|porem) eu\b", piece_before)[-1]
     return not FAMILY.search(piece_before)
 
 
@@ -402,7 +406,12 @@ def _reported_value(m: re.Match, table: dict) -> tuple[knowledge.AnalyteDef, flo
     if fill and not re.search(rf"(?<!\w){VERBS}(?!\w)", between):
         if not set(fill) <= {"total", "do", "da", "no", "na", "ontem", "hoje", "la", "livre", "sangue"}:
             return None
-    return table[m.group("nome")], float(m.group("num").replace(",", "."))
+    value = float(m.group("num").replace(",", "."))
+    analyte = table[m.group("nome")]
+    # valor impossível ("glicemia 0", "colesterol 25000") é erro de fala ou de transcrição, não resultado
+    if value <= 0 or (analyte.high and value > analyte.high * 50):
+        return None
+    return analyte, value
 
 
 def extract_exams(segments: list[Segment], chart: ChartView) -> list[ExamInfo]:

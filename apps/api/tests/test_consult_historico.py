@@ -297,3 +297,21 @@ def test_extract_module_is_pure_on_text_and_does_not_need_ai(record):
     )
     assert [a.cid for a in ex.antecedentes] == ["K29.7"] and ex.antecedentes[0].ano == 2019
     assert [c.procedimento for c in ex.cirurgias] == ["Cirurgia bariátrica"] and ex.cirurgias[0].ano == 2018
+
+
+# ---------- verificação independente: entradas adversariais ----------
+def test_patient_resuming_himself_after_a_relative_keeps_his_own_condition(record):
+    ins = engine_for(record, [("paciente", "Meu pai tem diabetes e eu tenho asma.")], pid="cen1").run()
+    assert [h.cid for h in relatado(ins, "condicao")] == ["J45.9"]
+
+
+def test_time_before_birth_is_dropped_but_the_condition_is_kept(record):
+    ins = engine_for(record, [("paciente", "Tenho hipotireoidismo há 200 anos.")], pid="cen1").run()
+    (item,) = relatado(ins, "condicao")
+    assert item.cid == "E03.9" and item.ano is None and item.inicio_aprox is None
+
+
+@pytest.mark.parametrize("text", ["Meu colesterol deu 25000.", "A glicemia está em 0."])
+def test_impossible_reported_values_are_not_exams(record, text):
+    ins = engine_for(record, [("paciente", text)], pid="cen6").run()
+    assert not [e for e in ins.exames if e.origem_dado.startswith("relatado")]
