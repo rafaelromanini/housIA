@@ -106,7 +106,18 @@ class ConsultCreate(BaseModel):
 
 
 # ---------- Smart Apps ----------
-class Tag(BaseModel):
+class ItemAcionavel(BaseModel):
+    """Campos comuns aos itens que o profissional aceita, descarta ou fixa (#3)."""
+
+    item_key: str = (
+        ""  # sha1(tipo + rótulo normalizado + refs ordenadas): identifica o item entre uma análise e a seguinte
+    )
+    primeira_fala: int = 0  # nº de falas analisadas quando o item apareceu (0 = já estava no prontuário)
+    fixado: bool = False
+    acao: str = ""  # última ação do profissional: aceitar | feita
+
+
+class Tag(ItemAcionavel):
     rotulo: str
     status: Literal["presente", "negado"]
     refs: list[str]
@@ -114,7 +125,7 @@ class Tag(BaseModel):
     detalhe: str = ""  # o que já se sabe da queixa ("3 sem · ao levantar"), vindo da semiologia
 
 
-class Emotion(BaseModel):
+class Emotion(ItemAcionavel):
     emocao: str
     rotulo: str
     quem: Speaker
@@ -139,7 +150,7 @@ class CommMetrics(BaseModel):
     perguntas_fechadas: int
 
 
-class Question(BaseModel):
+class Question(ItemAcionavel):
     pergunta: str
     motivo: str
     prioridade: Priority
@@ -157,7 +168,7 @@ class Evidence(BaseModel):
     refs: list[str]
 
 
-class Hypothesis(BaseModel):
+class Hypothesis(ItemAcionavel):
     hipotese: str
     cid: str
     confianca: Confidence
@@ -236,7 +247,7 @@ class MedItem(BaseModel):
     refs: list[str]
 
 
-class MedSuggestion(BaseModel):
+class MedSuggestion(ItemAcionavel):
     texto: str
     tipo: Literal[
         "ajuste_dose",
@@ -271,7 +282,7 @@ class ProtocolItem(BaseModel):
     refs: list[str]
 
 
-class Highlight(BaseModel):
+class Highlight(ItemAcionavel):
     texto: str
     severidade: Severity
     refs: list[str]
@@ -627,6 +638,8 @@ class Insights(BaseModel):
     tfg: float | None = None
     rcri: Rcri | None = None
     descartados: list[dict] = []
+    regras_ms: int | None = None  # tempo das regras na última fala (chip de latência da tela)
+    ocultos: int = 0  # itens que o profissional descartou ou marcou como não se aplica
 
 
 # ---------- nota final ----------

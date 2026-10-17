@@ -229,7 +229,7 @@ export interface HandoffReport {
 export interface AlertItem {
   id: number;
   patient_id: string;
-  source: "handoff" | "medrec" | "discharge" | "jornada";
+  source: "handoff" | "medrec" | "discharge" | "jornada" | "consulta";
   severity: Severity;
   title: string;
   detail: string;
@@ -623,7 +623,16 @@ export interface NoteCoverage {
   fora: { n: number; ref: string; falante: Speaker; t: number; texto: string }[];
 }
 
-export interface ConsultTag {
+/** campos comuns aos insights que o profissional aceita, descarta ou fixa */
+export interface InsightItem {
+  item_key?: string;
+  /** nº de falas analisadas quando o item apareceu (0 = já estava no prontuário) */
+  primeira_fala?: number;
+  fixado?: boolean;
+  acao?: string;
+}
+export type InsightAction = "aceitar" | "descartar" | "feita" | "nao_se_aplica" | "fixar";
+export interface ConsultTag extends InsightItem {
   rotulo: string;
   status: "presente" | "negado";
   refs: string[];
@@ -631,7 +640,7 @@ export interface ConsultTag {
   /** o que já se sabe da queixa pela semiologia ("3 sem · ao levantar") */
   detalhe?: string;
 }
-export interface ConsultEmotion {
+export interface ConsultEmotion extends InsightItem {
   emocao: string;
   rotulo: string;
   quem: Speaker;
@@ -641,7 +650,7 @@ export interface ConsultEmotion {
   refs: string[];
   origem: Origin;
 }
-export interface ConsultQuestion {
+export interface ConsultQuestion extends InsightItem {
   pergunta: string;
   motivo: string;
   prioridade: Priority;
@@ -661,7 +670,7 @@ export interface Evidence {
   texto: string;
   refs: string[];
 }
-export interface ConsultHypothesis {
+export interface ConsultHypothesis extends InsightItem {
   hipotese: string;
   cid: string;
   confianca: Confidence;
@@ -749,7 +758,7 @@ export interface MedItem {
   observacao: string | null;
   refs: string[];
 }
-export interface MedSuggestion {
+export interface MedSuggestion extends InsightItem {
   texto: string;
   tipo:
     | "ajuste_dose"
@@ -816,7 +825,7 @@ export interface ProtocolItem {
   orientacao: string;
   refs: string[];
 }
-export interface Highlight {
+export interface Highlight extends InsightItem {
   texto: string;
   severidade: Severity;
   refs: string[];
@@ -1108,6 +1117,10 @@ export interface ConsultInsights {
   pedidos?: OrderDraft[];
   tfg: number | null;
   descartados: Record<string, unknown>[];
+  /** tempo das regras na última fala, em ms */
+  regras_ms?: number | null;
+  /** itens que o profissional descartou ou marcou como não se aplica */
+  ocultos?: number;
 }
 export interface NoteSection {
   texto: string;

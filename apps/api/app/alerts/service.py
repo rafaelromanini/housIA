@@ -81,3 +81,29 @@ def upsert_alert(
     if claimed is not None:
         claimed.add(alert.id)
     return alert
+
+
+def consult_alert_facts(db: Session, patient_id: str) -> list:
+    """Alertas críticos da consulta ainda abertos, como fatos duros da passagem de plantão (precisam de fonte FHIR)."""
+    from app.handoff.schemas import Fact
+
+    rows = db.scalars(
+        select(Alert)
+        .where(
+            Alert.patient_id == patient_id,
+            Alert.source == "consulta",
+            Alert.severity == "critico",
+            Alert.status == "aberto",
+        )
+        .order_by(Alert.id)
+    ).all()
+    return [
+        Fact(
+            tipo="alerta_consulta",
+            texto=f"{a.title} ({a.detail})",
+            severidade="critico",
+            refs=list(a.source_refs or []),
+        )
+        for a in rows
+        if a.source_refs
+    ]

@@ -1,5 +1,5 @@
 ---
-version: 1.2.0
+version: 1.3.0
 description: Nota clínica da consulta (anamnese + SOAP + CID-10 + cronologia + orientações), para revisão do profissional
 ---
 # system
@@ -20,6 +20,8 @@ Regras obrigatórias:
 - `avaliacao`: raciocínio com as hipóteses principais; `plano`: condutas discutidas na conversa e
   recomendações de segurança pendentes (ajustes de dose, suspensões, exames, retorno), marcadas como
   "a confirmar" quando não foram combinadas na conversa.
+- `aceitos_pelo_profissional` (nos achados): alertas, perguntas feitas e hipóteses que o profissional aceitou. Inclua
+  cada alerta no `plano`, cada pergunta feita na `hda` e cada hipótese na `avaliacao`, mantendo as `refs` recebidas.
 - `cids`: CID-10 dos diagnósticos (principal/secundários) e das hipóteses, com refs. Use só códigos REAIS da
   CID-10 do DATASUS; o HousIA confere na tabela oficial e descarta o código inexistente.
 - `cronologia`: momentos-chave da consulta em ordem (mm:ss), uma linha cada.

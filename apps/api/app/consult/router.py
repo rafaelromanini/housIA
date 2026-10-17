@@ -215,6 +215,24 @@ class HypothesisDecisionIn(BaseModel):
     motivo: str = Field("", max_length=300)
 
 
+class InsightActionIn(BaseModel):
+    item_key: str = Field(..., min_length=1, max_length=64)
+    acao: Literal["aceitar", "descartar", "feita", "nao_se_aplica", "fixar"]
+    motivo: str = Field("", max_length=500)
+
+
+@router.post("/consultations/{cid}/insight-actions")
+def insight_action(
+    cid: int,
+    body: InsightActionIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Aceitar, descartar (motivo ≥ 10 caracteres), marcar como feita / não se aplica ou fixar um insight."""
+    return service.apply_insight_action(db, fhir, user, cid, body.item_key, body.acao, body.motivo)
+
+
 @router.put("/consultations/{cid}/hipoteses")
 def hypothesis_decision(
     cid: int,

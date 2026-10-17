@@ -16,6 +16,7 @@ import {
   ListChecks,
   MessageCircleQuestion,
   Pill,
+  Pin,
   Scissors,
   Settings2,
   ShieldAlert,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 
 import { reidentify } from "@/components/ai/ai-badge";
+import { ItemActions, NewBadge, isNewItem, type OnInsightAction } from "@/components/consult/insight-actions";
 import { OrdersCard } from "@/components/consult/orders-card";
 import { usePatient } from "@/components/patient/patient-context";
 import { SeverityIcon } from "@/components/severity";
@@ -264,6 +266,7 @@ export function SmartAppsPanel({
   onMainComplaint,
   orders,
   onHypothesisDecision,
+  onInsightAction,
 }: {
   insights: ConsultInsights;
   /** fixa (ou solta, com null) a queixa principal da anamnese; sem ela, a anamnese é só leitura */
@@ -272,6 +275,8 @@ export function SmartAppsPanel({
   orders?: { consultId: number; onInsights: (insights: ConsultInsights) => void };
   /** confirma, deixa provisória, descarta ou limpa a decisão sobre uma hipótese; sem ela, as hipóteses são só leitura */
   onHypothesisDecision?: (cid: string, decisao: HypothesisDecision) => void;
+  /** aceitar, descartar (com motivo), marcar como feita ou fixar um insight; sem ela, os botões não aparecem */
+  onInsightAction?: OnInsightAction;
 }) {
   const { patient } = usePatient();
   const r = (t: string) => reidentify(t, patient.nome);
@@ -307,7 +312,9 @@ export function SmartAppsPanel({
   // uma pergunta sugerida: o texto, o motivo, o que ajuda a decidir, a diretriz de origem e a prioridade
   const questionItem = (q: ConsultInsights["perguntas"][number]) => (
     <li key={q.id ?? q.pergunta} className="rounded-md border bg-background p-2.5">
-      <p className="text-base font-bold leading-snug">“{r(q.pergunta)}”</p>
+      <p className="text-base font-bold leading-snug">
+        {q.fixado && <Pin aria-label="Fixada no topo" className="mr-1 inline size-4 text-primary" />}“{r(q.pergunta)}”
+      </p>
       <p className="mt-0.5 text-sm text-muted-foreground">{r(q.motivo)}</p>
       {q.discrimina && q.discrimina.length > 0 && (
         <p className="mt-0.5 text-xs font-bold text-primary">Ajuda a decidir entre: {q.discrimina.map(r).join(" × ")}</p>
@@ -318,8 +325,10 @@ export function SmartAppsPanel({
           {PRIORITY_LABEL[q.prioridade]}
         </Badge>
         <OriginBadge origem={q.origem} />
+        <NewBadge item={q} falas={ins.falas_analisadas} />
         <SourceRefs patientId={pid} refs={q.refs} label="motivo no prontuário" />
       </div>
+      <ItemActions item={q} label={q.pergunta} actions={["feita", "descartar"]} onAction={onInsightAction} />
     </li>
   );
 
@@ -428,7 +437,7 @@ export function SmartAppsPanel({
         </AppCard>
       )}
 
-      {show("alertas") && ins.alertas.length > 0 && <AlertsCard ins={ins} pid={pid} r={r} />}
+      {show("alertas") && ins.alertas.length > 0 && <AlertsCard ins={ins} pid={pid} r={r} onAction={onInsightAction} />}
 
       {show("lembretes") && (ins.lembretes ?? []).length > 0 && (
         <AppCard
@@ -476,8 +485,11 @@ export function SmartAppsPanel({
                       </span>
                     )}
                     {t.origem === "ia" && <Bot aria-label="sugerido pela IA" className="size-3.5" />}
+                    {t.fixado && <Pin aria-label="Fixada no topo" className="size-3.5" />}
+                    <NewBadge item={t} falas={ins.falas_analisadas} />
                   </span>
                   <SourceRefs patientId={pid} refs={t.refs} />
+                  <ItemActions item={t} label={t.rotulo} actions={["descartar"]} onAction={onInsightAction} />
                 </li>
               ))}
             </ul>
@@ -503,6 +515,8 @@ export function SmartAppsPanel({
                       {e.quem === "acompanhante" ? "acompanhante" : "paciente"} · intensidade {e.intensidade}
                     </span>
                     <OriginBadge origem={e.origem} />
+                    {e.fixado && <Pin aria-label="Fixada no topo" className="size-3.5" />}
+                    <NewBadge item={e} falas={ins.falas_analisadas} />
                   </div>
                   <p className="mt-1 italic">{e.trecho}</p>
                   <p className="mt-1">
@@ -510,6 +524,7 @@ export function SmartAppsPanel({
                     {e.abordagem}
                   </p>
                   <SourceRefs patientId={pid} refs={e.refs} />
+                  <ItemActions item={e} label={e.rotulo} actions={["descartar"]} onAction={onInsightAction} />
                 </li>
               ))}
             </ul>
@@ -638,12 +653,14 @@ export function SmartAppsPanel({
                       confiança {h.confianca}
                     </Badge>
                     <OriginBadge origem={h.origem} />
+                    <NewBadge item={h} falas={ins.falas_analisadas} />
                     {h.decisao && h.decisao !== "pendente" && (
                       <Badge variant={h.decisao === "descartada" ? "outline" : "ok"} className="text-[11px]">
                         {DECISION_LABEL[h.decisao]}
                       </Badge>
                     )}
                   </div>
+                  <ItemActions item={h} label={h.hipotese} actions={["aceitar"]} onAction={onInsightAction} />
                   {onHypothesisDecision && (
                     <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label={`Decisão sobre ${h.hipotese}`}>
                       {(["confirmada", "provisoria", "descartada"] as const).map((d) => (
@@ -1002,21 +1019,39 @@ function ConciliationBadge({ value, exam }: { value: Conciliation; exam?: boolea
 }
 
 /** Alertas: os críticos em destaque; os de atenção recolhidos logo abaixo. */
-function AlertsCard({ ins, pid, r }: { ins: ConsultInsights; pid: string; r: (t: string) => string }) {
+function AlertsCard({
+  ins,
+  pid,
+  r,
+  onAction,
+}: {
+  ins: ConsultInsights;
+  pid: string;
+  r: (t: string) => string;
+  onAction?: OnInsightAction;
+}) {
   const critical = ins.alertas.filter((a) => a.severidade === "critico");
   const attention = ins.alertas.filter((a) => a.severidade === "atencao");
   const source = (texto: string) => ins.sugestoes_medicamentos.find((m) => m.texto === texto)?.fonte;
+  const fresh = critical.filter((a) => isNewItem(a, ins.falas_analisadas));
   return (
     <AppCard title="Alertas de segurança" Icon={ShieldAlert} hint="Regras determinísticas: rodam sempre, antes da IA." count={critical.length + attention.length}>
+      <p role="status" aria-live="polite" className={cn("text-xs font-bold text-critico", fresh.length === 0 && "sr-only")}>
+        {fresh.length > 0 ? `Novo alerta crítico: ${r(fresh[0].texto).split(":")[0]}` : ""}
+      </p>
       {critical.length > 0 && (
         <ul className="space-y-2">
           {critical.map((m) => (
             <li key={m.texto} className="flex gap-2 rounded-md border border-critico-border bg-critico-bg p-2 text-sm">
               <SeverityIcon severity="critico" className="mt-0.5 size-5 shrink-0" />
               <div>
-                <p className="font-bold text-critico">{r(m.texto)}</p>
+                <p className="font-bold text-critico">
+                  {m.fixado && <Pin aria-label="Fixado no topo" className="mr-1 inline size-4" />}
+                  {r(m.texto)} <NewBadge item={m} falas={ins.falas_analisadas} />
+                </p>
                 {source(m.texto) && <p className="text-xs text-muted-foreground">Fonte da regra: {source(m.texto)}</p>}
                 <SourceRefs patientId={pid} refs={m.refs} />
+                <ItemActions item={m} label={m.texto} actions={["aceitar", "nao_se_aplica", "descartar"]} onAction={onAction} />
               </div>
             </li>
           ))}
@@ -1032,8 +1067,9 @@ function AlertsCard({ ins, pid, r }: { ins: ConsultInsights; pid: string; r: (t:
               <li key={m.texto} className="flex gap-2 text-sm">
                 <SeverityIcon severity="atencao" className="mt-0.5 size-4 shrink-0" />
                 <span className="flex-1">
-                  {r(m.texto)} <SourceRefs patientId={pid} refs={m.refs} />
+                  {r(m.texto)} <NewBadge item={m} falas={ins.falas_analisadas} /> <SourceRefs patientId={pid} refs={m.refs} />
                   {source(m.texto) && <span className="block text-xs text-muted-foreground">Fonte da regra: {source(m.texto)}</span>}
+                  <ItemActions item={m} label={m.texto} actions={["aceitar", "nao_se_aplica", "descartar"]} onAction={onAction} />
                 </span>
               </li>
             ))}

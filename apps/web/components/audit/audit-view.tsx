@@ -56,6 +56,7 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.erro_llm": "Erro do LLM na consulta",
   "consulta.queixa_principal": "Queixa principal fixada",
   "consulta.hipotese": "Hipótese decidida (confirmada, provisória ou descartada)",
+  "consulta.insight_acao": "Insight da consulta decidido (aceito, descartado com motivo, feito ou fixado)",
   "consulta.cirurgia_segura": "Lista de cirurgia segura marcada",
   "consulta.opme_guia": "Guia de OPME conferida",
   "consulta.opme_consumo": "Consumo de OPME lido (etiqueta)",
@@ -247,7 +248,7 @@ export function AuditView() {
               value={m.alertas_criticos}
               tone="critico"
               hint={Object.entries(m.alertas_criticos_por_origem)
-                .map(([k, v]) => `${{ handoff: "passagem", medrec: "reconciliação", discharge: "alta" }[k] ?? k}: ${v}`)
+                .map(([k, v]) => `${{ handoff: "passagem", medrec: "reconciliação", discharge: "alta", consulta: "consulta" }[k] ?? k}: ${v}`)
                 .join(" · ") || undefined}
             />
             <StatTile label="Overrides de alta" value={m.overrides} hint="Com justificativa registrada" />
