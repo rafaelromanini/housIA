@@ -28,7 +28,10 @@ LIGHT_WORDS = set(
         "sentindo sentido estou to tou ta estava estive ando andei anda fico fiquei sou foi era e apresento "
         "apresentei notei percebi vai vou vamos precisa precisar preciso precisou quer quero pode posso deve "
         "crise crises sintoma sintomas sinal problema problemas episodio queixa vez vezes ser ter ficar fazer "
-        "ha necessario necessaria necessidade indicacao"
+        "ha necessario necessaria necessidade indicacao "
+        # espanhol e inglês (fala estrangeira sem tradução): auxiliares e artigos que não interrompem a negação
+        "me te se el la los las en mi mis he has tengo tienes tiene tenido tuve tenia siento sentido estoy "
+        "i have had having do does did feel felt any my the an got am im ive"
     ).split()
 )
 # "não vai ter que operar": o "que" de "ter que" não interrompe o alcance; "nada de dor no peito" é negativa

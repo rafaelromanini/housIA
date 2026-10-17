@@ -7,7 +7,7 @@ import { LiveConsult } from "@/components/consult/live-consult";
 import { NoteReview } from "@/components/consult/note-review";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
-import { Transcript, VOICE_LANG, type SegmentPatch } from "@/components/consult/transcript";
+import { Transcript, type SegmentPatch } from "@/components/consult/transcript";
 import { usePatient } from "@/components/patient/patient-context";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +43,12 @@ export function ConsultPage() {
   const [tipo, setTipo] = useState<ConsultKind>(patient.internado ? "visita" : "consulta");
   const [especialidade, setEspecialidade] = useState(user?.role === "enfermagem" ? "enfermagem" : "clinica_medica");
   const [idioma, setIdioma] = useState("pt-BR");
+  // idioma preferido do paciente no cadastro (Patient.communication): pré-seleciona a tradução, o médico pode trocar
+  const preferred = useApi<{ idioma: string; rotulo: string; fonte: string }>(allowed ? `/patients/${patient.id}/consult/idioma` : null);
+  const [langTouched, setLangTouched] = useState(false);
+  useEffect(() => {
+    if (preferred.data && !langTouched) setIdioma(preferred.data.idioma);
+  }, [preferred.data, langTouched]);
   // consentimento (etapa obrigatória antes de Iniciar): quem consentiu, finalidades e recusa
   const companions = useApi<{ id: string; nome: string; parentesco: string }[]>(allowed ? `/patients/${patient.id}/consult/acompanhantes` : null);
   const [quem, setQuem] = useState<"paciente" | "acompanhante" | "responsavel">("paciente");
@@ -114,7 +120,7 @@ export function ConsultPage() {
   const notice = config.data?.aviso_consentimento?.[patientLang] ?? config.data?.aviso_consentimento?.["pt-BR"] ?? "";
   function readAloud() {
     const u = new SpeechSynthesisUtterance(notice);
-    u.lang = VOICE_LANG[patientLang] ?? patientLang;
+    u.lang = config.data?.idiomas.find((i) => i.value === patientLang)?.web_speech ?? patientLang;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
   }
@@ -261,7 +267,12 @@ export function ConsultPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="idioma">Idioma do paciente</Label>
-              <NativeSelect id="idioma" value={idioma} onChange={(e) => setIdioma(e.target.value)} disabled={tipo === "cirurgia"}>
+              <NativeSelect id="idioma" value={idioma} onChange={(e) => {
+                  setLangTouched(true);
+                  setIdioma(e.target.value);
+                }}
+                disabled={tipo === "cirurgia"}
+              >
                 {config.data.idiomas.map((i) => (
                   <option key={i.value} value={i.value}>
                     {i.label}
@@ -275,6 +286,11 @@ export function ConsultPage() {
             {surgicalMode &&
               " O modelo do relatório segue o procedimento ditado ou agendado (ex.: artroplastia de joelho, cesariana); a especialidade vale quando nenhum dos dois é reconhecido."}
           </p>
+          {preferred.data?.fonte && preferred.data.idioma !== "pt-BR" && (
+            <p className="text-sm text-muted-foreground" data-testid="idioma-cadastro">
+              Idioma sugerido pelo cadastro do paciente ({preferred.data.fonte}): {preferred.data.rotulo}.
+            </p>
+          )}
           {idioma !== "pt-BR" && (
             <p className="text-sm text-muted-foreground">
               Tradução simultânea: as falas do paciente aparecem traduzidas para você e as suas, no idioma do paciente (com áudio).

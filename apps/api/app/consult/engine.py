@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import cronologia, extract, knowledge, orders, reminders, semiology, summary
+from app.consult import cronologia, extract, idiomas, knowledge, orders, reminders, semiology, summary
 from app.consult.chart import ChartView, fmt_date
 from app.consult.cid import screen
 from app.consult.schemas import (
@@ -142,8 +142,17 @@ FORGET_WORDS = (
     "esquecendo o remedio",
     "pulo o remedio",
     "tomo quando lembro",
+    # espanhol e inglês (fala ainda sem tradução)
+    "se me olvida",
+    "se me olvido",
+    "me olvido de tomar",
+    "olvide tomar",
+    "i forget to take",
+    "i forgot to take",
+    "i keep forgetting",
+    "i skip my pills",
 )  # sinais de dificuldade de adesão
-STOP_WORDS = ("parei de tomar", "deixei de tomar")
+STOP_WORDS = ("parei de tomar", "deixei de tomar", "deje de tomar", "i stopped taking", "i quit taking")
 CONTEXT_WORDS = ("moro ", "sozinh", "fumo", "cigarro", "bebo", "bebida", "alcool", "caminhada", "trabalho", "aposentad")
 PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
 RELATIVE_ALLERGY = re.compile(
@@ -243,7 +252,7 @@ class Engine:
         self.chart = ChartView(record, events, ctx, now)
         self.r = record
         self.all_segments = segments  # inclui os marcos de privacidade (#13), que numeram mas não são fala
-        segments = [s for s in segments if s.origem != "marco"]
+        segments = [self._for_rules(s) for s in segments if s.origem != "marco"]
         self.segments = segments
         self.specialty = specialty
         self.kind = kind
@@ -255,6 +264,31 @@ class Engine:
         self.dropped: list[dict] = []  # itens recusados pelas regras (ex.: CID que a tabela oficial não aceita)
         self._extraction: extract.Extraction | None = None
         self.rcri: Rcri | None = None
+
+    @staticmethod
+    def _for_rules(s: Segment) -> Segment:
+        """Fala estrangeira: as regras leem a tradução (mantendo a Fala/N); sem tradução, ou com tradução divergente
+        (doses ou medicamentos trocados), leem o original pelos sinônimos de es/en dos CSVs."""
+        if (idiomas.resolver(s.idioma) or s.idioma) == idiomas.PADRAO:
+            return s
+        if s.traducao and not s.traducao_divergente and not idiomas.placeholder(s.traducao):
+            return s.model_copy(update={"texto": s.traducao})
+        return s.model_copy(update={"texto": idiomas.texto_para_regras(s.texto, s.idioma)})
+
+    def translation_alerts(self) -> list[Highlight]:
+        """ "Tradução divergente": números, doses ou medicamentos que não batem entre a fala e a tradução."""
+        return [
+            Highlight(
+                texto=f"Tradução divergente na fala {s.n} ({idiomas.rotulo(s.idioma)}): "
+                + "; ".join(s.traducao_divergente)
+                + ". Confira a fala original.",
+                severidade="atencao",
+                refs=[fala_ref(s.n)],
+                categoria="traducao",
+            )
+            for s in self.all_segments
+            if s.traducao_divergente
+        ]
 
     # ---------- utilidades ----------
     def said(self, words: tuple[str, ...], speakers: tuple[str, ...] | None = None) -> list[Segment]:
@@ -1274,6 +1308,7 @@ class Engine:
         )
         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
         alerts = self.alerts(meds_safety)
+        alerts = sorted([*self.translation_alerts(), *alerts], key=lambda h: SEVERITY[h.severidade])
         return Insights(
             tipo=self.kind,
             especialidade=self.specialty,

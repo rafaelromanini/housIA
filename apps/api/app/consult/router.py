@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
-from app.consult import antiglosa, cid, consentimento, knowledge, opme, service, stt
+from app.consult import antiglosa, cid, consentimento, idiomas, knowledge, opme, service, stt
 from app.consult import ask as copilot
-from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
+from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
 from app.db.models import User
 from app.db.session import get_db
@@ -28,7 +28,7 @@ def config(_: User = Depends(get_current_user)) -> dict:
         "llm_mode": s.llm_mode,
         "stt_servidor": stt.enabled(),
         "envio_prontuario": s.ehr_writeback,
-        "idiomas": [{"value": k, "label": v} for k, v in LANGUAGE_LABELS.items()],
+        "idiomas": idiomas.opcoes(),
         "aviso_consentimento": consentimento.NOTICES,
         "finalidades": [{"value": k, "label": v} for k, v in consentimento.PURPOSES.items()],
         "especialidades": [
@@ -93,6 +93,12 @@ def demo_script(script_id: str, _: User = Depends(clinician)) -> dict:
 def companions(patient_id: str, fhir: FhirSource = Depends(get_fhir), _: User = Depends(clinician)) -> list[dict]:
     """RelatedPerson do paciente (quem pode consentir como acompanhante ou responsável)."""
     return service.companions(fhir, patient_id)
+
+
+@router.get("/patients/{patient_id}/consult/idioma")
+def patient_language(patient_id: str, fhir: FhirSource = Depends(get_fhir), _: User = Depends(clinician)) -> dict:
+    """Idioma preferido em Patient.communication, para a tela pré-selecionar o idioma do paciente."""
+    return service.idioma_paciente(fhir, patient_id)
 
 
 @router.post("/patients/{patient_id}/consultations")

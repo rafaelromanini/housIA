@@ -153,3 +153,15 @@ aprovada pelo profissional.
    (`PATCH /consultations/{id}/segments/{n}`): as regras rodam de novo, o original fica guardado, o audit registra só o
    número da fala e os campos, e a nota já gerada fica `desatualizada` com as seções que citam a fala. O `/finish` aceita
    as falas ainda na fila de captura, anexadas na mesma transação.
+
+13. **Tradução e idiomas (≥ 95).** O idioma deixou de ser um `Literal`: vale qualquer código de
+   `data/reference/languages.csv` (BCP-47, com rótulo e os códigos da Web Speech e do Whisper; `pt`/`es-MX` são
+   normalizados). Sem idioma no corpo, a consulta nasce com o `Patient.communication` (preferred) do FHIR. Cada fala
+   guarda o próprio `idioma` (chip editável, `PATCH` aceita `idioma`). O motor lê fala estrangeira pela `traducao`
+   (a `Fala/N` não muda); sem tradução, ou com tradução divergente, lê o original pelos sinônimos de es/en dos CSVs, com
+   a negação estrangeira levada ao "não" só nessas falas (em português "no" é "em o"). A fidelidade é conferida por
+   regra, sem LLM (`consult/fidelidade.py`): números, unidades, doses e medicamentos de `drugs.csv` entre original e
+   tradução; divergência vira o alerta "Tradução divergente" e tira a tradução das regras. No modo mock a tradução vem
+   das gravações dos roteiros (`traducao` em `data/consultations/*.json`, ex.: `cen_hispanica`); fala sem gravação
+   recebe o aviso do mock, que as regras ignoram. A nota exportada e a `DocumentReference` registram "Consulta com
+   interpretação por IA (es→pt-BR)"; as orientações da alta aceitam os mesmos idiomas (pt-BR no mock).

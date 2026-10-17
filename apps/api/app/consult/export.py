@@ -6,7 +6,7 @@ import base64
 import uuid
 from datetime import datetime
 
-from app.consult.schemas import LANGUAGE_LABELS
+from app.consult import idiomas
 from app.fhir_client import codes
 
 BUNDLE_NS = uuid.UUID("5b3f0c4e-9a1d-4c1e-8a57-2f0d7c0b6a11")
@@ -38,9 +38,13 @@ def note_as_text(
     note: dict,
     language: str,
     orders: list | None = None,
+    interpretacao: str | None = None,
 ) -> str:
     title = KIND_TITLE.get(kind, "Nota clínica")
-    lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}", ""]
+    lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}"]
+    if interpretacao:
+        lines.append(interpretacao)  # ex.: "Consulta com interpretação por IA (es→pt-BR)"
+    lines.append("")
     if kind == "cirurgia":
         report = note.get("relatorio_cirurgico", note)
         for f in report.get("campos", []):
@@ -80,7 +84,7 @@ def note_as_text(
             lines += ["", "Pendências:"]
             lines += [f"- {p['texto']}" for p in note["pendencias"]]
         if note.get("orientacoes_paciente"):
-            lines += ["", f"Orientações ao paciente ({LANGUAGE_LABELS.get(language, language)}):"]
+            lines += ["", f"Orientações ao paciente ({idiomas.rotulo(language)}):"]
             lines += [f"- {o}" for o in note["orientacoes_paciente"]]
     if orders:
         lines += ["", "Pedidos e prescrições assinados (rascunhos, ainda sem emissão):"]
@@ -111,6 +115,7 @@ def document_reference(
     when: datetime,
     text: str,
     consultation_id: int,
+    interpretacao: str | None = None,
     approved: bool = True,
 ) -> dict:
     """DocumentReference da nota. `docStatus` é "preliminary" até a aprovação (revisão + atestação), depois "final"."""
@@ -125,7 +130,7 @@ def document_reference(
         "subject": {"reference": f"Patient/{patient_id}", "display": patient_name},
         "date": when.isoformat(),
         "author": [{"display": author}],
-        "description": label,
+        "description": f"{label} — {interpretacao}" if interpretacao else label,
         "content": [
             {
                 "attachment": {

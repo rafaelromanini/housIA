@@ -11,6 +11,7 @@ from app import clock
 from app.alerts.service import upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
+from app.consult import idiomas
 from app.db.models import Alert, DischargeAssessment, DischargeDocument, DischargeOverride, User
 from app.discharge.documents import DischargeDocsOutput, home_meds, mock_documents
 from app.discharge.scoring import SocialChecklist, final_risk, lace, lace_band, social_band, social_score
@@ -365,7 +366,7 @@ def generate_documents(db: Session, fhir: FhirSource, user: User, patient_id: st
             if assessment
             else "sem avaliação de alta registrada",
         }
-    ) | {"idioma": language}
+    ) | {"idioma": f"{idiomas.rotulo(language)} ({language})"}
     result = generate_structured(
         "discharge_docs",
         variables,

@@ -544,6 +544,25 @@ def demo_scripts() -> dict[str, dict]:
 
 
 @lru_cache
+def recorded_translations() -> tuple[tuple[str, str, str, str], ...]:
+    """Traduções pré-gravadas dos roteiros (fala `traducao` + `idioma`), que o modo mock usa no lugar do LLM.
+
+    Linhas (fala, idioma de destino, tradução). Fala em outro idioma traduz para pt-BR; fala em pt-BR do
+    profissional traduz para o `idioma_paciente` do roteiro. Ficam no texto original: quem usa pseudonimiza.
+    """
+    out: list[tuple[str, str, str, str]] = []
+    for script in demo_scripts().values():
+        patient_lang = script.get("idioma_paciente", "pt-BR")
+        for f in script["falas"]:
+            if f.get("traducao"):
+                src = f.get("idioma", "pt-BR")
+                out.append(
+                    (script["patient_id"], f["texto"], "pt-BR" if src != "pt-BR" else patient_lang, f["traducao"])
+                )
+    return tuple(out)
+
+
+@lru_cache
 def regression_corpus() -> dict:
     """Corpus de regressão das regras (data/consultations/regressao_falas.json)."""
     with open(get_settings().data_dir / "consultations" / "regressao_falas.json", encoding="utf-8") as fh:

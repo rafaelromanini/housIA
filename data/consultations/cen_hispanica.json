@@ -1,0 +1,106 @@
+{
+ "patient_id": "cen8",
+ "tipo": "consulta",
+ "especialidade": "clinica_medica",
+ "idioma_paciente": "es",
+ "titulo": "Dor no peito em paciente hispanofalante (tradução simultânea es↔pt-BR, traduções pré-gravadas para o modo mock)",
+ "falas": [
+  {
+   "t": 0.0,
+   "falante": "medico",
+   "idioma": "pt-BR",
+   "texto": "Bom dia, dona Carmen! Que bom ver a senhora. O Luis veio junto hoje.",
+   "traducao": "¡Buenos días, doña Carmen! Qué bueno verla. Luis vino con usted hoy."
+  },
+  {
+   "t": 5.5,
+   "falante": "paciente",
+   "idioma": "es",
+   "texto": "Buenos días, doctora. Me duele el pecho desde ayer.",
+   "traducao": "Bom dia, doutora. Estou com dor no peito desde ontem."
+  },
+  {
+   "t": 11.0,
+   "falante": "medico",
+   "idioma": "pt-BR",
+   "texto": "Me conta dessa dor no peito. Ela vem quando a senhora caminha ou também em repouso?",
+   "traducao": "Cuénteme de ese dolor en el pecho. ¿Viene cuando camina o también en reposo?"
+  },
+  {
+   "t": 16.5,
+   "falante": "paciente",
+   "idioma": "es",
+   "texto": "Es como una presión. Aparece cuando subo las escaleras y se me pasa cuando descanso un poco.",
+   "traducao": "É como uma pressão. Aparece quando eu subo as escadas e passa quando eu descanso um pouco."
+  },
+  {
+   "t": 22.0,
+   "falante": "acompanhante",
+   "idioma": "pt-BR",
+   "texto": "Ela quase não dormiu essa noite, doutora, ficou muito preocupada."
+  },
+  {
+   "t": 27.5,
+   "falante": "medico",
+   "idioma": "pt-BR",
+   "texto": "Entendi. A senhora sentiu falta de ar ou suor frio junto com a dor?",
+   "traducao": "Entendí. ¿Sintió falta de aire o sudor frío junto con el dolor?"
+  },
+  {
+   "t": 33.0,
+   "falante": "paciente",
+   "idioma": "es",
+   "texto": "No tengo falta de aire, pero sí sudor frío cuando me aparece el dolor.",
+   "traducao": "Não tenho falta de ar, mas tenho suor frio quando a dor aparece."
+  },
+  {
+   "t": 38.5,
+   "falante": "medico",
+   "idioma": "pt-BR",
+   "texto": "E os remédios da pressão e do diabetes, como a senhora toma?",
+   "traducao": "¿Y los remedios de la presión y de la diabetes, cómo los toma?"
+  },
+  {
+   "t": 44.0,
+   "falante": "paciente",
+   "idioma": "es",
+   "texto": "Tomo losartán de 50 mg dos veces al día, pero a veces se me olvida la pastilla de la noche.",
+   "traducao": "Tomo losartana de 50 mg duas vezes ao dia, mas às vezes esqueço o comprimido da noite."
+  },
+  {
+   "t": 49.5,
+   "falante": "paciente",
+   "idioma": "es",
+   "texto": "La metformina de 500 mg la tomo con el almuerzo y la cena.",
+   "traducao": "A metformina de 500 mg eu tomo no almoço e no jantar."
+  },
+  {
+   "t": 55.0,
+   "falante": "medico",
+   "idioma": "pt-BR",
+   "texto": "Hoje a sua pressão está 152 por 94, um pouco alta. Vamos pedir um eletrocardiograma agora.",
+   "traducao": "Hoy su presión está en 152 por 94, un poco alta. Vamos a pedir un electrocardiograma ahora."
+  },
+  {
+   "t": 60.5,
+   "falante": "paciente",
+   "idioma": "es",
+   "texto": "Tengo miedo, doctora. Mi papá murió del corazón.",
+   "traducao": "Estou com medo, doutora. Meu pai morreu do coração."
+  },
+  {
+   "t": 66.0,
+   "falante": "medico",
+   "idioma": "pt-BR",
+   "texto": "Eu entendo o seu medo. Vamos investigar com calma e a senhora não fica sozinha nisso.",
+   "traducao": "Entiendo su miedo. Vamos a investigar con calma y usted no está sola en esto."
+  },
+  {
+   "t": 71.5,
+   "falante": "paciente",
+   "idioma": "es",
+   "texto": "Gracias, doctora. Me siento más tranquila.",
+   "traducao": "Obrigada, doutora. Estou mais tranquila."
+  }
+ ]
+}

@@ -5,9 +5,11 @@ com `origem="regra"` vêm da camada determinística; `origem="ia"` vêm do LLM (
 conferidos pelo profissional.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from app.consult import idiomas
 
 # falas gravadas antes da equipe cirúrgica (só médico/paciente/acompanhante) continuam válidas
 Speaker = Literal["medico", "paciente", "acompanhante", "anestesista", "circulante", "instrumentador", "desconhecido"]
@@ -18,19 +20,8 @@ Priority = Literal["alta", "media", "baixa"]
 ConsultKind = Literal["consulta", "visita", "cirurgia"]
 CaptureSource = Literal["microfone", "servidor", "digitado", "demo", "marco"]  # marco: pausa/retomada/revogação
 Marker = Literal["pausa", "retomada", "revogado"]
-Language = Literal["pt-BR", "es", "en", "fr", "it", "de", "zh", "ar", "ht"]
-
-LANGUAGE_LABELS: dict[str, str] = {
-    "pt-BR": "Português",
-    "es": "Español",
-    "en": "English",
-    "fr": "Français",
-    "it": "Italiano",
-    "de": "Deutsch",
-    "zh": "中文",
-    "ar": "العربية",
-    "ht": "Kreyòl ayisyen",
-}
+# qualquer código de data/reference/languages.csv (≥ 95 idiomas, BCP-47); "pt", "es-MX"… são normalizados
+Language = Annotated[str, AfterValidator(idiomas.validar)]
 
 
 def fala_ref(n: int) -> str:
@@ -46,6 +37,9 @@ class Segment(BaseModel):
     texto: str
     idioma: str = "pt-BR"
     traducao: str | None = None
+    traducao_divergente: list[str] = Field(
+        default_factory=list, description="diferenças de números, doses e medicamentos entre a fala e a tradução"
+    )
     origem: CaptureSource = "digitado"
     relevancia: Literal["clinica", "social", "administrativa"] | None = None  # None: ainda não classificada
     relevancia_origem: Literal["regra", "ia"] = "regra"
@@ -62,13 +56,14 @@ class SegmentEdit(BaseModel):
 
     texto: str | None = Field(None, min_length=1, max_length=2000)
     falante: Speaker | None = None
+    idioma: Language | None = None  # idioma em que a fala foi dita (chip de cada fala)
 
 
 class SegmentIn(BaseModel):
     falante: Speaker = "desconhecido"
     texto: str = Field(..., min_length=1, max_length=2000)
     t: float | None = None
-    idioma: str | None = None
+    idioma: Annotated[str, AfterValidator(idiomas.validar)] | None = None
     origem: CaptureSource = "digitado"
 
 
@@ -101,7 +96,7 @@ class Consentimento(BaseModel):
 class ConsultCreate(BaseModel):
     tipo: ConsultKind = "consulta"
     especialidade: str = "clinica_medica"
-    idioma_paciente: Language = "pt-BR"
+    idioma_paciente: Language | None = None  # sem idioma: vale o Patient.communication (ou pt-BR)
     consentimento: Consentimento  # obrigatório: sem registro de consentimento (ou recusa) não há consulta
 
 

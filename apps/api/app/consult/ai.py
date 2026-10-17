@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult import acoes, cronologia, notas
+from app.consult import acoes, cronologia, idiomas, notas
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -22,12 +22,12 @@ from app.consult.knowledge import (
     allergy_defs,
     anamnesis_question_ids,
     emotions,
+    recorded_translations,
     semiology,
     semiology_questions,
 )
 from app.consult.orders import parse_posology
 from app.consult.schemas import (
-    LANGUAGE_LABELS,
     AllergyInfo,
     Anamnese,
     CampoEspecialidade,
@@ -867,7 +867,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     if any(m.tipo == "suspender" for m in plan):
         tips.append("Alguns remédios podem ser trocados ou suspensos: siga a receita nova que a equipe vai entregar.")
     if language != "pt-BR":
-        tips.insert(0, f"[Tradução para {LANGUAGE_LABELS.get(language, language)} disponível com o LLM real.]")
+        tips.insert(0, f"[Tradução para {idiomas.rotulo(language)} disponível com o LLM real.]")
     no_record = "Sem registro na consulta."
 
     def section(items: list[tuple[str, list[str]]], fallback: str = no_record) -> dict:
@@ -976,7 +976,7 @@ def run_note(
     variables = {
         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
         "especialidade": SPECIALTIES.get(engine.specialty, engine.specialty),
-        "idioma": LANGUAGE_LABELS.get(language, language),
+        "idioma": idiomas.rotulo(language),
         "prontuario": pseudo.apply(chart_payload(engine)),
         "achados": pseudo.apply(
             {
@@ -1051,7 +1051,8 @@ def run_translation(segments: list[Segment], targets: dict[int, str], pseudo: Ps
         {
             "n": s.n,
             "de": s.idioma,
-            "para": LANGUAGE_LABELS.get(targets[s.n], targets[s.n]),
+            "para": idiomas.rotulo(targets[s.n]),
+            "codigo_para": targets[s.n],
             "texto": pseudo.text(s.texto),
         }
         for s in segments
@@ -1059,15 +1060,26 @@ def run_translation(segments: list[Segment], targets: dict[int, str], pseudo: Ps
     ]
     if not items:
         return {}
+
+    def mock(_v: dict) -> dict:
+        # sem LLM: as traduções pré-gravadas dos roteiros (data/consultations) valem para a mesma fala e destino;
+        # fala sem gravação recebe o aviso do mock (as regras ignoram esse texto e leem o original)
+        # as gravações passam pela mesma pseudonimização da fala (nomes viram [PACIENTE]/[FAMILIAR])
+        recorded = {(norm(pseudo.text(t)), dest): pseudo.text(tr) for _, t, dest, tr in recorded_translations()}
+        out = []
+        for i in items:
+            found = recorded.get((norm(i["texto"]), i["codigo_para"]))
+            if found:
+                out.append({"n": i["n"], "traducao": found})
+            else:
+                out.append({"n": i["n"], "traducao": f"[{i['para']}{idiomas.MARCA_MOCK}] {i['texto']}"})
+        return {"traducoes": out}
+
     result = generate_structured(
         "consult_translate",
-        {"falas": json.dumps(items, ensure_ascii=False)},
+        {"falas": json.dumps([{k: v for k, v in i.items() if k != "codigo_para"} for i in items], ensure_ascii=False)},
         TranslationOutput,
-        mock=lambda _v: {
-            "traducoes": [
-                {"n": i["n"], "traducao": f"[{i['para']} — tradução com LLM real] {i['texto']}"} for i in items
-            ]
-        },
+        mock=mock,
         effort="low",
     )
     return {t.n: t.traducao for t in result.output.traducoes if t.n in targets}

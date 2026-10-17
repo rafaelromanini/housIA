@@ -200,3 +200,27 @@ test("transcrição editável: 'fala N' da nota rola até a fala e a edição pe
   await page.getByRole("button", { name: /Nota para revisar/ }).first().click();
   await expect(page.locator(`#fala-${n}`)).toContainText("Texto corrigido pelo profissional.");
 });
+
+test("tradução (#22): idioma vindo do cadastro, traduções do roteiro cen_hispanica no modo mock e legenda grande", async ({ page }) => {
+  await login(page, "medico");
+  await openFresh(page, "cen8");
+  // Patient.communication = es pré-seleciona o espanhol, e há mais de 95 idiomas na lista
+  await expect(page.getByLabel("Idioma do paciente")).toHaveValue("es");
+  await expect(page.getByTestId("idioma-cadastro")).toContainText("Español");
+  expect(await page.getByLabel("Idioma do paciente").locator("option").count()).toBeGreaterThanOrEqual(95);
+  await startWithConsent(page);
+  await simulate(page);
+
+  // as falas em espanhol mostram a tradução pré-gravada (nenhum aviso de "tradução com LLM real")
+  const transcript = page.getByLabel("Transcrição da conversa");
+  await expect(transcript).toContainText("Me duele el pecho desde ayer");
+  await expect(transcript).toContainText("Estou com dor no peito desde ontem.");
+  await expect(transcript).toContainText("Cuénteme de ese dolor en el pecho");
+  await expect(transcript).not.toContainText("tradução com LLM real");
+  await expect(page.getByTestId("idioma-fala-2")).toHaveText("es");
+
+  // legenda grande no idioma do paciente
+  await page.goto("/pacientes/cen8/consulta/legenda");
+  await expect(page.getByTestId("legenda")).toContainText("Legenda da consulta");
+  await expect(page.getByTestId("legenda-falas")).toContainText("Vamos a investigar con calma");
+});

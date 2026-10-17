@@ -553,7 +553,7 @@ export interface DocSection {
 export interface DischargeDocuments {
   id: number;
   patient_id: string;
-  idioma: "pt-BR" | "es" | "en";
+  idioma: string;
   created_at: string;
   model: string;
   prompt_version: string;
@@ -599,6 +599,8 @@ export interface Segment {
   texto: string;
   idioma: string;
   traducao: string | null;
+  /** diferenças de números, doses e medicamentos entre a fala e a tradução (checagem determinística) */
+  traducao_divergente?: string[];
   origem: "microfone" | "servidor" | "digitado" | "demo" | "marco";
   /** edição pelo profissional (#2): o original fica guardado; editado_em acende o selo "editada" */
   texto_original?: string | null;
@@ -1304,7 +1306,7 @@ export interface ConsultConfig {
   llm_mode: "real" | "mock";
   stt_servidor: boolean;
   envio_prontuario: boolean;
-  idiomas: { value: string; label: string }[];
+  idiomas: { value: string; label: string; web_speech: string; whisper: string }[];
   especialidades: { value: string; label: string; foco: string; cirurgica: boolean }[];
 }
 export interface Appointment {
@@ -1327,7 +1329,8 @@ export interface DemoScript {
   tipo: ConsultKind;
   especialidade?: string;
   titulo: string;
-  falas: { t: number; falante: Speaker; texto: string }[];
+  idioma_paciente?: string;
+  falas: { t: number; falante: Speaker; texto: string; idioma?: string }[];
 }
 
 // ---------- Jornada do paciente ----------
