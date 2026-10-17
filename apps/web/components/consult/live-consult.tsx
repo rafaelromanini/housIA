@@ -17,7 +17,8 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { useDemoPlayer, useServerRecorder, useSpeechCapture, speechSupported } from "@/components/consult/capture";
+import { useDemoPlayer, usePushToTalk, useServerRecorder, useSpeechCapture, speechSupported } from "@/components/consult/capture";
+import { CopilotPanel } from "@/components/consult/copilot-panel";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
 import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS } from "@/components/consult/transcript";
@@ -204,6 +205,23 @@ export function LiveConsult({
   const demoStart = c.segmentos.filter((s) => s.origem === "demo").length;
   const demo = useDemoPlayer(script.data, demoStart, (line) => send([{ falante: line.falante, texto: line.texto, t: line.t, origem: "demo" }]));
 
+  // Alt+Q (segurar): pergunta por voz ao copiloto. Pausa a transcrição enquanto fala e nada vira Fala/N
+  const resumeMic = useRef(false);
+  const [pushed, setPushed] = useState<{ texto: string; n: number } | null>(null);
+  const ptt = usePushToTalk(
+    (texto) => setPushed((p) => ({ texto, n: (p?.n ?? 0) + 1 })),
+    () => {
+      resumeMic.current = mic.listening;
+      if (mic.listening) mic.stop();
+    },
+    () => {
+      if (resumeMic.current) mic.start();
+      resumeMic.current = false;
+    },
+  );
+  const pttStart = ptt.start;
+  const pttStop = ptt.stop;
+
   const capturing = mic.listening || recorder.recording || demo.playing;
   const interim = demo.interim ?? (mic.interim ? { falante: speaker, texto: mic.interim } : null);
 
@@ -215,6 +233,25 @@ export function LiveConsult({
 
   // atalhos: Alt+1 profissional, Alt+2 paciente, Alt+3 acompanhante, Alt+0 detectar automaticamente;
   // no centro cirúrgico também Alt+4 anestesista, Alt+5 circulante e Alt+6 instrumentador
+  useEffect(() => {
+    if (surgical) return;
+    const down = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === "q" && !e.repeat) {
+        e.preventDefault();
+        pttStart();
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "q" || e.key === "Alt") pttStop();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [surgical, pttStart, pttStop]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey) return;
@@ -527,7 +564,16 @@ export function LiveConsult({
           <Transcript segments={c.segmentos} interim={interim} proLabel={proLabel} patientLanguage={c.idioma_paciente} />
         </section>
 
-        <section aria-label="Assistente">
+        <section aria-label="Assistente" className="space-y-3">
+          {!surgical && (
+            <CopilotPanel
+              consultId={c.id}
+              patientId={c.patient_id}
+              insights={c.insights}
+              pushed={pushed}
+              ptt={{ active: ptt.active, interim: ptt.interim, error: ptt.error, supported: speechSupported(), start: ptt.start, stop: ptt.stop }}
+            />
+          )}
           {c.insights?.relatorio_cirurgico ? (
             <SurgicalPanel
               report={c.insights.relatorio_cirurgico}

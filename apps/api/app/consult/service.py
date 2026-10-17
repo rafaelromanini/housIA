@@ -14,6 +14,7 @@ from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, stt
+from app.consult import ask as copilot
 from app.consult import orders as order_drafts
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
@@ -774,6 +775,7 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
                 ins = _insights(c, record, events, ctx, segments)
             note_model, result, dropped = ai.run_note(engine, ins, pseudo, valid, c.patient_language)
             note = hipoteses.apply_to_note(note_model.model_dump(mode="json"), hipoteses.apply(ins, c.extra_json))
+            note = _apply_copilot(note, (c.extra_json or {}).get("copiloto", {}).get("insercoes", []), valid)
     except LLMError as exc:
         log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc)})
         raise HTTPException(502, str(exc)) from exc
@@ -816,7 +818,10 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
         else:
             ConsultNote.model_validate(note)
             # as propostas de Condition vêm das decisões do profissional na consulta, não da edição do texto
-            note = note | {"condicoes_propostas": (c.note_json or {}).get("condicoes_propostas", [])}
+            note = note | {
+                "condicoes_propostas": (c.note_json or {}).get("condicoes_propostas", []),
+                "copiloto": (c.note_json or {}).get("copiloto", []),  # proveniência: não vem da edição do texto
+            }
     except ValidationError as exc:
         raise HTTPException(422, f"Nota em formato inválido: {exc.error_count()} erro(s)") from exc
     c.note_json = note
@@ -1117,3 +1122,213 @@ def appointments(db: Session, fhir: FhirSource) -> list[dict]:
         )
     rows.sort(key=lambda r: r["horario"])
     return rows
+
+
+# ---------- copiloto: discutir o caso / perguntar ao prontuário ----------
+MAX_HISTORY = 60
+
+
+def _copilot(c: Consultation) -> dict:
+    data = (c.extra_json or {}).get("copiloto") or {}
+    return {"mensagens": list(data.get("mensagens", [])), "insercoes": list(data.get("insercoes", []))}
+
+
+def _save_copilot(c: Consultation, data: dict) -> None:
+    data = {"mensagens": data["mensagens"][-MAX_HISTORY:], "insercoes": data["insercoes"]}
+    c.extra_json = (c.extra_json or {}) | {"copiloto": data}
+
+
+def _suggestions(c: Consultation) -> list[dict]:
+    """Alerta crítico na tela: o copiloto sugere discutir (a pergunta já vem pronta)."""
+    ins = Insights.model_validate(c.insights_json) if c.insights_json else None
+    if ins is None or c.kind == "cirurgia":
+        return []
+    return [
+        {"alerta": a.texto, "pergunta": "Quais os alertas críticos deste paciente e o que eles envolvem?"}
+        for a in ins.alertas[:1]
+        if a.severidade == "critico"
+    ]
+
+
+def copilot_state(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
+    c = _get(db, cid)
+    data = _copilot(c)
+    return data | {"sugestoes": _suggestions(c), "llm_mode": get_settings().llm_mode}
+
+
+def _note_target(destino: str) -> str:
+    return destino if destino in copilot.NOTE_TARGETS or destino == "pendencia" else "avaliacao"
+
+
+def _apply_copilot(note: dict, insertions: list[dict], valid: set[str] | None = None) -> dict:
+    """Leva as inserções do copiloto para a nota, com as refs; a proveniência (origem "copiloto") fica em `copiloto`."""
+    done = {i["id"] for i in note.get("copiloto", [])}
+    note = dict(note)
+    applied = list(note.get("copiloto", []))
+    for ins in insertions:
+        if ins["id"] in done:
+            continue
+        refs = [r for r in ins["refs"] if valid is None or r in valid]
+        if ins["destino"] == "pendencia":
+            note["pendencias"] = [*note.get("pendencias", []), {"texto": ins["texto"], "refs": refs}]
+        else:
+            sec = dict(note.get(ins["destino"]) or {"texto": "", "refs": []})
+            base = sec.get("texto", "")
+            sec["texto"] = (base + "\n" if base and base != "Sem registro na consulta" else "") + ins["texto"]
+            sec["refs"] = list(dict.fromkeys([*sec.get("refs", []), *refs]))
+            note[ins["destino"]] = sec
+        applied.append({k: ins[k] for k in ("id", "destino", "texto", "refs", "origem", "em")})
+    note["copiloto"] = applied
+    return note
+
+
+def _new_insertion(data: dict, msg_id: int, destino: str, texto: str, refs: list[str], by: str) -> tuple[dict, bool]:
+    key = (msg_id, destino, texto)
+    for i in data["insercoes"]:
+        if (i["mensagem_id"], i["destino"], i["texto"]) == key:
+            return i, False
+    ins = {
+        "id": f"cop{len(data['insercoes']) + 1}",
+        "mensagem_id": msg_id,
+        "destino": destino,
+        "texto": texto,
+        "refs": list(dict.fromkeys(refs)),
+        "origem": "copiloto",
+        "por": by,
+        "em": clock.now().isoformat(),
+    }
+    data["insercoes"].append(ins)
+    return ins, True
+
+
+def _push_insertion(c: Consultation, data: dict, ins: dict) -> None:
+    """Consulta já finalizada: a inserção entra na nota na hora; senão entra quando a nota for gerada."""
+    if c.note_json is not None and c.kind != "cirurgia":
+        c.note_json = _apply_copilot(c.note_json, [ins])
+
+
+def ask(db: Session, fhir: FhirSource, user: User, cid: int, question: str, via: str = "texto") -> dict:
+    c = _get(db, cid)
+    question = question.strip()
+    if not question:
+        raise HTTPException(422, "Escreva ou dite a pergunta.")
+    if c.status == "enviada":
+        raise HTTPException(409, "Consulta já enviada ao prontuário.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    engine = _engine(c, record, events, ctx, segments)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O copiloto não está disponível no centro cirúrgico.")
+    ins = Insights.model_validate(c.insights_json) if c.insights_json else _insights(c, record, events, ctx, segments)
+    actx = copilot.Ctx(engine=engine, ins=ins, q=question, n=copilot.norm(question))
+    valid = _valid_refs(record, events, ctx, segments)
+    data = _copilot(c)
+    msg_id = len(data["mensagens"]) + 1
+    pseudo = _pseudo(record)
+    action = None
+    cmd = copilot.parse_command(question)
+    if cmd:
+        # comando: o texto vem do profissional (ou da última resposta do copiloto, se ele só disse "adicionar ao plano")
+        last = next((m for m in reversed(data["mensagens"]) if m["resposta"]["frases"]), None)
+        texto, refs, ref_msg = cmd.texto, [], msg_id
+        if not texto and last:
+            frases = last["resposta"]["frases"]
+            texto, refs, ref_msg = (
+                " ".join(f["texto"] for f in frases),
+                [r for f in frases for r in f["refs"]],
+                last["id"],
+            )
+        if not texto:
+            resp = copilot.Resposta(
+                intencao="comando", aviso='Diga o que adicionar (ex.: "adicionar ao plano repetir potássio").'
+            )
+        else:
+            new, _ = _new_insertion(data, ref_msg, cmd.destino, texto, [r for r in refs if r in valid], user.name)
+            _push_insertion(c, data, new)
+            label = "plano" if cmd.destino == "plano" else "pendências"
+            resp = copilot.Resposta(
+                intencao="comando",
+                frases=[copilot.Frase(texto=f"Adicionado a {label} da nota: {texto}", fonte="Comando do profissional")],
+                acao={"tipo": cmd.destino, "insercao": new["id"]},
+            )
+        action = resp.acao
+        result = None
+    else:
+        resp = copilot.answer_by_rules(actx)
+        result = None
+        if resp is None:
+            try:
+                resp, result = copilot.run_ai(actx, pseudo, valid, copilot.rules_tools(actx))
+            except LLMError as exc:
+                log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc)})
+                raise HTTPException(502, str(exc)) from exc
+        resp.frases, dropped = (
+            copilot.validate(resp.frases, valid) if resp.intencao not in ("ia", "sem_resposta") else (resp.frases, [])
+        )
+        resp.descartados += dropped
+    resp = copilot.Resposta.model_validate(reidentify(resp.model_dump(), record))
+    message = {
+        "id": msg_id,
+        "pergunta": question,
+        "via": via,
+        "em": clock.now().isoformat(),
+        "resposta": resp.model_dump(),
+    }
+    data["mensagens"].append(message)
+    _save_copilot(c, data)
+    log_action(
+        db,
+        user,
+        "consulta.copiloto",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "intencao": resp.intencao,
+            "modo": resp.modo,
+            "via": via,
+            "frases": len(resp.frases),
+            "itens_descartados": len(resp.descartados),
+            "pseudonimizacoes": pseudo.replacements,
+            **({"acao": action["tipo"]} if action else {}),
+        },
+    )
+    return {"mensagem": message, "insercoes": data["insercoes"], "sugestoes": _suggestions(c)}
+
+
+def insert_into_note(
+    db: Session, fhir: FhirSource, user: User, cid: int, msg_id: int, destino: str, frases: list[int] | None
+) -> dict:
+    """ "Inserir na nota": leva as frases do copiloto com as refs (origem "copiloto") para a seção escolhida."""
+    c = _get(db, cid)
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário.")
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O copiloto não está disponível no centro cirúrgico.")
+    data = _copilot(c)
+    msg = next((m for m in data["mensagens"] if m["id"] == msg_id), None)
+    if msg is None:
+        raise HTTPException(404, "Resposta do copiloto não encontrada")
+    all_frases = msg["resposta"]["frases"]
+    chosen = [
+        all_frases[i] for i in (frases if frases is not None else range(len(all_frases))) if 0 <= i < len(all_frases)
+    ]
+    if not chosen:
+        raise HTTPException(422, "Nada para inserir na nota.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    valid = _valid_refs(record, events, ctx, _segments(c))
+    refs = [r for f in chosen for r in f["refs"] if r in valid]
+    texto = " ".join(f["texto"] for f in chosen)
+    ins, created = _new_insertion(data, msg_id, _note_target(destino), texto, refs, user.name)
+    if created:
+        _push_insertion(c, data, ins)
+        _save_copilot(c, data)
+        log_action(
+            db,
+            user,
+            "consulta.copiloto_inserido",
+            "consultation",
+            c.id,
+            {"patient_id": c.patient_id, "destino": ins["destino"], "refs": len(ins["refs"])},
+        )
+    return {"insercao": ins, "criada": created, "insercoes": data["insercoes"], "nota": c.note_json}

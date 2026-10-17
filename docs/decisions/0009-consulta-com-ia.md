@@ -118,6 +118,19 @@ aprovada pelo profissional.
    no audit; o audit `cirurgia.prontidao` registra as pendências antes e depois no finish e no envio (glosas
    evitadas). O envio ainda grava um `Claim` em rascunho e o export traz um Bundle de transação.
 
+14. **Copiloto "Discutir o caso" / "Perguntar ao prontuário", com fonte em cada frase.** `POST /consultations/{id}/ask`
+    (`app/consult/ask.py`) tenta primeiro intenções por regra sobre o `ChartView` e o `Engine`: último valor de um
+    exame, TFG, alergias, o que mudou desde a última consulta, dose por TFG/idade, "posso usar X?" (o medicamento
+    perguntado passa pelas mesmas regras de dose, interação e alergia da consulta, e o veredito vem delas), interação
+    entre dois medicamentos e alertas. Cada frase cita refs FHIR/`Fala/N` e a fonte da regra. Só o que sobra vai ao
+    LLM (`consult_ask.md`), com o contexto pseudonimizado e os resultados das regras como ferramentas: o LLM não
+    calcula (número fora dos dados recebidos derruba a frase) e o `RefValidator`-equivalente descarta a frase sem ref
+    válida. Em mock só as regras respondem. O histórico fica em `extra_json["copiloto"]`; "inserir na nota" leva o
+    texto e as refs para a seção escolhida (na hora, se a nota já existe; ao finalizar, se não) e registra a
+    proveniência `origem: "copiloto"` em `nota.copiloto`. O audit (`consulta.copiloto`) guarda intenção e contagens,
+    nunca o texto. A pergunta por voz (Alt+Q, segurar) usa um reconhecimento próprio e vai ao copiloto: não vira
+    `Fala/N`. Os comandos "adicionar ao plano …" e "criar pendência …" entram na nota pelo mesmo caminho.
+
 ## Consequências
 
 - Novo cenário ambulatorial (cen6) e agenda do dia (Encounter `AMB`). O construtor de cenários aceita

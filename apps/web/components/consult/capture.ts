@@ -123,6 +123,72 @@ export function useSpeechCapture(lang: string, onFinal: (text: string) => void) 
   return { listening, interim, error, start, stop };
 }
 
+/** Push-to-talk do copiloto (Alt+Q): reconhecimento próprio, separado da transcrição da consulta. O que é dito aqui
+ * vira pergunta ao copiloto e nunca uma fala (Segment) da conversa. */
+export function usePushToTalk(onText: (text: string) => void, onBegin?: () => void, onFinish?: () => void) {
+  const [active, setActive] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const rec = useRef<Recognition | null>(null);
+  const finals = useRef("");
+  const onTextRef = useRef(onText);
+  const beginRef = useRef(onBegin);
+  const finishRef = useRef(onFinish);
+  onTextRef.current = onText;
+  beginRef.current = onBegin;
+  finishRef.current = onFinish;
+
+  const start = useCallback(() => {
+    const Ctor = recognitionCtor();
+    if (!Ctor) {
+      setError("Este navegador não tem reconhecimento de fala. Digite a pergunta.");
+      return;
+    }
+    if (rec.current) return;
+    const r = new Ctor();
+    r.lang = "pt-BR";
+    r.continuous = false;
+    r.interimResults = true;
+    finals.current = "";
+    r.onresult = (e) => {
+      let partial = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finals.current += `${res[0].transcript} `;
+        else partial += res[0].transcript;
+      }
+      setInterim(partial);
+    };
+    r.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") setError("Permissão do microfone negada.");
+    };
+    r.onend = () => {
+      rec.current = null;
+      setActive(false);
+      setInterim("");
+      const text = `${finals.current}`.trim();
+      finals.current = "";
+      finishRef.current?.();
+      if (text) onTextRef.current(text);
+    };
+    rec.current = r;
+    setError(null);
+    beginRef.current?.();
+    setActive(true);
+    try {
+      r.start();
+    } catch {
+      rec.current = null;
+      setActive(false);
+      finishRef.current?.();
+    }
+  }, []);
+
+  const stop = useCallback(() => rec.current?.stop(), []);
+  useEffect(() => () => rec.current?.abort(), []);
+  return { active, interim, error, start, stop };
+}
+
 /* ---------- Gravação para transcrição no servidor (Whisper on-premise etc.) ---------- */
 export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
   const [recording, setRecording] = useState(false);
