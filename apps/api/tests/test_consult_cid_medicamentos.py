@@ -297,7 +297,7 @@ def test_invalid_cid_in_the_final_note_is_dropped_with_reason(record, monkeypatc
     assert isinstance(result, ConsultNote)
     got = {(c.codigo, c.tipo) for c in result.cids}
     assert got == {("X99.9", "secundario"), ("E16.0", "hipotese"), ("N18.3", "secundario")}
-    reasons = {d["cid"]: d["motivo"] for d in dropped if "motivo" in d}
+    reasons = {d["cid"]: d["motivo"] for d in dropped if "cid" in d}
     assert reasons == {"J99.9": "CID inexistente"} | {"X99.9": "CID de causa externa não é diagnóstico"}
 
 
@@ -635,7 +635,7 @@ def test_prompt_versions_were_bumped():
     from app.llm.client import load_prompt
 
     assert load_prompt("consult_live_clinica").version == "1.5.0"
-    assert load_prompt("consult_note").version == "1.3.0"
+    assert load_prompt("consult_note").version == "1.4.0"
     assert load_prompt("surgical_report").version == "1.2.0"
 
 

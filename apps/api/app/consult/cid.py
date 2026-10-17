@@ -7,7 +7,8 @@ diagnóstico"), do mesmo jeito que o item de IA sem fonte válida.
 
 from collections.abc import Callable
 
-from app.reference import icd_entry, icd_problem, norm_icd
+from app.consult.text import norm
+from app.reference import cid10, icd_entry, icd_problem, norm_icd
 
 
 def screen(
@@ -42,3 +43,31 @@ def screen(
         entry = icd_entry(raw)
         kept.append(it.model_copy(update={code: entry.code}) if entry and entry.code != raw else it)
     return kept, dropped
+
+
+def search(q: str, limit: int = 15, sex: str = "") -> list[dict]:
+    """Autocomplete de CID-10 oficial (cid10.csv) por código ou por palavras da descrição, sem acento e sem ordem.
+    Código exato e subcategorias do código digitado vêm primeiro; causa externa (V–Y) não entra como diagnóstico."""
+    text = norm(q)
+    if len(text) < 2:
+        return []
+    code = norm_icd(q)
+    words = text.split()
+    hits: list[tuple[int, str, object]] = []
+    for entry in cid10().values():
+        if entry.code[0] in "VWXY" or (entry.sex and sex in ("F", "M") and entry.sex != sex):
+            continue
+        desc = norm(entry.description)
+        if code and entry.code == code:
+            rank = 0
+        elif code and entry.code.startswith(code):
+            rank = 1
+        elif entry.code.lower().startswith(text.replace(" ", "")):
+            rank = 2
+        elif all(w in desc for w in words):
+            rank = 3 + (entry.kind != "subcategoria")
+        else:
+            continue
+        hits.append((rank, entry.code, entry))
+    hits.sort(key=lambda h: (h[0], h[1]))
+    return [{"codigo": e.code, "descricao": e.description, "tipo": e.kind} for _, _, e in hits[:limit]]  # type: ignore[attr-defined]

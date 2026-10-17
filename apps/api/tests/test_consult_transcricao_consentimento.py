@@ -9,7 +9,7 @@ from app.db import session as db_session
 from app.db.models import AuditLog
 from app.llm import client as llm_client
 from tests.conftest import CONSENT
-from tests.test_consult import SCRIPT, start
+from tests.test_consult import SCRIPT, approve, start
 
 
 @pytest.fixture(autouse=True)
@@ -198,10 +198,12 @@ def test_nao_edita_depois_de_enviada(client, auth, monkeypatch):
     h = auth("medico")
     cid = start(client, h)["id"]
     post_segments(client, h, cid, [("paciente", "Estou com tontura")])
-    note = client.post(f"/consultations/{cid}/finish", headers=h).json()["nota"]
-    client.put(f"/consultations/{cid}/note", json=note, headers=h)
-    sent = client.post(f"/consultations/{cid}/send", headers=h)
-    assert sent.status_code == 200
+    client.post(f"/consultations/{cid}/finish", headers=h)
+    approve(client, h, cid)
+    sent = client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco discutido com a paciente"}, headers=h
+    )
+    assert sent.status_code == 200, sent.text
     assert client.patch(f"/consultations/{cid}/segments/1", json={"texto": "x"}, headers=h).status_code == 409
 
 

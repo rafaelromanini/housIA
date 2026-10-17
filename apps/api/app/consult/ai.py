@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult import acoes
+from app.consult import acoes, cronologia, notas
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -37,6 +37,7 @@ from app.consult.schemas import (
     ConsultNote,
     Emotion,
     Evidence,
+    Frase,
     Highlight,
     HistoryItem,
     Hypothesis,
@@ -837,17 +838,14 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
         for icd, text, c in engine.chart.conditions
         if icd
     ]
-    chrono = []
-    for t in ins.queixas:
-        if t.status == "presente":
-            n = int(t.refs[0].split("/")[1])
-            seg = next(s for s in engine.segments if s.n == n)
-            chrono.append({"quando": fmt_clock(seg.t), "texto": f"Relata {t.rotulo.lower()}", "refs": t.refs[:1]})
-    for e in ins.emocoes:
-        n = int(e.refs[-1].split("/")[1])
-        seg = next(s for s in engine.segments if s.n == n)
-        chrono.append({"quando": fmt_clock(seg.t), "texto": f"{e.rotulo} ({e.quem})", "refs": e.refs[-1:]})
-    chrono.sort(key=lambda c: c["quando"])
+    events = engine.timeline_events(ins)
+    chrono = [{k: e[k] for k in ("quando", "texto", "refs", "tipo", "falante")} for e in events]
+    conducts = [
+        e
+        for e in cronologia.conducts(events)
+        if e["chave"] not in ("prescricao",)  # a prescrição dita já entra como "Prescrição citada pelo profissional"
+    ]
+    spoken_exam = [f for f in cronologia.findings(engine.segments) if f["exame_fisico"]]
     pendencias = (
         [
             {"texto": f"Registrar alergia relatada: {al.alergeno}", "refs": al.refs}
@@ -871,56 +869,59 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     if language != "pt-BR":
         tips.insert(0, f"[Tradução para {LANGUAGE_LABELS.get(language, language)} disponível com o LLM real.]")
     no_record = "Sem registro na consulta."
+
+    def section(items: list[tuple[str, list[str]]], fallback: str = no_record) -> dict:
+        """Seção com o texto de sempre ("; " entre os itens) e uma frase por item que tenha fonte."""
+        kept = [(t, r) for t, r in items if t]
+        return {
+            "texto": "; ".join(t for t, _ in kept) or fallback,
+            "refs": list(dict.fromkeys(r for _, refs in kept for r in refs)),
+            "frases": [notas.frase(t, r, "regra") for t, r in kept if r],
+        }
+
+    def prose(text: str, refs: list[str]) -> dict:
+        return {"texto": text, "refs": refs, "frases": notas.derive(text, refs)}
+
+    history = [h for h in ins.historico if h.tipo in ("diagnostico", "cirurgia", "familiar")]
+    in_use = [m for m in ins.medicamentos if m.status not in ("suspenso", "planejado")]
+    hyp_items = [(f"{h.hipotese} ({h.cid}, confiança {h.confianca})", h.refs[:2]) for h in hyps]
+    if hyp_items:
+        hyp_items[0] = ("Hipóteses: " + hyp_items[0][0], hyp_items[0][1])
+    plan_items = (
+        [(f"Prescrição citada pelo profissional: {m.medicamento} (a confirmar)", m.refs) for m in planned_meds]
+        + [
+            (f"Conduta discutida pelo profissional: {c['texto'].removeprefix('Conduta: ')}", c["refs"])
+            for c in conducts
+        ]
+        + [(f"{m.texto} (a confirmar)", m.refs) for m in plan]
+    )
+    exam_items = [(e.summary, [e.source_ref]) for e in vitals] + [
+        (f"{f['rotulo']} (verbalizado): {f['texto']}", [fala_ref(f["n"])]) for f in spoken_exam
+    ]
+    allergy_items = [
+        (f"{al.alergeno} ({'prontuário' if al.fonte == 'prontuario' else 'relatada na consulta'})", al.refs)
+        for al in ins.alergias
+    ]
     return {
-        "queixa_principal": {"texto": a.queixa_principal if a else no_record, "refs": first_refs},
-        "hda": {"texto": a.hda if a else no_record, "refs": a.refs if a else []},
-        "antecedentes": {
-            "texto": "; ".join(h.texto for h in ins.historico if h.tipo in ("diagnostico", "cirurgia", "familiar"))
-            or no_record,
-            "refs": [r for h in ins.historico if h.tipo in ("diagnostico", "cirurgia", "familiar") for r in h.refs],
-        },
-        "medicacoes": {
-            "texto": "; ".join(
-                f"{m.posologia}" if m.status != "relatado" else f"{m.medicamento} (relatado)"
-                for m in ins.medicamentos
-                if m.status not in ("suspenso", "planejado")
-            )
-            or no_record,
-            "refs": [r for m in ins.medicamentos if m.status not in ("suspenso", "planejado") for r in m.refs],
-        },
-        "alergias": {
-            "texto": "; ".join(
-                f"{al.alergeno} ({'prontuário' if al.fonte == 'prontuario' else 'relatada na consulta'})"
-                for al in ins.alergias
-            )
-            or ("Nega alergias conhecidas." if engine.chart.ctx.nega_alergias else no_record),
-            "refs": [r for al in ins.alergias for r in al.refs],
-        },
-        "exame_fisico": {
-            "texto": "; ".join(e.summary for e in vitals) or no_record,
-            "refs": [e.source_ref for e in vitals],
-        },
-        "exames_complementares": {
-            "texto": "; ".join(
-                f"{e.exame} {e.valor} ({e.data}{', ' + e.tendencia if e.tendencia else ''})" for e in ins.exames
-            )
-            or no_record,
-            "refs": [r for e in ins.exames for r in e.refs[:1]],
-        },
-        "avaliacao": {
-            "texto": "Hipóteses: " + "; ".join(f"{h.hipotese} ({h.cid}, confiança {h.confianca})" for h in hyps)
-            if hyps
-            else no_record,
-            "refs": [r for h in hyps for r in h.refs[:2]],
-        },
-        "plano": {
-            "texto": "; ".join(
-                [f"Prescrição citada pelo profissional: {m.medicamento} (a confirmar)" for m in planned_meds]
-                + [f"{m.texto} (a confirmar)" for m in plan]
-            )
-            or no_record,
-            "refs": [r for m in planned_meds for r in m.refs] + [r for m in plan for r in m.refs],
-        },
+        "queixa_principal": prose(a.queixa_principal if a else no_record, first_refs),
+        "hda": prose(a.hda if a else no_record, a.refs if a else []),
+        "antecedentes": section([(h.texto, h.refs) for h in history]),
+        "medicacoes": section(
+            [(m.posologia if m.status != "relatado" else f"{m.medicamento} (relatado)", m.refs) for m in in_use]
+        ),
+        "alergias": section(
+            allergy_items,
+            "Nega alergias conhecidas." if engine.chart.ctx.nega_alergias else no_record,
+        ),
+        "exame_fisico": section(exam_items),
+        "exames_complementares": section(
+            [
+                (f"{e.exame} {e.valor} ({e.data}{', ' + e.tendencia if e.tendencia else ''})", e.refs[:1])
+                for e in ins.exames
+            ]
+        ),
+        "avaliacao": section(hyp_items),
+        "plano": section(plan_items),
         "cids": cids,
         "cronologia": chrono,
         "pendencias": pendencias,
@@ -941,8 +942,36 @@ def accepted_payload(ins: Insights) -> dict:
     }
 
 
+def _validate_sentences(section: NoteSection, name: str, v: RefValidator, valid: set[str], mode: str) -> None:
+    """Frase a frase: sem ref válida a frase sai da nota (vai para os descartados); o LLM nunca assina como
+    "profissional". Sem frases na saída, elas são derivadas do texto com as refs da seção."""
+    if not section.frases:
+        section.frases = [
+            Frase(**f) for f in notas.derive(section.texto, section.refs, "ia" if mode == "real" else "regra")
+        ]
+        return
+    kept: list[Frase] = []
+    for f in section.frases:
+        f.refs = [r for r in f.refs if r in valid]
+        f.origem = "ia" if mode == "real" else ("regra" if f.origem == "profissional" else f.origem)
+        if f.refs:
+            kept.append(f)
+        else:
+            v.dropped.append({"onde": name, "texto": f.texto, "refs_invalidas": [], "motivo": "frase sem fonte válida"})
+    if len(kept) != len(section.frases):
+        section.texto = " ".join(f.texto for f in kept) or "Sem registro na consulta."
+    section.frases = kept
+    section.refs = list(dict.fromkeys([*section.refs, *(r for f in kept for r in f.refs)]))
+
+
 def run_note(
-    engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str], language: str, rules_only: bool = False
+    engine: Engine,
+    ins: Insights,
+    pseudo: Pseudonymizer,
+    valid: set[str],
+    language: str,
+    rules_only: bool = False,
+    fallback: bool = False,
 ):
     variables = {
         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
@@ -964,16 +993,23 @@ def run_note(
         ),
         "transcricao": transcript_text(engine.segments, pseudo),
     }
-    result = generate_structured(
-        "consult_note",
-        variables,
-        ConsultNote,
-        mock=lambda _v: mock_note(engine, ins, language),
-        effort="medium",
-        **({"rules_only": True} if rules_only else {}),  # só a recusa da IA externa muda a chamada
-    )
+    if fallback:  # IA indisponível: a nota sai só das regras (a mesma do modo mock), sem depender do fornecedor
+        result = LLMResult(
+            output=ConsultNote.model_validate(mock_note(engine, ins, language)),
+            model="regras",
+            prompt_version="-",
+            mode="regras_fallback",
+        )
+    else:
+        result = generate_structured(
+            "consult_note",
+            variables,
+            ConsultNote,
+            mock=lambda _v: mock_note(engine, ins, language),
+            effort="medium",
+            **({"rules_only": True} if rules_only else {}),  # só a recusa da IA externa muda a chamada
+        )
     note = result.output
-    acoes.inject_into_note(note, ins)  # o que o profissional aceitou entra na nota mesmo que o LLM tenha omitido
     v = RefValidator(valid)
     for name in (
         "queixa_principal",
@@ -988,6 +1024,8 @@ def run_note(
     ):
         section: NoteSection = getattr(note, name)
         section.refs = [r for r in section.refs if r in valid]
+        _validate_sentences(section, name, v, valid, result.mode)
+    acoes.inject_into_note(note, ins)  # o que o profissional aceitou entra na nota mesmo que o LLM tenha omitido
     note.cids = v.keep(note.cids, "cids")
     # CID da nota precisa existir na tabela oficial; diagnóstico/hipótese não pode ser causa externa nem de outro sexo
     note.cids, bad_cids = screen(
@@ -998,7 +1036,11 @@ def run_note(
         trusted=engine.chart.icd_codes,
     )
     v.dropped += bad_cids
-    note.cronologia = [c for c in note.cronologia if all(r in valid for r in c.refs)]
+    note.cronologia = [c for c in note.cronologia if c.refs and all(r in valid for r in c.refs)]
+    by_n = {s.n: s for s in engine.segments}
+    for c in note.cronologia:  # o falante vem da fala citada, não do que o LLM escreveu
+        first = by_n.get(int(c.refs[0].split("/")[1])) if c.refs[0].startswith("Fala/") else None
+        c.falante = first.falante if first else None
     note.pendencias = v.keep(note.pendencias, "pendencias")
     return note, result, v.dropped
 
@@ -1032,6 +1074,13 @@ def run_translation(segments: list[Segment], targets: dict[int, str], pseudo: Ps
 
 
 # ---------- relatório cirúrgico ----------
+def surgical_fallback(ins: Insights) -> tuple[Insights, LLMResult]:
+    """IA indisponível: o relatório fica como as regras o montaram (campos ditados, OPME, pendências)."""
+    out = ins.model_copy(deep=True)
+    out.modo = "regras"
+    return out, LLMResult(output=None, model="regras", prompt_version="-", mode="regras_fallback")  # type: ignore[arg-type]
+
+
 def run_surgical(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str], rules_only: bool = False):
     report = ins.relatorio_cirurgico
     fields = [f.model_dump(include={"campo", "rotulo", "texto", "refs"}) for f in report.campos]

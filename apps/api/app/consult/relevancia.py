@@ -12,7 +12,7 @@ import re
 from functools import lru_cache
 from typing import Literal
 
-from app.consult import knowledge
+from app.consult import knowledge, notas
 from app.consult.engine import CONTEXT_WORDS, REACTION_HIGH
 from app.consult.schemas import Segment, fala_ref
 from app.consult.text import contains, drug_hits
@@ -336,11 +336,7 @@ def include(note: dict, seg: Segment, destino: str, by: str, when: str) -> dict:
     if destino == "pendencia":
         note["pendencias"] = [*note.get("pendencias", []), {"texto": line, "refs": [ref]}]
     else:
-        sec = dict(note.get(destino) or {"texto": "", "refs": []})
-        base = sec.get("texto", "")
-        sec["texto"] = (base + "\n" if base and base != "Sem registro na consulta" else "") + line
-        sec["refs"] = list(dict.fromkeys([*sec.get("refs", []), ref]))
-        note[destino] = sec
+        note[destino] = notas.append_text(note.get(destino) or {"texto": "", "refs": []}, line, [ref], "regra")
     done.append({"n": seg.n, "ref": ref, "destino": destino, "por": by, "em": when})
     note["incluidas"] = done
     return note

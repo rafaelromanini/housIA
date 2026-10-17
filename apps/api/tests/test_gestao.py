@@ -59,8 +59,12 @@ def painel(client):
     cid = start(client, medico)["id"]
     say(client, medico, cid, SCRIPT)
     note = client.post(f"/consultations/{cid}/finish", headers=medico).json()["nota"]
-    client.put(f"/consultations/{cid}/note", json=note, headers=medico)
-    sent = client.post(f"/consultations/{cid}/send", headers=medico).json()
+    client.put(f"/consultations/{cid}/note", json=note | {"atestacao": True}, headers=medico)
+    sent = client.post(
+        f"/consultations/{cid}/send",
+        json={"justificativa": "Risco avaliado e discutido com a paciente."},
+        headers=medico,
+    ).json()
     assert sent["enviado"] is True
     clock.freeze(ANCHOR.astimezone(TZ).replace(hour=15, minute=1).astimezone(UTC))
     return client, gestor, {"run": run, "conf": conf, "cirurgia": cirurgia["id"], "nota": note, "cid": cid}

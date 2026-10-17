@@ -643,9 +643,18 @@ class Insights(BaseModel):
 
 
 # ---------- nota final ----------
+class Frase(BaseModel):
+    """Uma frase da seção com a fonte: refs (Fala/N, recursos FHIR) e quem a escreveu."""
+
+    texto: str
+    refs: list[str] = []
+    origem: Literal["ia", "regra", "profissional"] = "regra"
+
+
 class NoteSection(BaseModel):
     texto: str
     refs: list[str]
+    frases: list[Frase] = []  # proveniência do texto, frase a frase (texto continua sendo o que se lê e edita)
 
 
 class CidSuggestion(BaseModel):
@@ -655,10 +664,15 @@ class CidSuggestion(BaseModel):
     refs: list[str]
 
 
+ChronoKind = Literal["queixa", "negativa", "achado", "medicamento", "exame", "orientacao", "retorno", "emocao"]
+
+
 class ChronoItem(BaseModel):
     quando: str = Field(description="mm:ss desde o início da consulta")
     texto: str
     refs: list[str]
+    tipo: ChronoKind = "queixa"
+    falante: Speaker | None = None
 
 
 class ConsultNote(BaseModel):

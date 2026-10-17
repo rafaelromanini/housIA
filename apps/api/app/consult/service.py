@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import re
 import time
 from datetime import datetime
 
@@ -14,10 +16,24 @@ from app import clock
 from app.alerts.service import upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import acoes, ai, antiglosa, consentimento, gs1, hipoteses, knowledge, opme, relevancia, stt, summary
+from app.consult import (
+    acoes,
+    ai,
+    antiglosa,
+    consentimento,
+    gs1,
+    hipoteses,
+    knowledge,
+    notas,
+    opme,
+    relevancia,
+    stt,
+    summary,
+)
 from app.consult import ask as copilot
 from app.consult import orders as order_drafts
 from app.consult.edicao import edit_percent
+from app.consult.edicao import section_diff as edit_sections
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
     claim_resource,
@@ -40,11 +56,14 @@ from app.consult.schemas import (
     fala_ref,
 )
 from app.consult.surgical import ORDER_SYSTEM
+from app.consult.text import NEG_WORDS, norm
+from app.consult.text import clauses as text_clauses
 from app.db.models import Alert, Consultation, MedrecRun, User
 from app.fhir_client.client import FhirSource
 from app.llm.client import LLMError
 from app.llm.pseudonymize import Pseudonymizer
 from app.patients.service import load_record
+from app.reference import icd_entry, icd_problem, norm_icd
 from app.timeline.context import PatientContext, build_context
 from app.timeline.events import ClinicalEvent, build_timeline
 from app.timeline.record import PatientRecord, parse_dt
@@ -197,6 +216,13 @@ def _sync_alerts(c: Consultation, ins: Insights) -> None:
         c.insight_actions_json = {**data, "alertas": mapping}
 
 
+def _public_meta(c: Consultation) -> dict | None:
+    """Metadados da nota sem o rascunho da IA (cópia da nota inteira): ele sai pelo GET /note/diff, por seção."""
+    if c.note_meta_json is None:
+        return None
+    return {k: v for k, v in c.note_meta_json.items() if k != "rascunho_ia"}
+
+
 def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
     meta = dict(c.ai_meta_json or {})
     meta.pop("saida", None)
@@ -216,12 +242,13 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "insights": c.insights_json,
         "ia": meta or None,
         "nota": c.note_json,
-        "nota_meta": c.note_meta_json,
+        "nota_meta": _public_meta(c),
         "fhir_ref": c.fhir_ref,
         "roteiro_demo": (c.extra_json or {}).get("roteiro"),
         "opme_guia": (c.extra_json or {}).get("opme_guia"),
         "faturamento": (c.extra_json or {}).get("faturamento"),
         "justificativa_envio": (c.extra_json or {}).get("justificativa_envio"),
+        "justificativa_pendencias": (c.extra_json or {}).get("justificativa_pendencias"),
         "pedidos_fhir": (c.extra_json or {}).get("pedidos_fhir"),
         "criado_por": (user_names or {}).get(c.created_by or 0),
         "created_at": c.created_at.isoformat(),
@@ -712,7 +739,7 @@ def apply_insight_action(
         raise HTTPException(409, "Consulta finalizada: os insights não podem mais ser alterados.")
     if action not in acoes.ACTIONS:
         raise HTTPException(422, "Ação inválida.")
-    if action == "descartar" and len(reason.strip()) < acoes.MIN_MOTIVO:
+    if action == "descartar" and len(acoes.efetivo(reason)) < acoes.MIN_MOTIVO:
         raise HTTPException(422, "Para descartar um insight, registre um motivo (mín. 10 caracteres).")
     record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)
@@ -722,6 +749,13 @@ def apply_insight_action(
     kind, item = found
     if action == "feita" and kind != "pergunta":
         raise HTTPException(422, "Só uma pergunta pode ser marcada como feita.")
+    if (
+        action in acoes.HIDING
+        and getattr(item, "severidade", None) == "critico"
+        and len(acoes.efetivo(reason)) < acoes.MIN_MOTIVO
+    ):
+        # alerta crítico some da lista (e da trava de envio) só com motivo: "não se aplica" sem motivo não escapa dela
+        raise HTTPException(422, "Para tirar um alerta crítico da consulta, registre o motivo (mín. 10 caracteres).")
     label = acoes.label_of(kind, item)
     c.insight_actions_json = acoes.record(
         c.insight_actions_json, kind, item, action, reason, user.name, clock.now().isoformat(), label
@@ -1176,10 +1210,44 @@ def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int]
 
 
 # ---------- nota, revisão e envio ----------
+def _generate_note(
+    c: Consultation,
+    engine: Engine,
+    chart: tuple[PatientRecord, list[ClinicalEvent], PatientContext],
+    segments: list[Segment],
+    pseudo: Pseudonymizer,
+    valid: set[str],
+    fallback: bool,
+    rules_only: bool = False,
+):
+    """(nota, descartados, resultado, insights cirúrgicos ou None). Com `fallback`, só as regras: a IA não é chamada."""
+    if c.kind == "cirurgia":
+        if fallback:
+            merged, result = ai.surgical_fallback(engine.run())
+        else:
+            merged, result = ai.run_surgical(engine, engine.run(), pseudo, valid, rules_only)
+        note: dict = {"relatorio_cirurgico": merged.relatorio_cirurgico.model_dump(mode="json")}  # type: ignore[union-attr]
+        return note, merged.descartados, result, merged
+    record, events, ctx = chart
+    ins = Insights.model_validate(c.insights_json) if c.insights_json else engine.run()
+    if ins.falas_analisadas != len(segments):
+        ins = _insights(c, record, events, ctx, segments)
+        c.insights_json = ins.model_dump(mode="json")
+    note_model, result, dropped = ai.run_note(engine, ins, pseudo, valid, c.patient_language, rules_only, fallback)
+    note = hipoteses.apply_to_note(note_model.model_dump(mode="json"), hipoteses.apply(ins, c.extra_json))
+    note = _apply_copilot(note, (c.extra_json or {}).get("copiloto", {}).get("insercoes", []), valid)
+    return notas.ensure(note), dropped, result, None
+
+
+FALLBACK_NOTICE = "IA indisponível: a nota foi montada só pelas regras, sem o texto corrido da IA. Revise com atenção."
+
+
 def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn | None = None) -> dict:
     """Encerra e gera a nota. As falas do corpo (a fila de captura que ainda não tinha chegado) entram na mesma
     transação, antes da nota: se a geração falhar, nada delas fica gravado."""
     c = _get(db, cid)
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário.")
     record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)
     pending = body.segmentos if body else []
@@ -1194,27 +1262,28 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
     engine = _engine(c, record, events, ctx, segments)
     valid = _valid_refs(record, events, ctx, segments)
     pseudo = _pseudo(record)
+    fallback = False
     try:
-        if c.kind == "cirurgia":
-            merged, result = ai.run_surgical(engine, engine.run(), pseudo, valid, rules_only)
-            c.insights_json = merged.model_dump(mode="json")
-            note: dict = {"relatorio_cirurgico": merged.relatorio_cirurgico.model_dump(mode="json")}
-            dropped = merged.descartados
-            snap = antiglosa.snapshot(merged.relatorio_cirurgico.prontidao)  # type: ignore[arg-type]
-            _audit_readiness(db, user, c, "finish", (c.extra_json or {}).get("prontidao_inicial"), snap)
-            c.extra_json = (c.extra_json or {}) | {"prontidao_finish": snap}
-        else:
-            ins = Insights.model_validate(c.insights_json) if c.insights_json else engine.run()
-            if ins.falas_analisadas != len(segments):
-                ins = _insights(c, record, events, ctx, segments)
-                c.insights_json = ins.model_dump(mode="json")
-            note_model, result, dropped = ai.run_note(engine, ins, pseudo, valid, c.patient_language, rules_only)
-            note = hipoteses.apply_to_note(note_model.model_dump(mode="json"), hipoteses.apply(ins, c.extra_json))
-            note = _apply_copilot(note, (c.extra_json or {}).get("copiloto", {}).get("insercoes", []), valid)
+        note, dropped, result, merged = _generate_note(
+            c, engine, (record, events, ctx), segments, pseudo, valid, False, rules_only
+        )
     except LLMError as exc:
-        db.rollback()  # as falas do corpo não ficam gravadas sem a nota
-        log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc)})
-        raise HTTPException(502, str(exc)) from exc
+        # sem o fornecedor de IA a nota sai das regras (modo regras_fallback): o atendimento não fica sem documento
+        fallback = True
+        try:
+            note, dropped, result, merged = _generate_note(
+                c, engine, (record, events, ctx), segments, pseudo, valid, True, rules_only
+            )
+        except LLMError as exc2:
+            db.rollback()  # as falas do corpo não ficam gravadas sem a nota
+            log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc2)})
+            raise HTTPException(502, str(exc2)) from exc2
+        log_action(db, user, "consulta.erro_llm", "consultation", c.id, {"erro": str(exc), "fallback": "regras"})
+    if merged is not None:
+        c.insights_json = merged.model_dump(mode="json")
+        snap = antiglosa.snapshot(merged.relatorio_cirurgico.prontidao)  # type: ignore[union-attr, arg-type]
+        _audit_readiness(db, user, c, "finish", (c.extra_json or {}).get("prontidao_inicial"), snap)
+        c.extra_json = (c.extra_json or {}) | {"prontidao_finish": snap}
     c.note_json = note
     c.note_meta_json = {
         "modo": "regras" if rules_only else result.mode,
@@ -1226,10 +1295,15 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
         "cobertura": relevancia.coverage(segments, note) if c.kind != "cirurgia" else None,
         "revisada_por": None,
         "revisada_em": None,
+        "atestacao": False,
+        "aviso": FALLBACK_NOTICE if fallback else None,
+        # cópia imutável do que a IA gerou: base do diff por seção e da prova de supervisão humana (#14)
+        "rascunho_ia": copy.deepcopy(note),
+        "versoes": [],
     }
     c.status = "finalizada"
     c.finished_at = clock.now()
-    c.extra_json = (c.extra_json or {}) | {"nota_original": note}  # base da métrica "% editado" do painel Impacto
+    c.extra_json = (c.extra_json or {}) | {"nota_original": note, "versoes_nota": []}  # base da métrica "% editado"
     log_action(
         db,
         user,
@@ -1274,43 +1348,168 @@ def _acceptance(c: Consultation) -> dict:
     }
 
 
-def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
+MAX_VERSIONS = 30  # versões da nota guardadas (a mais antiga sai primeiro; o rascunho da IA nunca sai)
+MIN_JUSTIFICATION_NOTA = 10  # justificativa mínima para enviar com pendência crítica de segurança aberta
+
+
+def _check_cids(cids: list[dict], previous: list[dict], sex: str) -> list[dict]:
+    """CID incluído ou trocado na revisão existe na tabela oficial; um só principal; a descrição é a oficial."""
+    known = {x.get("codigo") for x in previous}
+    out_: list[dict] = []
+    for item in cids:
+        code = norm_icd(item.get("codigo"))
+        if item.get("codigo") not in known:
+            problem = icd_problem(code, sex, item.get("tipo") in ("principal", "hipotese"))
+            if problem:
+                raise HTTPException(422, f"CID {item.get('codigo')!r} recusado: {problem}.")
+            entry = icd_entry(code)
+            item = item | {"codigo": entry.code, "descricao": entry.description}  # type: ignore[union-attr]
+        out_.append(item)
+    if sum(1 for x in out_ if x.get("tipo") == "principal") > 1:
+        raise HTTPException(422, "Só pode haver um CID principal.")
+    return out_
+
+
+def _reconcile_note(previous: dict, edited: dict) -> dict:
+    """Frases com fonte depois da edição: as intactas mantêm refs e origem; as alteradas viram "profissional"."""
+    result = dict(edited)
+    for key in notas.SECTION_KEYS:
+        if isinstance(edited.get(key), dict):
+            result[key] = notas.reconcile_section(previous.get(key), edited[key])
+    return result
+
+
+def _invalidate_attestation(c: Consultation) -> None:
+    """A nota mudou depois de o profissional atestar a revisão: a atestação não vale mais para o texto novo."""
+    if (c.note_meta_json or {}).get("atestacao"):
+        c.note_meta_json = (c.note_meta_json or {}) | {"atestacao": False}
+
+
+def update_note(db: Session, user: User, cid: int, note: dict, fhir: FhirSource | None = None) -> dict:
     c = _get(db, cid)
     if c.note_json is None:
         raise HTTPException(409, "Finalize a consulta antes de revisar a nota.")
     if c.status == "enviada":
         raise HTTPException(409, "Nota já enviada ao prontuário.")
+    sex = _chart(fhir, c.patient_id)[0].sex if fhir is not None else ""
+    note = dict(note)
+    attested = note.pop("atestacao", False) is True  # "Revisei e assumo a responsabilidade": só o valor true vale
     changes: list[dict] = []
+    previous = c.note_json or {}
     try:
         if c.kind == "cirurgia":
             edited = SurgicalReport.model_validate(note.get("relatorio_cirurgico"))
             report = _kept_orders(c, edited.model_dump(mode="json"))
+            report = report | {
+                "cids": _check_cids(
+                    report.get("cids", []), (previous.get("relatorio_cirurgico") or {}).get("cids", []), sex
+                )
+            }
             report, changes = _review_opme(c, report)
             note = note | {"relatorio_cirurgico": report}
         else:
             ConsultNote.model_validate(note)
             # as propostas de Condition vêm das decisões do profissional na consulta, não da edição do texto
             note = note | {
-                "condicoes_propostas": (c.note_json or {}).get("condicoes_propostas", []),
-                "copiloto": (c.note_json or {}).get("copiloto", []),  # proveniência: não vem da edição do texto
-                "incluidas": (c.note_json or {}).get("incluidas", []),
+                "condicoes_propostas": previous.get("condicoes_propostas", []),
+                "copiloto": previous.get("copiloto", []),  # proveniência: não vem da edição do texto
+                "incluidas": previous.get("incluidas", []),
+                "cids": _check_cids(note.get("cids", []), previous.get("cids", []), sex),
             }
+            note = _reconcile_note(previous, note)
     except ValidationError as exc:
         raise HTTPException(422, f"Nota em formato inválido: {exc.error_count()} erro(s)") from exc
     c.note_json = note
     if c.kind == "cirurgia":
         _rescore_note(c)
-    c.note_meta_json = (c.note_meta_json or {}) | {
-        "revisada_por": user.name,
-        "revisada_em": clock.now().isoformat(),
-        "desatualizada": None,  # a revisão após a edição da transcrição reconcilia a nota
-    }
+    now = clock.now()
+    meta = c.note_meta_json or {}
     pct, changed = edit_percent((c.extra_json or {}).get("nota_original"), note)
-    payload = {"patient_id": c.patient_id, "editado_pct": pct, "palavras_alteradas": changed} | (
-        {"opme": changes} if changes else {}
+    draft = meta.get("rascunho_ia") or (c.extra_json or {}).get("nota_original")
+    sections = edit_sections(draft, c.note_json)  # sem texto: só o número de cada seção
+    history = (c.extra_json or {}).get("versoes_nota", [])
+    version = {
+        "n": (history[-1]["n"] if history else 0) + 1,
+        "por": user.name,
+        "em": now.isoformat(),
+        "editado_pct": pct,
+        "atestada": attested,
+        "secoes": {r["secao"]: r["pct_editado"] for r in sections},
+    }
+    c.extra_json = (c.extra_json or {}) | {"versoes_nota": [*history, version | {"nota": c.note_json}][-MAX_VERSIONS:]}
+    c.note_meta_json = (
+        meta
+        | {
+            "revisada_por": user.name,
+            "revisada_em": now.isoformat(),
+            "atestacao": attested,
+            "desatualizada": None,  # a revisão após a edição da transcrição reconcilia a nota
+            "versoes": [*meta.get("versoes", []), version][-MAX_VERSIONS:],
+        }
     )
+    payload = {
+        "patient_id": c.patient_id,
+        "editado_pct": pct,
+        "palavras_alteradas": changed,
+        "versao": version["n"],
+        "atestada": attested,
+        "secoes_editadas": {k: v for k, v in version["secoes"].items() if v > 0},
+    } | ({"opme": changes} if changes else {})
     log_action(db, user, "consulta.nota_revisada", "consultation", c.id, payload)
     return out(c)
+
+
+def recompute_surgical(db: Session, user: User, cid: int, note: dict) -> dict:
+    """Recalcula o relatório cirúrgico editado (ainda não salvo): OPME conferido com guia, fala e etiquetas, pendências
+    de campo obrigatório e de OPME, e a prontidão para faturamento. Não grava nada: a revisão grava ao salvar."""
+    c = _get(db, cid)
+    if c.kind != "cirurgia" or c.note_json is None:
+        raise HTTPException(409, "O recálculo vale para o relatório cirúrgico já gerado.")
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário.")
+    try:
+        edited = SurgicalReport.model_validate(note.get("relatorio_cirurgico"))
+    except ValidationError as exc:
+        raise HTTPException(422, f"Relatório em formato inválido: {exc.error_count()} erro(s)") from exc
+    report = _kept_orders(c, edited.model_dump(mode="json"))
+    report, _ = _review_opme(c, report)
+    prefix = "Campo obrigatório não ditado:"
+    kept = [p for p in report["pendencias"] if not p["texto"].startswith(prefix)]
+    kept += [
+        {
+            "texto": f"{prefix} {f['rotulo']}. {f.get('motivo') or ''}".strip(),
+            "severidade": "atencao",
+            "refs": [],
+            "categoria": None,
+        }
+        for f in report["campos"]
+        if f.get("obrigatorio") and not (f.get("texto") or "").strip()
+    ]
+    kept.sort(key=lambda h: {"critico": 0, "atencao": 1, "info": 2}[h["severidade"]])
+    model = SurgicalReport.model_validate(report | {"pendencias": kept})
+    model.prontidao = antiglosa.evaluate(model, segments=_segments(c), **billing_params(c.extra_json or {}))
+    return {"relatorio_cirurgico": model.model_dump(mode="json")}
+
+
+def note_diff(db: Session, user: User, cid: int) -> dict:
+    """Diff por seção entre o rascunho da IA (imutável) e a nota atual: a prova objetiva da supervisão humana."""
+    c = _get(db, cid)
+    meta = c.note_meta_json or {}
+    draft = meta.get("rascunho_ia")
+    if c.note_json is None or draft is None:
+        raise HTTPException(409, "Finalize a consulta para comparar a nota com o rascunho da IA.")
+    sections = edit_sections(draft, c.note_json, with_text=True)
+    pct, changed = edit_percent(draft, c.note_json)
+    return {
+        "consulta_id": c.id,
+        "editado_pct": pct,
+        "palavras_alteradas": changed,
+        "revisada_por": meta.get("revisada_por"),
+        "revisada_em": meta.get("revisada_em"),
+        "atestacao": bool(meta.get("atestacao")),
+        "versoes": meta.get("versoes", []),
+        "secoes": sections,
+    }
 
 
 def _review_opme(c: Consultation, report: dict) -> tuple[dict, list[dict]]:
@@ -1340,9 +1539,142 @@ def _kept_orders(c: Consultation, report: dict) -> dict:
     return report | {"pedidos": list({_order_id(p): p for p in kept}.values())}
 
 
-def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:
+def _require_review(c: Consultation) -> None:
+    """Trava no servidor: a nota só sai (exportar ou enviar) revisada por uma pessoa e com a atestação."""
     if c.note_json is None:
         raise HTTPException(409, "Finalize e revise a nota antes de exportar ou enviar.")
+    meta = c.note_meta_json or {}
+    if not meta.get("revisada_por"):
+        raise HTTPException(
+            409,
+            {
+                "codigo": "revisao_pendente",
+                "mensagem": "A nota ainda não foi revisada. Revise e salve a revisão antes de exportar ou enviar.",
+            },
+        )
+    if not meta.get("atestacao"):
+        raise HTTPException(
+            409,
+            {
+                "codigo": "atestacao_pendente",
+                "mensagem": "Falta a atestação: marque “Revisei e assumo a responsabilidade” ao salvar a revisão.",
+            },
+        )
+
+
+def _allergy_registered(name: str, clauses: list[str]) -> bool:
+    """A nota registra a alergia quando cita o alérgeno numa oração sem negação ("Nega alergia a camarão" não vale)."""
+    for clause in clauses:
+        position = clause.find(name) if name else -1
+        if position >= 0 and not NEG_WORDS & set(clause[:position].split()[-4:]):
+            return True
+    return False
+
+
+def clinical_pending(c: Consultation) -> list[dict]:
+    """Pendências críticas de segurança ainda abertas na nota: [{codigo, texto, refs}].
+
+    Consulta e visita: alergia relatada que a nota não registra e alerta crítico de medicamento (interação, conflito de
+    alergia, tríplice ameaça renal…) que o profissional não aceitou nem descartou com motivo.
+    Cirurgia: campo obrigatório vazio e OPME sem autorização (sem justificativa)."""
+    note = c.note_json or {}
+    found: list[dict] = []
+    if c.kind == "cirurgia":
+        report = note.get("relatorio_cirurgico") or {}
+        for f in report.get("campos", []):
+            if f.get("obrigatorio") and not (f.get("texto") or "").strip():
+                found.append(
+                    {
+                        "codigo": "campo_obrigatorio_vazio",
+                        "texto": f"Campo obrigatório vazio: {f['rotulo']}",
+                        "refs": [],
+                    }
+                )
+        for o in report.get("opme", []):
+            if o.get("status") == "nao_autorizado" and not (o.get("justificativa") or "").strip():
+                found.append(
+                    {
+                        "codigo": "opme_sem_autorizacao",
+                        "texto": f"OPME sem autorização na guia: {o['descricao']}",
+                        "refs": o.get("refs", []),
+                    }
+                )
+        return found
+    if not c.insights_json:
+        return found
+    ins = Insights.model_validate(c.insights_json)
+    registered = text_clauses((note.get("alergias") or {}).get("texto", ""))
+    for al in ins.alergias:
+        names = [norm(x) for x in re.split(r"[/,]", al.alergeno) if x.strip()]
+        if al.fonte == "relatado" and not any(_allergy_registered(n, registered) for n in names):
+            found.append(
+                {
+                    "codigo": "alergia_nao_registrada",
+                    "texto": f"Alergia relatada não registrada na nota: {al.alergeno}",
+                    "refs": al.refs,
+                }
+            )
+    for m in ins.sugestoes_medicamentos:
+        if m.severidade == "critico" and m.acao not in ("aceitar", "feita"):  # descartado com motivo já saiu da lista
+            found.append({"codigo": "alerta_critico_nao_aceito", "texto": m.texto, "refs": m.refs})
+    return found
+
+
+def _gate_clinical(db: Session, user: User, c: Consultation, justification: str | None) -> None:
+    """Pendência crítica aberta bloqueia o envio; libera com justificativa (≥ 10 caracteres), auditada, como a alta."""
+    pending = clinical_pending(c)
+    if not pending:
+        return
+    text = (justification or "").strip()
+    if len(acoes.efetivo(text)) < MIN_JUSTIFICATION_NOTA:
+        raise HTTPException(
+            409,
+            {
+                "codigo": "pendencia_critica",
+                "mensagem": f"Há {len(pending)} pendência(s) crítica(s) de segurança abertas. Resolva-as ou envie com "
+                f"uma justificativa de pelo menos {MIN_JUSTIFICATION_NOTA} caracteres.",
+                "pendencias": pending,
+            },
+        )
+    codes = sorted({p["codigo"] for p in pending})
+    c.extra_json = (c.extra_json or {}) | {
+        "justificativa_pendencias": {"texto": text, "por": user.name, "em": clock.now().isoformat(), "regras": codes}
+    }
+    log_action(
+        db,
+        user,
+        "consulta.envio_com_pendencia",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "justificativa": text, "pendencias": codes, "quantidade": len(pending)},
+        commit=False,
+    )
+
+
+def _gate_clinical_export(c: Consultation) -> None:
+    """Copiar ou baixar a nota é sair dela do mesmo jeito que enviar: a pendência crítica só passa se o envio já foi
+    liberado com justificativa que cobre todas as pendências de agora (a justificativa vem no /send)."""
+    pending = clinical_pending(c)
+    if not pending:
+        return
+    given = (c.extra_json or {}).get("justificativa_pendencias") or {}
+    covered = len(acoes.efetivo(given.get("texto"))) >= MIN_JUSTIFICATION_NOTA and {
+        p["codigo"] for p in pending
+    } <= set(given.get("regras") or [])
+    if not covered:
+        raise HTTPException(
+            409,
+            {
+                "codigo": "pendencia_critica",
+                "mensagem": f"Há {len(pending)} pendência(s) crítica(s) de segurança abertas. Resolva-as ou envie com "
+                "justificativa antes de copiar ou baixar a nota.",
+                "pendencias": pending,
+            },
+        )
+
+
+def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:
+    _require_review(c)
     record = load_record(fhir, c.patient_id)
     now = clock.now()
     role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
@@ -1425,6 +1757,8 @@ def _claim(c: Consultation, record: PatientRecord, report: dict, refs: dict[str,
 def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     """Texto para colar no prontuário + recurso FHIR (e os pedidos propostos), sem enviar nada."""
     c = _get(db, cid)
+    _require_review(c)
+    _gate_clinical_export(c)
     text, doc = _document(db, fhir, user, c)
     log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
     orders = _orders(c, _author(doc), clock.now())
@@ -1487,7 +1821,9 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     c = _get(db, cid)
     if c.status == "enviada" and c.fhir_ref and get_settings().ehr_writeback:
         raise HTTPException(409, f"Nota já enviada ({c.fhir_ref}).")
+    _require_review(c)
     _gate_billing(db, user, c, justification)
+    _gate_clinical(db, user, c, justification)
     record = load_record(fhir, c.patient_id)
     text, doc = _document(db, fhir, user, c)
     if not get_settings().ehr_writeback:
@@ -1675,11 +2011,9 @@ def _apply_copilot(note: dict, insertions: list[dict], valid: set[str] | None = 
         if ins["destino"] == "pendencia":
             note["pendencias"] = [*note.get("pendencias", []), {"texto": ins["texto"], "refs": refs}]
         else:
-            sec = dict(note.get(ins["destino"]) or {"texto": "", "refs": []})
-            base = sec.get("texto", "")
-            sec["texto"] = (base + "\n" if base and base != "Sem registro na consulta" else "") + ins["texto"]
-            sec["refs"] = list(dict.fromkeys([*sec.get("refs", []), *refs]))
-            note[ins["destino"]] = sec
+            note[ins["destino"]] = notas.append_text(
+                note.get(ins["destino"]) or {"texto": "", "refs": []}, ins["texto"], refs, "ia"
+            )
         applied.append({k: ins[k] for k in ("id", "destino", "texto", "refs", "origem", "em")})
     note["copiloto"] = applied
     return note
@@ -1708,6 +2042,7 @@ def _push_insertion(c: Consultation, data: dict, ins: dict) -> None:
     """Consulta já finalizada: a inserção entra na nota na hora; senão entra quando a nota for gerada."""
     if c.note_json is not None and c.kind != "cirurgia":
         c.note_json = _apply_copilot(c.note_json, [ins])
+        _invalidate_attestation(c)
 
 
 def ask(db: Session, fhir: FhirSource, user: User, cid: int, question: str, via: str = "texto") -> dict:
@@ -1860,6 +2195,7 @@ def include_segment(db: Session, user: User, cid: int, n: int, destino: str) -> 
         raise HTTPException(422, "Seção da nota inválida.")
     note = relevancia.include(c.note_json, seg, destino, user.name, clock.now().isoformat())
     c.note_json = note
+    _invalidate_attestation(c)
     log_action(
         db,
         user,

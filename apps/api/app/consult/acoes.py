@@ -12,10 +12,11 @@ Estrutura guardada: {"acoes": {item_key: {acao, fixado, motivo, por, em, tipo, r
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from collections.abc import Iterator
 from typing import Any
 
-from app.consult.schemas import ConsultNote, Insights, NoteSection
+from app.consult.schemas import ConsultNote, Frase, Insights, NoteSection
 from app.consult.text import norm
 
 ACTIONS = ("aceitar", "descartar", "feita", "nao_se_aplica", "fixar")
@@ -40,6 +41,11 @@ _LISTS = (
     ("queixa", "queixas"),
     ("emocao", "emocoes"),
 )
+
+
+def efetivo(text: str | None) -> str:
+    """Texto sem caracteres invisíveis (zero width, controle) e sem espaços nas pontas: conta para a justificativa."""
+    return "".join(ch for ch in (text or "") if unicodedata.category(ch)[0] != "C").strip()
 
 
 def label_of(tipo: str, item: Any) -> str:
@@ -205,6 +211,8 @@ def _append(section: NoteSection, line: str, refs: list[str]) -> None:
     empty_text = not text or text.lower().startswith("sem registro")
     section.texto = line if empty_text else f"{text.rstrip('.;')}; {line}"
     section.refs = list(dict.fromkeys([*section.refs, *refs]))
+    if refs:  # o item aceito pelo profissional entra com a fonte e a origem "regra"
+        section.frases = [*section.frases, Frase(texto=line, refs=list(dict.fromkeys(refs)), origem="regra")]
 
 
 def accepted_alerts(ins: Insights) -> list:

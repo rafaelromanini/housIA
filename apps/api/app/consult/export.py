@@ -63,6 +63,9 @@ def note_as_text(
         if checks:
             lines += ["", "Verificações perioperatórias:"]
             lines += [f"- {v['rotulo']}: {CHECK_STATUS.get(v['status'], v['status'])} — {v['texto']}" for v in checks]
+        if report.get("pendencias"):
+            lines += ["", "Pendências:"]
+            lines += [f"- {p['texto']}" for p in report["pendencias"]]
         if report.get("pedidos"):
             lines.append("Pedidos propostos: " + "; ".join(p["descricao"] for p in report["pedidos"]))
     else:
@@ -70,6 +73,12 @@ def note_as_text(
             lines.append(f"{label}: {note.get(key, {}).get('texto', '')}")
         if note.get("cids"):
             lines.append("CID-10: " + "; ".join(f"{c['codigo']} {c['descricao']} ({c['tipo']})" for c in note["cids"]))
+        if note.get("cronologia"):
+            lines += ["", "Resumo cronológico:"]
+            lines += [f"- {c['quando']} {c['texto']}" for c in note["cronologia"]]
+        if note.get("pendencias"):
+            lines += ["", "Pendências:"]
+            lines += [f"- {p['texto']}" for p in note["pendencias"]]
         if note.get("orientacoes_paciente"):
             lines += ["", f"Orientações ao paciente ({LANGUAGE_LABELS.get(language, language)}):"]
             lines += [f"- {o}" for o in note["orientacoes_paciente"]]
@@ -102,13 +111,15 @@ def document_reference(
     when: datetime,
     text: str,
     consultation_id: int,
+    approved: bool = True,
 ) -> dict:
+    """DocumentReference da nota. `docStatus` é "preliminary" até a aprovação (revisão + atestação), depois "final"."""
     code, display = LOINC_OPERATIVE_NOTE if kind == "cirurgia" else LOINC_CONSULT_NOTE
     label = f"{KIND_TITLE.get(kind, 'Nota clínica')} (HousIA)"
     resource = {
         "resourceType": "DocumentReference",
         "status": "current",
-        "docStatus": "final",
+        "docStatus": "final" if approved else "preliminary",
         "identifier": [{"system": "http://housia.dev/fhir/NamingSystem/consulta", "value": str(consultation_id)}],
         "type": {"coding": [{"system": codes.LOINC, "code": code, "display": display}], "text": label},
         "subject": {"reference": f"Patient/{patient_id}", "display": patient_name},
