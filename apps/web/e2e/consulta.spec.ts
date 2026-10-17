@@ -44,6 +44,14 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
 
   await simulate(page);
   await expect(page.getByLabel("Transcrição da conversa")).toContainText("Tenho alergia a camarão");
+  // filtro "Só clínico": o cumprimento (fala social) some; a fala clínica continua
+  const transcript = page.getByLabel("Transcrição da conversa");
+  await expect(transcript).toContainText("Bom dia, dona Joana");
+  await page.getByLabel("Só clínico").check();
+  await expect(transcript).not.toContainText("Bom dia, dona Joana");
+  await expect(transcript).toContainText("Tenho alergia a camarão");
+  await page.getByLabel("Só clínico").uncheck();
+  await expect(transcript).toContainText("Bom dia, dona Joana");
   // a sugestão some quando a pergunta foi feita na conversa
   await expect(page.getByText(/Já abordadas na conversa/)).toBeVisible();
   await expect(page.getByText("Tríplice ameaça renal", { exact: false }).first()).toBeVisible();
@@ -61,6 +69,8 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
 
   await page.getByRole("button", { name: "Finalizar e gerar nota" }).click();
   await expect(page.getByText("Nota da consulta para revisão")).toBeVisible();
+  // painel "Fora da nota": cobertura calculada e botão para incluir a fala
+  await expect(page.getByTestId("cobertura-nota")).toContainText(/\d+ de \d+ falas clínicas citadas/);
   await page.getByLabel("Plano").fill("Suspender ibuprofeno e glibenclamida; reduzir metformina; retorno em 2 semanas.");
   await page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ }).click();
   await expect(page.getByText(/Enviado ao prontuário|Envio automático desligado/).first()).toBeVisible();

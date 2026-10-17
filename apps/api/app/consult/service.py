@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, object_session
 from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, stt, summary
+from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, relevancia, stt, summary
 from app.consult import ask as copilot
 from app.consult import orders as order_drafts
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
@@ -68,7 +68,7 @@ def clear_chart_cache() -> None:
 
 
 def _segments(c: Consultation) -> list[Segment]:
-    return [Segment.model_validate(s) for s in c.segments_json or []]
+    return relevancia.ensure([Segment.model_validate(s) for s in c.segments_json or []])
 
 
 def _medrec_runs(c: Consultation) -> list[str]:
@@ -136,6 +136,7 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
 def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
     meta = dict(c.ai_meta_json or {})
     meta.pop("saida", None)
+    segments = _segments(c)
     return {
         "id": c.id,
         "patient_id": c.patient_id,
@@ -145,7 +146,8 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "especialidade_rotulo": knowledge.SPECIALTIES.get(c.specialty, c.specialty),
         "idioma_paciente": c.patient_language,
         "status": c.status,
-        "segmentos": c.segments_json or [],
+        "segmentos": [s.model_dump() for s in segments],
+        "cobertura": relevancia.coverage(segments, c.note_json) if c.kind != "cirurgia" else None,
         "insights": c.insights_json,
         "ia": meta or None,
         "nota": c.note_json,
@@ -254,6 +256,7 @@ def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: 
             texto=text,
             idioma=language,
             origem=item.origem,
+            relevancia=relevancia.classify(text, segments[-1] if segments else None, speaker),
         )
         segments.append(seg)
         new.append(seg)
@@ -705,6 +708,9 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
                 if s.falante_auto and s.n in fixes:
                     s.falante = fixes[s.n]
             c.segments_json = [s.model_dump() for s in segments]
+        # relevância: a IA reclassifica, mas fala com medicamento, dose, alergia ou sinal de alarme nunca vira social
+        if relevancia.apply_ai(segments, {r.n: r.relevancia for r in result.output.relevancia}):
+            c.segments_json = [s.model_dump() for s in segments]
         valid = _valid_refs(record, events, ctx, segments)
         engine = _engine(c, record, events, ctx, segments)
         base = engine.run()
@@ -801,6 +807,7 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
         "prompt_version": result.prompt_version,
         "gerada_em": clock.now().isoformat(),
         "descartados": dropped,
+        "cobertura": relevancia.coverage(segments, note) if c.kind != "cirurgia" else None,
         "revisada_por": None,
         "revisada_em": None,
     }
@@ -836,6 +843,7 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
             note = note | {
                 "condicoes_propostas": (c.note_json or {}).get("condicoes_propostas", []),
                 "copiloto": (c.note_json or {}).get("copiloto", []),  # proveniência: não vem da edição do texto
+                "incluidas": (c.note_json or {}).get("incluidas", []),
             }
     except ValidationError as exc:
         raise HTTPException(422, f"Nota em formato inválido: {exc.error_count()} erro(s)") from exc
@@ -1347,3 +1355,35 @@ def insert_into_note(
             {"patient_id": c.patient_id, "destino": ins["destino"], "refs": len(ins["refs"])},
         )
     return {"insercao": ins, "criada": created, "insercoes": data["insercoes"], "nota": c.note_json}
+
+
+def include_segment(db: Session, user: User, cid: int, n: int, destino: str) -> dict:
+    """ "Incluir em…": leva a fala clínica que ficou fora da nota para a seção escolhida, citando Fala/N."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "A cobertura da nota não se aplica ao centro cirúrgico.")
+    if c.note_json is None:
+        raise HTTPException(409, "Finalize a consulta antes de incluir falas na nota.")
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário.")
+    segments = _segments(c)
+    seg = next((s for s in segments if s.n == n), None)
+    if seg is None:
+        raise HTTPException(404, "Fala não encontrada")
+    if destino not in relevancia.NOTE_SECTIONS and destino != "pendencia":
+        raise HTTPException(422, "Seção da nota inválida.")
+    note = relevancia.include(c.note_json, seg, destino, user.name, clock.now().isoformat())
+    c.note_json = note
+    log_action(
+        db,
+        user,
+        "consulta.fala_incluida_na_nota",
+        "consultation",
+        c.id,
+        {"patient_id": c.patient_id, "fala": n, "destino": destino},
+    )
+    return {
+        "nota": c.note_json,
+        "cobertura": relevancia.coverage(segments, c.note_json),
+        "incluidas": note["incluidas"],
+    }

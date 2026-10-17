@@ -46,6 +46,8 @@ class Segment(BaseModel):
     idioma: str = "pt-BR"
     traducao: str | None = None
     origem: CaptureSource = "digitado"
+    relevancia: Literal["clinica", "social", "administrativa"] | None = None  # None: ainda não classificada
+    relevancia_origem: Literal["regra", "ia"] = "regra"
 
 
 class SegmentIn(BaseModel):

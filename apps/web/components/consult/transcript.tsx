@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Languages, Volume2 } from "lucide-react";
 
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+
 import { reidentify } from "@/components/ai/ai-badge";
 import { usePatient } from "@/components/patient/patient-context";
 import { Button } from "@/components/ui/button";
@@ -52,6 +55,9 @@ export function Transcript({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [focus, setFocus] = useState<number | null>(null);
+  const [onlyClinical, setOnlyClinical] = useState(false);
+  const hidden = segments.filter((s) => s.relevancia === "social" || s.relevancia === "administrativa").length;
+  const shown = onlyClinical ? segments.filter((s) => s.relevancia !== "social" && s.relevancia !== "administrativa") : segments;
   const { patient } = usePatient();
 
   // acompanha a conversa enquanto a pessoa está no fim da lista
@@ -80,6 +86,18 @@ export function Transcript({
   }
 
   return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Checkbox id="so-clinico" checked={onlyClinical} onCheckedChange={(v) => setOnlyClinical(v === true)} />
+        <Label htmlFor="so-clinico">Só clínico</Label>
+        <span className="text-xs text-muted-foreground" aria-live="polite">
+          {onlyClinical
+            ? `${hidden} fala(s) social(is) ou administrativa(s) escondida(s)`
+            : hidden > 0
+              ? `${hidden} fala(s) fora do foco clínico`
+              : ""}
+        </span>
+      </div>
     <div
       ref={box}
       className="max-h-[62vh] min-h-64 overflow-y-auto rounded-md border bg-background p-3"
@@ -92,7 +110,7 @@ export function Transcript({
         </p>
       )}
       <ol className="space-y-2">
-        {segments.map((s) => (
+        {shown.map((s) => (
           <li
             key={s.n}
             id={`fala-${s.n}`}
@@ -100,7 +118,9 @@ export function Transcript({
               "rounded-md p-2 transition-colors",
               s.falante === "medico" || TEAM_SPEAKERS.includes(s.falante) ? "bg-card" : "bg-secondary/50",
               focus === s.n && "ring-2 ring-ring bg-atencao-bg",
+              (s.relevancia === "social" || s.relevancia === "administrativa") && "opacity-70",
             )}
+            data-relevancia={s.relevancia ?? "clinica"}
           >
             <div className="mb-0.5 flex flex-wrap items-center gap-2 text-xs">
               <span className={cn("rounded px-1.5 py-0.5 font-bold", SPEAKER_STYLE[s.falante])}>
@@ -110,6 +130,12 @@ export function Transcript({
                 {clock(s.t)} · fala {s.n}
               </span>
               {s.falante_auto && <span className="text-muted-foreground">(quem falou: detectado automaticamente)</span>}
+              {(s.relevancia === "social" || s.relevancia === "administrativa") && (
+                <span className="rounded border px-1.5 text-muted-foreground">
+                  {s.relevancia === "social" ? "social" : "administrativa"}
+                  {s.relevancia_origem === "ia" ? " (IA)" : ""}
+                </span>
+              )}
             </div>
             <p className="leading-snug">{s.texto}</p>
             {s.traducao && (
@@ -139,6 +165,7 @@ export function Transcript({
           </li>
         )}
       </ol>
+    </div>
     </div>
   );
 }

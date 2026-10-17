@@ -397,3 +397,19 @@ def copilot_insert(
 ) -> dict:
     """Insere na nota (com as refs, origem "copiloto") as frases de uma resposta do copiloto."""
     return service.insert_into_note(db, fhir, user, cid, body.mensagem_id, body.destino, body.frases)
+
+
+class IncludeIn(BaseModel):
+    n: int = Field(ge=1)
+    destino: str = "avaliacao"
+
+
+@router.post("/consultations/{cid}/nota/incluir")
+def include_segment(
+    cid: int,
+    body: IncludeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(clinician),
+) -> dict:
+    """Painel "Fora da nota": acrescenta a fala clínica não citada à seção escolhida, com a ref Fala/N."""
+    return service.include_segment(db, user, cid, body.n, body.destino)

@@ -142,6 +142,13 @@ class AiSpeaker(BaseModel):
     falante: Literal["medico", "paciente", "acompanhante"]
 
 
+class AiRelevancia(BaseModel):
+    """Reclassificação de uma fala (só as que a IA discorda da regra); fala com trava nunca vira social."""
+
+    n: int
+    relevancia: Literal["clinica", "social", "administrativa"]
+
+
 class ConversaOutput(BaseModel):
     """Smart Apps da conversa (1ª chamada)."""
 
@@ -153,6 +160,7 @@ class ConversaOutput(BaseModel):
     falantes: list[AiSpeaker]
     perguntas_abordadas: list[AiAbordada] = []
     resumo_frases: list[AiText] = []  # frases do resumo, cada uma com a fonte; sem ref válida a frase é descartada
+    relevancia: list[AiRelevancia] = []  # só as falas em que a IA discorda da relevância da regra
 
 
 class AiCampo(BaseModel):
@@ -235,6 +243,7 @@ class ConsultLiveOutput(BaseModel):
     alergias_relatadas: list[AiAlergia] = []
     pedidos_ia: list[AiPedido] = []
     resumo_frases: list[AiText] = []
+    relevancia: list[AiRelevancia] = []
 
 
 class AiTranslation(BaseModel):
@@ -305,9 +314,17 @@ def fmt_clock(seconds: float) -> str:
     return f"{int(seconds) // 60:02d}:{int(seconds) % 60:02d}"
 
 
+def _relevancia_tag(s: Segment) -> str:
+    """Relevância que a regra deu à fala (a IA só devolve as que discorda); fala clínica não leva marca."""
+    return f" · {s.relevancia}" if s.relevancia in ("social", "administrativa") else ""
+
+
 def transcript_text(segments: list[Segment], pseudo: Pseudonymizer) -> str:
     return (
-        "\n".join(f"[{fala_ref(s.n)} · {s.falante} · {fmt_clock(s.t)}] {pseudo.text(s.texto)}" for s in segments)
+        "\n".join(
+            f"[{fala_ref(s.n)} · {s.falante} · {fmt_clock(s.t)}{_relevancia_tag(s)}] {pseudo.text(s.texto)}"
+            for s in segments
+        )
         or "(sem falas ainda)"
     )
 
@@ -745,6 +762,7 @@ def mock_live(base: Insights) -> dict:
         ).model_dump(),
         "falantes": [],
         "perguntas_abordadas": [],
+        "relevancia": [],
     }
 
 

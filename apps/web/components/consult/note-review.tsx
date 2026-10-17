@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CircleCheck, ClipboardCopy, Download, FileCheck2, Loader2, Send, Trash2 } from "lucide-react";
+import { CircleCheck, ClipboardCopy, Download, FileCheck2, Loader2, Send, ShieldAlert, Trash2 } from "lucide-react";
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { FeedbackButtons } from "@/components/ai/feedback";
@@ -12,12 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
-import { api, ApiError, type BillingItem, type ConsultNote, type Consultation, type OpmeLine, type SurgicalReport } from "@/lib/api";
+import { api, ApiError, type BillingItem, type ConsultNote, type Consultation, type NoteCoverage, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 
 const SECTIONS: { key: keyof ConsultNote; label: string; soap: string }[] = [
@@ -31,6 +32,110 @@ const SECTIONS: { key: keyof ConsultNote; label: string; soap: string }[] = [
   { key: "avaliacao", label: "Avaliação", soap: "A" },
   { key: "plano", label: "Plano", soap: "P" },
 ];
+
+const INCLUDE_TARGETS: { value: string; label: string }[] = [
+  ...SECTIONS.map((s) => ({ value: s.key as string, label: s.label })),
+  { value: "pendencia", label: "Pendências" },
+];
+
+/** Descartes da IA por falta de fonte válida (o servidor os grava em nota_meta; aparecem aqui como no passagem de plantão). */
+function DiscardedItems({ items }: { items: Record<string, unknown>[] }) {
+  if (items.length === 0) return null;
+  return (
+    <Alert variant="info">
+      <ShieldAlert aria-hidden />
+      <details>
+        <summary className="min-h-9 cursor-pointer font-bold">
+          {items.length} item(ns) gerado(s) pela IA foram descartados por não citarem uma fonte válida
+        </summary>
+        <ul className="mt-2 list-disc pl-4 text-sm">
+          {items.map((d, i) => (
+            <li key={i}>
+              {String(d.secao ?? "item")}: {String(d.texto ?? d.cid ?? "")} {d.motivo ? `(${String(d.motivo)})` : ""}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </Alert>
+  );
+}
+
+/** "Fora da nota": as falas clínicas que nenhuma seção cita, a cobertura e o botão para incluir cada uma onde o médico quiser. */
+function OutsideNote({
+  coverage,
+  disabled,
+  onInclude,
+}: {
+  coverage: NoteCoverage;
+  disabled: boolean;
+  onInclude: (n: number, destino: string) => Promise<void>;
+}) {
+  const [target, setTarget] = useState<Record<number, string>>({});
+  const [working, setWorking] = useState<number | null>(null);
+  return (
+    <section aria-label="Fora da nota" className="space-y-2 rounded-md border p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-bold">Fora da nota</h3>
+        <p className="text-sm tabular-nums" data-testid="cobertura-nota">
+          {coverage.rotulo} ({coverage.percentual}%)
+        </p>
+      </div>
+      {coverage.fora.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Todas as falas clínicas estão citadas na nota.</p>
+      ) : (
+        <ul className="space-y-2">
+          {coverage.fora.map((f) => {
+            const destino = target[f.n] ?? "avaliacao";
+            return (
+              <li key={f.n} className="flex flex-wrap items-center gap-2 rounded-md bg-secondary/50 p-2 text-sm">
+                <span className="min-w-0 flex-1 break-words">
+                  <span className="mr-1 font-mono text-xs text-muted-foreground">fala {f.n}</span>
+                  {f.texto}
+                </span>
+                {!disabled && (
+                  <span className="flex items-center gap-1.5">
+                    <NativeSelect
+                      aria-label={`Seção para incluir a fala ${f.n}`}
+                      value={destino}
+                      onChange={(e) => setTarget((t) => ({ ...t, [f.n]: e.target.value }))}
+                      className="h-9 w-44"
+                    >
+                      {INCLUDE_TARGETS.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={working !== null}
+                      aria-label={`Incluir a fala ${f.n} na nota`}
+                      onClick={async () => {
+                        setWorking(f.n);
+                        try {
+                          await onInclude(f.n, destino);
+                        } finally {
+                          setWorking(null);
+                        }
+                      }}
+                    >
+                      Incluir em…
+                    </Button>
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {coverage.sociais > 0 && (
+        <p className="text-xs text-muted-foreground">{coverage.sociais} fala(s) social(is) ou administrativa(s) não entram na conta.</p>
+      )}
+    </section>
+  );
+}
 
 type ExportOut = {
   texto: string;
@@ -112,6 +217,22 @@ export function NoteReview({
       return null;
     } finally {
       setBusy(null);
+    }
+  }
+
+  /** "Incluir em…": o servidor acrescenta a fala (com a ref) à seção; o rascunho recebe só essa seção, sem perder edições. */
+  async function include(n: number, destino: string) {
+    setError(null);
+    try {
+      const out = await api<{ nota: Record<string, unknown>; cobertura: NoteCoverage; incluidas: unknown[] }>(
+        `/consultations/${c.id}/nota/incluir`,
+        { method: "POST", json: { n, destino } },
+      );
+      setDraft((d) => (destino === "pendencia" ? { ...d, pendencias: out.nota.pendencias } : { ...d, [destino]: out.nota[destino] }));
+      onChange({ ...c, nota: out.nota as unknown as Consultation["nota"], cobertura: out.cobertura });
+      setMessage(`Fala ${n} incluída na nota.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível incluir a fala");
     }
   }
 
@@ -380,6 +501,9 @@ export function NoteReview({
                 </ul>
               </div>
             )}
+
+            {c.cobertura && <OutsideNote coverage={c.cobertura} disabled={sent} onInclude={include} />}
+            <DiscardedItems items={c.nota_meta?.descartados ?? []} />
 
             {note.pendencias.length > 0 && (
               <div>

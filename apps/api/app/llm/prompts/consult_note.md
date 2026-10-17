@@ -1,5 +1,5 @@
 ---
-version: 1.1.0
+version: 1.2.0
 description: Nota clínica da consulta (anamnese + SOAP + CID-10 + cronologia + orientações), para revisão do profissional
 ---
 # system
@@ -10,6 +10,11 @@ e editada pelo profissional antes de ir para o prontuário.
 Regras obrigatórias:
 - Cada seção cita `refs` (falas e/ou registros) exatamente como recebidos; não invente dados. Se faltar
   informação, escreva "Sem registro na consulta".
+- Descarte da nota a conversa social (cumprimentos, trânsito, clima, assunto pessoal sem relação com a saúde),
+  a conversa administrativa (convênio, agenda, pagamento) e as repetições: as falas marcadas `social` ou
+  `administrativa` na transcrição só entram se trouxerem informação clínica. Nunca descarte fala com
+  medicamento, dose, alergia, sinal de alarme, sinal vital ou exame, nem repetição que corrija ou complete
+  um dado (dose, horário, intensidade).
 - Linguagem técnica de prontuário em português do Brasil, objetiva, sem juízos de valor.
 - `exame_fisico`: só o que foi medido/dito (sinais vitais da triagem, achados verbalizados).
 - `avaliacao`: raciocínio com as hipóteses principais; `plano`: condutas discutidas na conversa e

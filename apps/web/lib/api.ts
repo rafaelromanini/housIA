@@ -490,6 +490,20 @@ export interface Segment {
   idioma: string;
   traducao: string | null;
   origem: "microfone" | "servidor" | "digitado" | "demo";
+  /** clínica, social ou administrativa (regra; a IA só reclassifica fala sem medicamento, dose, alergia ou alarme) */
+  relevancia?: Relevance | null;
+  relevancia_origem?: "regra" | "ia";
+}
+export type Relevance = "clinica" | "social" | "administrativa";
+
+/** Cobertura da nota: falas clínicas que alguma seção cita × as que ficaram de fora. */
+export interface NoteCoverage {
+  total: number;
+  citadas: number;
+  percentual: number;
+  rotulo: string;
+  sociais: number;
+  fora: { n: number; ref: string; falante: Speaker; t: number; texto: string }[];
 }
 
 export interface ConsultTag {
@@ -1059,11 +1073,16 @@ export interface Consultation {
     descartados: Record<string, unknown>[];
   } | null;
   nota: (ConsultNote & { relatorio_cirurgico?: undefined }) | { relatorio_cirurgico: SurgicalReport } | null;
+  /** cobertura da nota calculada na hora (some no centro cirúrgico e antes da nota) */
+  cobertura?: NoteCoverage | null;
   nota_meta: {
     modo: string;
     modelo: string;
     prompt_version: string;
     gerada_em: string;
+    /** itens da IA descartados por falta de fonte válida (seção, texto e motivo) */
+    descartados?: Record<string, unknown>[];
+    cobertura?: NoteCoverage | null;
     revisada_por: string | null;
     revisada_em: string | null;
   } | null;

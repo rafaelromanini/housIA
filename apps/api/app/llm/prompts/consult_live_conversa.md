@@ -1,5 +1,5 @@
 ---
-version: 1.4.0
+version: 1.5.0
 description: Consulta em tempo real — Smart Apps da conversa (queixas, emoções, perguntas, resumo, quem falou)
 ---
 # system
@@ -37,6 +37,13 @@ CONVERSA. Regras obrigatórias:
 - `falantes`: corrija quem falou apenas quando a fala estiver claramente atribuída à pessoa errada. A fala do
   microfone chega sem pontuação: pergunta em 2ª pessoa ("a senhora tem...", "tem tido...") é do profissional;
   vocativo ("doutora") e 1ª pessoa com sintoma ("tô com...") indicam paciente ou acompanhante.
+- `relevancia`: cada fala da transcrição tem uma relevância calculada pelo HousIA (as sociais e administrativas
+  levam a marca `social` ou `administrativa` no cabeçalho; as clínicas não levam marca). Devolva SÓ as falas em
+  que você discorda: `n` e `relevancia` (clinica, social ou administrativa). Conversa paralela, cumprimento,
+  trânsito, clima e assunto pessoal sem relação com a saúde são `social`; convênio, agenda, pagamento e
+  documentos são `administrativa`. Fala que cita sintoma, medicamento, dose, alergia, sinal de alarme, sinal vital
+  ou exame é `clinica`: o HousIA ignora a reclassificação de fala com medicamento, dose, alergia ou sinal de alarme.
+  Na dúvida, não devolva nada.
 - Português do Brasil, frases curtas, sem texto fora do JSON. O paciente é [PACIENTE]; familiares são [FAMILIAR].
 
 # user
