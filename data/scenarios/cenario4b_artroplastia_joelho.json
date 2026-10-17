@@ -13,6 +13,7 @@
   },
   "internacao": {
     "inicio": "-6h",
+    "alta_prevista": "+21h",
     "tipo": "eletiva",
     "motivo": "Artroplastia total de joelho direito (gonartrose)",
     "setores": [

@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, stt
 from app.consult import ask as copilot
 from app.consult import orders as order_drafts
+from app.consult.edicao import edit_percent
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
     claim_resource,
@@ -791,15 +792,43 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     }
     c.status = "finalizada"
     c.finished_at = clock.now()
+    c.extra_json = (c.extra_json or {}) | {"nota_original": note}  # base da métrica "% editado" do painel Impacto
     log_action(
         db,
         user,
         "consulta.finalizada",
         "consultation",
         c.id,
-        {"patient_id": c.patient_id, "falas": len(segments), "modo": result.mode, "itens_descartados": len(dropped)},
+        {
+            "patient_id": c.patient_id,
+            "falas": len(segments),
+            "modo": result.mode,
+            "itens_descartados": len(dropped),
+            "especialidade": c.specialty,
+            "tipo": c.kind,
+            "duracao_s": int((c.finished_at - c.created_at).total_seconds()),
+        }
+        | _acceptance(c),
     )
     return out(c)
+
+
+def _acceptance(c: Consultation) -> dict:
+    """Aceite por camada (regra x IA) para o painel Impacto: perguntas feitas e hipóteses decididas."""
+    if c.kind == "cirurgia" or not c.insights_json:
+        return {}
+    ins = hipoteses.apply(Insights.model_validate(c.insights_json), c.extra_json)
+    perguntas = {layer: {"sugeridas": 0, "aceitas": 0} for layer in ("regra", "ia")}
+    for q in ins.perguntas:
+        perguntas[q.origem]["sugeridas"] += 1
+    for q in ins.perguntas_abordadas:
+        perguntas[q.origem]["sugeridas"] += 1
+        perguntas[q.origem]["aceitas"] += 1
+    hip = {layer: {"sugeridas": 0, "aceitas": 0} for layer in ("regra", "ia")}
+    for h in ins.hipoteses:
+        hip[h.origem]["sugeridas"] += 1
+        hip[h.origem]["aceitas"] += h.decisao in ("confirmada", "provisoria")
+    return {"aceite_perguntas": perguntas, "aceite_hipoteses": hip}
 
 
 def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
@@ -828,7 +857,10 @@ def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
     if c.kind == "cirurgia":
         _rescore_note(c)
     c.note_meta_json = (c.note_meta_json or {}) | {"revisada_por": user.name, "revisada_em": clock.now().isoformat()}
-    payload = {"patient_id": c.patient_id} | ({"opme": changes} if changes else {})
+    pct, changed = edit_percent((c.extra_json or {}).get("nota_original"), note)
+    payload = {"patient_id": c.patient_id, "editado_pct": pct, "palavras_alteradas": changed} | (
+        {"opme": changes} if changes else {}
+    )
     log_action(db, user, "consulta.nota_revisada", "consultation", c.id, payload)
     return out(c)
 
@@ -993,6 +1025,16 @@ def _gate_billing(db: Session, user: User, c: Consultation, justification: str |
     return snap
 
 
+def _timing(c: Consultation, moment: datetime) -> dict:
+    """Do fim da consulta ao envio (ou à exportação), para o painel Impacto: tempo até o envio e mesmo dia."""
+    return {
+        "especialidade": c.specialty,
+        "tipo": c.kind,
+        "finalizada_em": c.finished_at.isoformat() if c.finished_at else None,
+        "tempo_ate_envio_s": int((moment - c.finished_at).total_seconds()) if c.finished_at else None,
+    }
+
+
 def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justification: str | None = None) -> dict:
     c = _get(db, cid)
     if c.status == "enviada" and c.fhir_ref and get_settings().ehr_writeback:
@@ -1001,7 +1043,14 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     record = load_record(fhir, c.patient_id)
     text, doc = _document(db, fhir, user, c)
     if not get_settings().ehr_writeback:
-        log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
+        log_action(
+            db,
+            user,
+            "consulta.exportada",
+            "consultation",
+            c.id,
+            {"patient_id": c.patient_id} | _timing(c, clock.now()),
+        )
         orders = _orders(c, _author(doc), clock.now())
         return {
             "enviado": False,
@@ -1041,7 +1090,13 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
         "consulta.enviada",
         "consultation",
         c.id,
-        {"patient_id": c.patient_id, "fhir_ref": c.fhir_ref, "pedidos": orders} | traceability,
+        {
+            "patient_id": c.patient_id,
+            "fhir_ref": c.fhir_ref,
+            "pedidos": orders,
+        }
+        | _timing(c, c.sent_at)
+        | traceability,
     )
     return {
         "enviado": True,

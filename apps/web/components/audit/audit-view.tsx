@@ -44,6 +44,32 @@ const ACTION_LABEL: Record<string, string> = {
   "jornada.tarefa_concluida": "Tarefa da jornada concluída",
   "jornada.tarefa_cancelada": "Tarefa da jornada cancelada",
   "jornada.contato_registrado": "Contato pós-alta registrado",
+  "consulta.iniciada": "Consulta iniciada",
+  "consulta.visualizada": "Consulta visualizada",
+  "consulta.audio": "Áudio transcrito (o áudio não é guardado)",
+  "consulta.analise_ia": "Análise da consulta pela IA",
+  "consulta.traducao": "Falas traduzidas",
+  "consulta.erro_llm": "Erro do LLM na consulta",
+  "consulta.queixa_principal": "Queixa principal fixada",
+  "consulta.hipotese": "Hipótese decidida (confirmada, provisória ou descartada)",
+  "consulta.cirurgia_segura": "Lista de cirurgia segura marcada",
+  "consulta.opme_guia": "Guia de OPME conferida",
+  "consulta.opme_consumo": "Consumo de OPME lido (etiqueta)",
+  "consulta.opme_consumo_removido": "Consumo de OPME removido",
+  "consulta.faturamento": "Convênio e guia do faturamento",
+  "consulta.pedido_assinado": "Pedido ou prescrição assinado",
+  "consulta.pedido_recusado": "Pedido ou prescrição recusado",
+  "consulta.pedido_revertido": "Pedido ou prescrição voltou a pendente",
+  "consulta.copiloto": "Pergunta ao copiloto",
+  "consulta.copiloto_inserido": "Resposta do copiloto inserida na nota",
+  "consulta.finalizada": "Consulta finalizada (nota gerada)",
+  "consulta.nota_revisada": "Nota revisada pelo profissional",
+  "consulta.exportada": "Nota exportada (envio automático desligado)",
+  "consulta.enviada": "Nota enviada ao prontuário",
+  "cirurgia.prontidao": "Prontidão para faturamento verificada",
+  "impacto.linha_de_base": "Linha de base de tempo informada (Impacto)",
+  "gestao.resumo_semanal": "Resumo semanal da gestão gerado",
+  "gestao.erro_llm": "Erro do LLM no resumo da gestão",
 };
 
 const FILTERS = [
@@ -54,6 +80,12 @@ const FILTERS = [
   { value: "discharge.override", label: "Overrides de alta" },
   { value: "alerta.", label: "Mudanças de status de alerta" },
   { value: "jornada.", label: "Jornada do paciente" },
+  { value: "consulta.", label: "Consulta com IA" },
+  { value: "consulta.nota_revisada", label: "Consulta: notas revisadas" },
+  { value: "consulta.enviada", label: "Consulta: notas enviadas" },
+  { value: "cirurgia.", label: "Centro cirúrgico (prontidão)" },
+  { value: "impacto.", label: "Painel Impacto" },
+  { value: "gestao.", label: "Painel de gestão" },
   { value: "auth.", label: "Logins" },
 ];
 
@@ -96,6 +128,7 @@ function summarize(e: AuditEntry): string {
     case "handoff.conferencia":
       return `${p.mencionado} citado(s) · ${p.omitido} omitido(s) (${p.omitidos_criticos} crítico) · ${p.divergente} divergência(s)`;
     case "ia.feedback":
+      if (e.entity === "nps") return `NPS: nota ${p.nota}${p.comentario ? ` — “${p.comentario}”` : ""}`;
       return `${e.entity}: ${p.util ? "útil" : "não útil"}${p.comentario ? ` — “${p.comentario}”` : ""}`;
     case "alerta.reconhecido":
     case "alerta.descartado":
@@ -104,6 +137,17 @@ function summarize(e: AuditEntry): string {
       return `${p.regra} · ${p.papel} · prazo ${p.prazo} · ${p.fhir}`;
     case "jornada.contato_registrado":
       return `${p.canal} · ${p.atendeu ? "atendeu" : "sem sucesso"}${(p.alarmes as string[] | undefined)?.length ? ` · alarme: ${(p.alarmes as string[]).join(", ")}` : ""}`;
+    case "consulta.finalizada":
+      return `${p.falas} fala(s) · ${p.modo} · ${Math.round(Number(p.duracao_s ?? 0) / 60)} min`;
+    case "consulta.nota_revisada":
+      return `${p.editado_pct ?? 0}% do texto editado (${p.palavras_alteradas ?? 0} palavra(s))`;
+    case "consulta.enviada":
+    case "consulta.exportada":
+      return p.tempo_ate_envio_s == null ? "" : `${Math.round(Number(p.tempo_ate_envio_s) / 60)} min após a finalização`;
+    case "cirurgia.prontidao":
+      return `${p.momento}: ${(p.antes as { score?: number } | null)?.score ?? "—"} → ${(p.depois as { score?: number }).score} pontos`;
+    case "impacto.linha_de_base":
+      return `${p.setor}: ${p.minutos_antes} min por atendimento antes do HousIA`;
     case "alerta.reaberto":
       return `${p.titulo ?? ""} — agora ${p.severidade === "critico" ? "crítico" : p.severidade}`;
     default:

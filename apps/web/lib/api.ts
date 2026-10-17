@@ -412,10 +412,120 @@ export interface AuditMetrics {
   passagens_do_cache: number;
   reconciliacoes: number;
   itens_ia_descartados_sem_fonte: number;
+  consulta_ia: ImpactReport;
+}
+
+// ---------- Painel Impacto (#36) ----------
+export interface ImpactMetric {
+  grupo: string;
+  rotulo: string;
+  valor: number | null;
+  unidade: string;
+  formula: string;
+  n_linhas: number;
+  numerador?: number;
+  denominador?: number;
+  por_camada?: Record<string, { sugeridas: number; aceitas: number; pct: number | null }>;
+  tabela?: { profissional: string; papel: string | null; mes: string; consultas: number }[];
+  distribuicao?: { promotores: number; neutros: number; detratores: number };
+  respostas?: number;
+  antes?: number | null;
+  depois?: number | null;
+  glosas_evitadas?: number;
+  minutos?: number;
+  por_setor?: {
+    setor: string;
+    rotulo: string;
+    atendimentos: number;
+    tempo_atual_min: number | null;
+    linha_de_base_min: number | null;
+    minutos_devolvidos: number | null;
+  }[];
+  sem_linha_de_base?: string[];
+}
+
+export interface ImpactReport {
+  periodo: { inicio: string; fim: string };
+  grupos: { id: string; rotulo: string; metricas: string[] }[];
+  metricas: Record<string, ImpactMetric>;
+}
+
+export interface DrillItems<T> {
+  rotulo: string;
+  valor: number | null;
+  unidade: string;
+  formula: string;
+  total: number;
+  items: T[];
+}
+
+export interface ImpactBaseline {
+  id: number;
+  setor: string;
+  rotulo: string;
+  minutos_antes: number;
+  observacao: string | null;
+  por: string | null;
+  em: string;
+}
+
+// ---------- Painel de gestão (#37) ----------
+export interface GestaoLine {
+  id: string;
+  descricao: string;
+  paciente: string | null;
+  setor: string;
+  fhir_refs: string[];
+  peso: number;
+}
+
+export interface GestaoIndicator {
+  grupo: string;
+  rotulo: string;
+  valor: number | null;
+  unidade: string;
+  formula: string;
+  n_linhas: number;
+  por_setor: Record<string, number>;
+  numerador?: number;
+  denominador?: number;
+  por_transicao?: Record<string, number>;
+  ranking?: { cid: string; descricao: string; n: number }[];
+}
+
+export interface GestaoReport {
+  periodo: { inicio: string; fim: string };
+  gerado_em: string;
+  grupos: { id: string; rotulo: string; indicadores: string[] }[];
+  indicadores: Record<string, GestaoIndicator>;
+  serie_semanal: Record<string, { semana: string; inicio: string; fim: string; valor: number | null }[]>;
+  comparacao_setores: { setor: string; valores: Record<string, number> }[];
+}
+
+export interface GestaoSummary {
+  frases: { texto: string; refs: string[] }[];
+  descartados: { texto: string; motivo: string }[];
+  meta: { modo: string; modelo: string; prompt_version: string };
+  aviso: string;
+}
+
+/** Baixa um arquivo da API (com o token) e o entrega ao navegador. */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (!res.ok) throw new ApiError(res.status, "Não foi possível exportar.");
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ---------- Melhorias (benchmark): feedback, conferência verbal, documentos de alta ----------
-export type FeedbackKind = "handoff" | "handoff_check" | "medrec" | "discharge" | "discharge_docs" | "consulta" | "consulta_nota";
+export type FeedbackKind = "handoff" | "handoff_check" | "medrec" | "discharge" | "discharge_docs" | "consulta" | "consulta_nota" | "nps";
 
 export interface HandoffCheckItem {
   fato: string;

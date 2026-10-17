@@ -1,13 +1,20 @@
+import csv
+import io
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import clock
+from app.audit import impact
+from app.audit.service import log_action
 from app.auth.deps import require_roles
 from app.config import get_settings
+from app.consult import knowledge
 from app.db.models import (
     AIFeedback,
     Alert,
@@ -15,6 +22,7 @@ from app.db.models import (
     DischargeAssessment,
     DischargeOverride,
     HandoffReport,
+    ImpactBaseline,
     MedrecRun,
     User,
 )
@@ -60,25 +68,26 @@ def list_audit(
             if (a.payload_json or {}).get("patient_id") == patient_id
             or (a.entity == "patient" and a.entity_id == patient_id)
         ]
-    items = [
-        {
-            "id": a.id,
-            "created_at": a.created_at.isoformat(),
-            "user": {"id": u.id, "name": u.name, "role": u.role} if u else None,
-            "action": a.action,
-            "entity": a.entity,
-            "entity_id": a.entity_id,
-            "payload": a.payload_json,
-        }
-        for a, u in rows[offset : offset + limit]
-    ]
-    return {"total": len(rows), "items": items}
+    return {"total": len(rows), "items": [_entry(a, u) for a, u in rows[offset : offset + limit]]}
+
+
+def _entry(a: AuditLog, u: User | None) -> dict:
+    return {
+        "id": a.id,
+        "created_at": a.created_at.isoformat(),
+        "user": {"id": u.id, "name": u.name, "role": u.role} if u else None,
+        "action": a.action,
+        "entity": a.entity,
+        "entity_id": a.entity_id,
+        "payload": a.payload_json,
+    }
 
 
 @router.get("/metrics")
 def metrics(
     since: date | None = None,
     until: date | None = None,
+    uso_regular_min: int = Query(impact.USO_REGULAR_MIN, ge=1, le=100),
     db: Session = Depends(get_db),
     _: User = Depends(gestor),
 ) -> dict:
@@ -102,7 +111,7 @@ def metrics(
     feedback: dict[str, dict[str, int]] = {}
     for kind, useful, n in db.execute(
         select(AIFeedback.kind, AIFeedback.useful, func.count())
-        .where(AIFeedback.created_at >= start, AIFeedback.created_at <= end)
+        .where(AIFeedback.created_at >= start, AIFeedback.created_at <= end, AIFeedback.kind != "nps")
         .group_by(AIFeedback.kind, AIFeedback.useful)
     ):
         feedback.setdefault(kind, {"util": 0, "nao_util": 0})["util" if useful else "nao_util"] += n
@@ -139,4 +148,113 @@ def metrics(
         ),
         "reconciliacoes": count(MedrecRun, MedrecRun.created_at >= start, MedrecRun.created_at <= end),
         "itens_ia_descartados_sem_fonte": dropped,
+        "consulta_ia": impact.public(impact.compute(db, start, end, uso_regular_min)),
     }
+
+
+def _report(db: Session, since: date | None, until: date | None, uso_regular_min: int = impact.USO_REGULAR_MIN) -> dict:
+    start, end = _range(since, until)
+    return impact.compute(db, start, end, uso_regular_min)
+
+
+@router.get("/metrics/export.csv")
+def metrics_csv(
+    since: date | None = None, until: date | None = None, db: Session = Depends(get_db), _: User = Depends(gestor)
+) -> Response:
+    """Painel Impacto em CSV: uma linha por métrica, com a fórmula e o número de linhas do audit_log que a compõem."""
+    out = io.StringIO()
+    fields = ["metrica", "rotulo", "valor", "unidade", "numerador", "denominador", "linhas_audit", "formula"]
+    writer = csv.DictWriter(out, fieldnames=fields, delimiter=";")
+    writer.writeheader()
+    writer.writerows(impact.flat_rows(_report(db, since, until)))
+    return Response(
+        "\ufeff" + out.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="impacto-housia.csv"'},
+    )
+
+
+@router.get("/metrics/measure-report")
+def metrics_measure_report(
+    since: date | None = None, until: date | None = None, db: Session = Depends(get_db), _: User = Depends(gestor)
+) -> dict:
+    """Painel Impacto como FHIR R4 MeasureReport (summary)."""
+    return impact.measure_report(_report(db, since, until), clock.now())
+
+
+@router.get("/metrics/{metrica}/linhas")
+def metric_lines(
+    metrica: str,
+    since: date | None = None,
+    until: date | None = None,
+    uso_regular_min: int = Query(impact.USO_REGULAR_MIN, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User = Depends(gestor),
+) -> dict:
+    """Drill-down: as linhas do audit_log que compõem o número de uma métrica do painel Impacto."""
+    report = _report(db, since, until, uso_regular_min)
+    m = report["metricas"].get(metrica)
+    if m is None:
+        raise HTTPException(404, f"Métrica desconhecida. Use uma de: {', '.join(report['metricas'])}")
+    rows = impact.lines(db, report, metrica)
+    return {
+        "metrica": metrica,
+        "rotulo": m["rotulo"],
+        "valor": m["valor"],
+        "unidade": m["unidade"],
+        "formula": m["formula"],
+        "total": len(rows),
+        "items": [_entry(a, u) for a, u in rows],
+    }
+
+
+class BaselineIn(BaseModel):
+    setor: str = Field(min_length=1, max_length=60, description="Especialidade da consulta (ex.: clinica_geral)")
+    minutos_antes: float = Field(
+        gt=0, le=600, description="Tempo médio de documentação por atendimento antes do HousIA"
+    )
+    observacao: str | None = Field(None, max_length=500)
+
+
+@router.get("/impact/baseline")
+def get_baselines(db: Session = Depends(get_db), _: User = Depends(gestor)) -> list[dict]:
+    """Linha de base vigente por setor (a mais recente) e quem informou."""
+    rows = impact.baselines(db)
+    users = {u.id: u.name for u in db.scalars(select(User))}
+    return [
+        {
+            "id": b.id,
+            "setor": b.sector,
+            "rotulo": impact.setor_label(b.sector),
+            "minutos_antes": b.minutes_before,
+            "observacao": b.note,
+            "por": users.get(b.created_by or 0),
+            "em": b.created_at.isoformat(),
+        }
+        for b in rows.values()
+    ]
+
+
+@router.post("/impact/baseline")
+def post_baseline(body: BaselineIn, db: Session = Depends(get_db), user: User = Depends(gestor)) -> dict:
+    """Formulário de linha de base: "tempo médio antes do HousIA" de um setor; gera os minutos e horas devolvidas."""
+    if body.setor not in knowledge.SPECIALTIES:
+        raise HTTPException(422, f"Setor desconhecido. Use uma especialidade de: {', '.join(knowledge.SPECIALTIES)}")
+    b = ImpactBaseline(
+        sector=body.setor,
+        minutes_before=body.minutos_antes,
+        note=(body.observacao or "").strip() or None,
+        created_by=user.id,
+        created_at=clock.now(),
+    )
+    db.add(b)
+    db.flush()
+    log_action(
+        db,
+        user,
+        "impacto.linha_de_base",
+        "impact_baseline",
+        b.id,
+        {"setor": b.sector, "minutos_antes": b.minutes_before, "observacao": b.note},
+    )
+    return {"id": b.id, "setor": b.sector, "minutos_antes": b.minutes_before}

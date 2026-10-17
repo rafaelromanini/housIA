@@ -296,6 +296,11 @@ class ScenarioBuilder:
                 },
                 "location": locs,
             }
+            | (
+                {"extension": [{"url": codes.ALTA_PREVISTA, "valueDateTime": iso(self.t(it["alta_prevista"]))}]}
+                if it.get("alta_prevista")
+                else {}
+            )
         )
 
     def _ambulatory_encounters(self) -> None:

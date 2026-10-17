@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, TypeDecorator
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -135,6 +135,7 @@ class AIFeedback(Base):
     entity_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     useful: Mapped[bool] = mapped_column()
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)  # kind "nps": nota de 0 a 10
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
@@ -226,3 +227,19 @@ class JourneyTask(Base):
     closed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     closing_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ImpactBaseline(Base):
+    """Linha de base por setor ("tempo médio de documentação antes do HousIA"), informada pela gestão.
+
+    Histórico só de acréscimo: vale a linha mais recente de cada setor; as anteriores ficam para auditoria.
+    """
+
+    __tablename__ = "impact_baselines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sector: Mapped[str] = mapped_column(String(60), index=True)  # especialidade da consulta
+    minutes_before: Mapped[float] = mapped_column(Float)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

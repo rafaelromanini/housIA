@@ -13,6 +13,7 @@
   },
   "internacao": {
     "inicio": "-1d6h",
+    "alta_prevista": "+3h",
     "tipo": "urgencia",
     "motivo": "Apendicite aguda",
     "setores": [
