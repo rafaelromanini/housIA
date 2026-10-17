@@ -37,6 +37,7 @@ import {
   type Consultation,
   type DemoScript,
   type HypothesisDecision,
+  type InsightAction,
   type Segment,
   type Speaker,
 } from "@/lib/api";
@@ -320,6 +321,24 @@ export function LiveConsult({
     [apply, c.id],
   );
 
+  // aceitar, descartar (com motivo), marcar como feita ou fixar um insight; o item descartado não volta nas próximas falas
+  const decideInsight = useCallback(
+    async (itemKey: string, acao: InsightAction, motivo?: string) => {
+      await queue.current;
+      try {
+        const res = await api<{ insights: ConsultInsights }>(`/consultations/${c.id}/insight-actions`, {
+          method: "POST",
+          json: { item_key: itemKey, acao, motivo: motivo ?? "" },
+        });
+        apply([], res.insights);
+        setError(null);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Erro ao registrar a decisão sobre o item");
+      }
+    },
+    [apply, c.id],
+  );
+
   async function finish() {
     stopAll();
     setFinishing(true);
@@ -390,6 +409,11 @@ export function LiveConsult({
                 "Regras atualizam a cada fala"
               )}
             </span>
+            {!surgical && c.insights?.regras_ms != null && (
+              <Badge variant="outline" className="text-[11px]" data-testid="chip-latencia" title="Tempo das regras na última fala e fala até onde a IA analisou">
+                regras {c.insights.regras_ms} ms{ia ? ` · IA até fala ${ia.falas}` : " · IA ainda não rodou"}
+              </Badge>
+            )}
             {!surgical && (
               <label className="inline-flex min-h-9 items-center gap-1.5 text-xs">
                 <input type="checkbox" checked={autoAI} onChange={(e) => setAutoAI(e.target.checked)} className="size-4" /> IA automática
@@ -587,6 +611,7 @@ export function LiveConsult({
               insights={c.insights}
               onMainComplaint={setMainComplaint}
               onHypothesisDecision={decideHypothesis}
+              onInsightAction={decideInsight}
               orders={{
                 consultId: c.id,
                 onInsights: (insights) => setConsultation((prev) => (prev ? { ...prev, insights: newerInsights(prev.insights, insights) } : prev)),

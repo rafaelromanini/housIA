@@ -14,6 +14,7 @@ RISK_PREFIX = {
     "acesso": "Acesso venoso",
     "exame_alterado": "Exame alterado",
     "alergia": "Alergia x prescrição",
+    "alerta_consulta": "Alerta da consulta",
     "interacao": "Interação medicamentosa",
     "omissao": "Possível omissão na transferência",
     "duplicidade": "Duplicidade terapêutica",

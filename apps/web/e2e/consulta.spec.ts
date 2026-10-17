@@ -76,6 +76,30 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
   await expect(page.getByText(/Enviado ao prontuário|Envio automático desligado/).first()).toBeVisible();
 });
 
+test("consulta com IA: descartar uma pergunta com motivo a faz sumir e ela não volta durante a simulação", async ({ page }) => {
+  await login(page, "medico");
+  await openFresh(page, "cen6");
+  await page.getByRole("button", { name: "Iniciar", exact: true }).click();
+
+  const anesthesia = /problema com anestesia em cirurgias/;
+  await page.getByText(/Mais \d+ perguntas/).click();
+  await expect(page.getByText(anesthesia).first()).toBeVisible();
+  await page.getByRole("button", { name: /^Descartar: Já teve algum problema com anestesia/ }).click();
+  const reason = page.getByLabel(/Motivo do descarte/);
+  await reason.fill("curto");
+  await expect(page.getByRole("button", { name: "Confirmar descarte" })).toBeDisabled();
+  await reason.fill("Anestesia já registrada na avaliação pré-anestésica");
+  await page.getByRole("button", { name: "Confirmar descarte" }).click();
+  await expect(page.getByText(anesthesia)).toHaveCount(0);
+
+  await simulate(page);
+  await expect(page.getByLabel("Transcrição da conversa")).toContainText("Tenho alergia a camarão");
+  await expect(page.getByText(anesthesia)).toHaveCount(0);
+  // o alerta crítico da consulta aparece com os botões de decisão e o chip de latência mostra as duas camadas
+  await expect(page.getByRole("button", { name: /^Aceitar: Glibenclamida/ })).toBeVisible();
+  await expect(page.getByTestId("chip-latencia")).toContainText(/regras \d+ ms/);
+});
+
 test("centro cirúrgico: relatório por ditado com pendências anti-glosa e conciliação de OPME", async ({ page }) => {
   await login(page, "medico");
   await openFresh(page, "cen4");

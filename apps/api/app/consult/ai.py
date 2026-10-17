@@ -13,6 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.consult import acoes
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -828,7 +829,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     hyps = ins.hipoteses[:4]
     vitals = [e for e in engine.chart.events if e.kind == "vital" and (engine.chart.now - e.timestamp).days <= 1]
     abnormal = [e for e in ins.exames if e.status != "normal"]
-    plan = [m for m in ins.sugestoes_medicamentos if m.severidade in ("critico", "atencao")]
+    plan = [m for m in ins.sugestoes_medicamentos if m.severidade in ("critico", "atencao") and m.acao != "aceitar"]
     planned_meds = [m for m in ins.medicamentos if m.status == "planejado"]
     pending_protocol = [p for p in ins.protocolos if p.status in ("sem_registro", "pendente")]
     cids = [{"codigo": h.cid, "descricao": h.hipotese, "tipo": "hipotese", "refs": h.refs[:3]} for h in hyps] + [
@@ -927,6 +928,19 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     }
 
 
+def accepted_payload(ins: Insights) -> dict:
+    """O que o profissional aceitou ou deu como feito (a pseudonimização é aplicada em volta, em `run_note`)."""
+    return {
+        "alertas": [{"texto": a.texto, "refs": a.refs} for a in acoes.accepted_alerts(ins)],
+        "perguntas_feitas": [
+            {"pergunta": q.pergunta, "refs": q.refs} for q in ins.perguntas_abordadas if q.acao == "feita"
+        ],
+        "hipoteses": [
+            {"hipotese": h.hipotese, "cid": h.cid, "refs": h.refs} for h in ins.hipoteses if h.acao == "aceitar"
+        ],
+    }
+
+
 def run_note(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[str], language: str):
     variables = {
         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
@@ -943,6 +957,7 @@ def run_note(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[st
                 "alergias": [a.model_dump(include={"alergeno", "fonte", "refs"}) for a in ins.alergias],
                 "protocolos": [p.model_dump(include={"protocolo", "item", "status", "refs"}) for p in ins.protocolos],
                 "emocoes": [e.model_dump(include={"rotulo", "quem", "refs"}) for e in ins.emocoes],
+                "aceitos_pelo_profissional": accepted_payload(ins),
             }
         ),
         "transcricao": transcript_text(engine.segments, pseudo),
@@ -951,6 +966,7 @@ def run_note(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: set[st
         "consult_note", variables, ConsultNote, mock=lambda _v: mock_note(engine, ins, language), effort="medium"
     )
     note = result.output
+    acoes.inject_into_note(note, ins)  # o que o profissional aceitou entra na nota mesmo que o LLM tenha omitido
     v = RefValidator(valid)
     for name in (
         "queixa_principal",

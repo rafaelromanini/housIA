@@ -60,7 +60,7 @@ class Alert(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patient_id: Mapped[str] = mapped_column(String(64), index=True)
-    source: Mapped[str] = mapped_column(String(20))  # handoff | medrec | discharge | jornada
+    source: Mapped[str] = mapped_column(String(20))  # handoff | medrec | discharge | jornada | consulta
     severity: Mapped[str] = mapped_column(String(20))  # info | atencao | critico
     title: Mapped[str] = mapped_column(String(300))
     detail: Mapped[str] = mapped_column(Text, default="")
@@ -173,6 +173,9 @@ class Consultation(Base):
     segments_json: Mapped[list] = mapped_column(JsonType, default=list)
     insights_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     ai_meta_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    insight_actions_json: Mapped[dict | None] = mapped_column(
+        JsonType, nullable=True
+    )  # decisões sobre cada insight (#3)
     note_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     note_meta_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     extra_json: Mapped[dict] = mapped_column(JsonType, default=dict)

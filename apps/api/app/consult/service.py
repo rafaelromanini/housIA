@@ -11,9 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
 from app import clock
+from app.alerts.service import upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, relevancia, stt, summary
+from app.consult import acoes, ai, antiglosa, gs1, hipoteses, knowledge, opme, relevancia, stt, summary
 from app.consult import ask as copilot
 from app.consult import orders as order_drafts
 from app.consult.edicao import edit_percent
@@ -37,7 +38,7 @@ from app.consult.schemas import (
     fala_ref,
 )
 from app.consult.surgical import ORDER_SYSTEM
-from app.db.models import Consultation, MedrecRun, User
+from app.db.models import Alert, Consultation, MedrecRun, User
 from app.fhir_client.client import FhirSource
 from app.llm.client import LLMError
 from app.llm.pseudonymize import Pseudonymizer
@@ -129,9 +130,60 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
         merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
         ai.reconcile_ai_allergies(engine, merged)
         base = merged
-    result = hipoteses.apply(base, c.extra_json)
+    return _decided(c, base)
+
+
+def _decided(c: Consultation, ins: Insights) -> Insights:
+    """Decisão do profissional sobre cada insight reaplicada a cada análise; críticos vão ao módulo de alertas."""
+    result = hipoteses.apply(ins, c.extra_json)
     summary.mark_new(result, c.insights_json)
+    result.regras_ms = (c.insights_json or {}).get("regras_ms")
+    if c.kind == "cirurgia":
+        return result
+    acoes.apply(result, c.insight_actions_json, c.insights_json)
+    _sync_alerts(c, result)
     return result
+
+
+def _fhir_refs(refs: list[str]) -> list[str]:
+    return [r for r in refs if not r.startswith("Fala/")]
+
+
+def _sync_alerts(c: Consultation, ins: Insights) -> None:
+    """Cada alerta crítico da consulta vira Alert(source='consulta'), sem duplicar a cada fala (#3)."""
+    db = object_session(c)
+    if db is None or c.id is None or c.status != "em_andamento":
+        return
+    data = c.insight_actions_json or acoes.empty()
+    mapping = dict(data.get("alertas") or {})
+    seen: set[str] = set()
+    changed = False
+    for h in ins.alertas:
+        if h.severidade != "critico" or h.item_key in seen:
+            continue
+        seen.add(h.item_key)
+        refs = _fhir_refs(h.refs)
+        falas = sorted({int(r.split("/")[1]) for r in h.refs if r.startswith("Fala/")})
+        detail = f"Consulta #{c.id}" + (f", fala {falas[0]}" if falas else "")
+        alert = db.get(Alert, mapping.get(h.item_key)) if h.item_key in mapping else None
+        if alert is not None and alert.status in ("aberto", "reconhecido"):
+            alert.title, alert.detail, alert.source_refs, alert.severity = h.texto[:300], detail, refs, h.severidade
+        else:
+            alert = upsert_alert(
+                db,
+                patient_id=c.patient_id,
+                source="consulta",
+                severity=h.severidade,
+                title=h.texto,
+                detail=detail,
+                refs=[],
+                claimed=set(mapping.values()),
+            )
+            alert.source_refs = refs  # as fontes não entram no casamento: o título identifica o alerta da consulta
+            mapping[h.item_key] = alert.id
+            changed = True
+    if changed:
+        c.insight_actions_json = {**data, "alertas": mapping}
 
 
 def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
@@ -262,7 +314,9 @@ def append_segments(db: Session, fhir: FhirSource, user: User, cid: int, items: 
         segments.append(seg)
         new.append(seg)
     c.segments_json = [s.model_dump() for s in segments]
+    started = time.perf_counter()
     ins = _insights(c, record, events, ctx, segments)
+    ins.regras_ms = round((time.perf_counter() - started) * 1000)
     c.insights_json = ins.model_dump(mode="json")
     if c.kind == "cirurgia" and ins.relatorio_cirurgico and "prontidao_inicial" not in (c.extra_json or {}):
         # primeira leitura com ditado: base para medir quantas pendências foram resolvidas até o envio
@@ -378,6 +432,88 @@ def set_hypothesis_decision(
         {"patient_id": c.patient_id, "cid": hipoteses.key(code), "decisao": decision},
     )
     return {"insights": c.insights_json, "total": len(segments)}
+
+
+def apply_insight_action(
+    db: Session, fhir: FhirSource, user: User, cid: int, item_key: str, action: str, reason: str
+) -> dict:
+    """Aceitar, descartar (com motivo), marcar como feita / não se aplica ou fixar um insight; vale para o resto da
+    consulta. A ação sobre um alerta crítico atualiza o Alert correspondente (reconhecido ou descartado)."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O modo cirúrgico não tem insights para decidir item a item.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: os insights não podem mais ser alterados.")
+    if action not in acoes.ACTIONS:
+        raise HTTPException(422, "Ação inválida.")
+    if action == "descartar" and len(reason.strip()) < acoes.MIN_MOTIVO:
+        raise HTTPException(422, "Para descartar um insight, registre um motivo (mín. 10 caracteres).")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    found = acoes.find(_insights(c, record, events, ctx, segments), item_key)
+    if found is None:
+        raise HTTPException(422, "Esse item não aparece mais na análise.")
+    kind, item = found
+    if action == "feita" and kind != "pergunta":
+        raise HTTPException(422, "Só uma pergunta pode ser marcada como feita.")
+    label = acoes.label_of(kind, item)
+    c.insight_actions_json = acoes.record(
+        c.insight_actions_json, kind, item, action, reason, user.name, clock.now().isoformat(), label
+    )
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    _alert_follows_action(db, user, c, item_key, action, reason)
+    log_action(
+        db,
+        user,
+        "consulta.insight_acao",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "tipo": kind,
+            "acao": action,
+            "origem": getattr(item, "origem", "regra"),
+            "item": item_key,
+            "motivo": reason.strip() or None,
+        },
+    )
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
+ALERT_STATUS = {
+    "aceitar": "reconhecido",
+    "feita": "reconhecido",
+    "descartar": "descartado",
+    "nao_se_aplica": "descartado",
+}
+
+
+def _alert_follows_action(db: Session, user: User, c: Consultation, item_key: str, action: str, reason: str) -> None:
+    status = ALERT_STATUS.get(action)
+    alert_id = ((c.insight_actions_json or {}).get("alertas") or {}).get(item_key)
+    alert = db.get(Alert, alert_id) if alert_id and status else None
+    if alert is None or alert.status == status:
+        return
+    previous = alert.status
+    alert.status, alert.acted_by, alert.acted_at = status, user.id, clock.now()
+    justification = reason.strip() or ("Não se aplica ao paciente (consulta)." if status == "descartado" else None)
+    log_action(
+        db,
+        user,
+        f"alerta.{status}",
+        "alert",
+        alert.id,
+        {
+            "patient_id": alert.patient_id,
+            "de": previous,
+            "para": status,
+            "justificativa": justification,
+            "severidade": alert.severity,
+            "titulo": alert.title,
+            "origem": "consulta",
+        },
+        commit=False,
+    )
 
 
 # ---------- OPME: guia, consumo (etiqueta GS1) e faturamento ----------
@@ -729,8 +865,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         "descartados": merged.descartados,
         "saida": saida,
     }
-    final = hipoteses.apply(merged, c.extra_json)
-    summary.mark_new(final, c.insights_json)
+    final = _decided(c, merged)
     c.insights_json = final.model_dump(mode="json")
     log_action(
         db,
@@ -850,7 +985,11 @@ def _acceptance(c: Consultation) -> dict:
     for h in ins.hipoteses:
         hip[h.origem]["sugeridas"] += 1
         hip[h.origem]["aceitas"] += h.decisao in ("confirmada", "provisoria")
-    return {"aceite_perguntas": perguntas, "aceite_hipoteses": hip}
+    return {
+        "aceite_perguntas": perguntas,
+        "aceite_hipoteses": hip,
+        "aceite_insights": acoes.acceptance(c.insight_actions_json),
+    }
 
 
 def update_note(db: Session, user: User, cid: int, note: dict) -> dict:
