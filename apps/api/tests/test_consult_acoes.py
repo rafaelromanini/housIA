@@ -229,3 +229,40 @@ def test_new_badge_window_and_latency_chip_data(client, auth):
     fresh = [q for q in ins["perguntas"] if q["primeira_fala"] == ins["falas_analisadas"]]
     assert fresh  # a análise trouxe perguntas novas, e o selo vale por NEW_FOR falas
     assert acoes.NEW_FOR == 2 and all(q["primeira_fala"] > 0 for q in fresh)
+
+
+def test_discarded_critical_alert_does_not_hide_a_new_critical_alert(client, auth):
+    """Verificação adversarial: descartar um crítico não pode esconder outro crítico que surge depois."""
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(client, h, cid, SCRIPT)
+    glib = find(ins["alertas"], "Glibenclamida")
+    act(client, h, cid, glib["item_key"], "descartar", "Paciente já está em acompanhamento nefrológico")
+    before = {a.title for a in consult_alerts(status="aberto")}
+    ins = say(
+        client,
+        h,
+        cid,
+        [{"falante": "medico", "texto": "Vou passar amoxicilina 500 mg de oito em oito horas.", "t": 2000.0}],
+    )
+    novo = [a for a in ins["alertas"] if "Amoxicilina" in a["texto"] and a["severidade"] == "critico"]
+    assert novo and novo[0]["item_key"] != glib["item_key"]
+    assert not any("Glibenclamida" in a["texto"] and a["severidade"] == "critico" for a in ins["alertas"])
+    assert any("Amoxicilina" in a.title for a in consult_alerts(status="aberto"))
+    assert not any("Glibenclamida" in a.title for a in consult_alerts(status="aberto"))
+    assert {a.title for a in consult_alerts(status="aberto")} - before
+
+
+def test_discarded_critical_stays_discarded_when_same_alert_regenerates(client, auth):
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    ins = say(client, h, cid, SCRIPT)
+    ibu = find(ins["alertas"], "Ibuprofeno")
+    act(client, h, cid, ibu["item_key"], "descartar", "Paciente já suspendeu o ibuprofeno ontem")
+    n = len(consult_alerts())
+    for i in range(3):
+        say(client, h, cid, [{"falante": "paciente", "texto": "Tá bom.", "t": 3000.0 + i}])
+    assert len(consult_alerts()) == n
+    assert ibu["texto"][:300] not in [a.title for a in consult_alerts(status="aberto")], [
+        a.title for a in consult_alerts(status="aberto")
+    ]

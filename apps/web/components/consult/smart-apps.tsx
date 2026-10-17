@@ -485,8 +485,11 @@ export function SmartAppsPanel({
                       </span>
                     )}
                     {t.origem === "ia" && <Bot aria-label="sugerido pela IA" className="size-3.5" />}
+                    {t.fixado && <Pin aria-label="Fixada no topo" className="size-3.5" />}
+                    <NewBadge item={t} falas={ins.falas_analisadas} />
                   </span>
                   <SourceRefs patientId={pid} refs={t.refs} />
+                  <ItemActions item={t} label={t.rotulo} actions={["descartar"]} onAction={onInsightAction} />
                 </li>
               ))}
             </ul>
@@ -512,6 +515,8 @@ export function SmartAppsPanel({
                       {e.quem === "acompanhante" ? "acompanhante" : "paciente"} · intensidade {e.intensidade}
                     </span>
                     <OriginBadge origem={e.origem} />
+                    {e.fixado && <Pin aria-label="Fixada no topo" className="size-3.5" />}
+                    <NewBadge item={e} falas={ins.falas_analisadas} />
                   </div>
                   <p className="mt-1 italic">{e.trecho}</p>
                   <p className="mt-1">
@@ -519,6 +524,7 @@ export function SmartAppsPanel({
                     {e.abordagem}
                   </p>
                   <SourceRefs patientId={pid} refs={e.refs} />
+                  <ItemActions item={e} label={e.rotulo} actions={["descartar"]} onAction={onInsightAction} />
                 </li>
               ))}
             </ul>
