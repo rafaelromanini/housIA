@@ -294,3 +294,17 @@ def test_cenarios_de_demo_continuam_gerando_nota_com_modelo(client, auth):
         say(client, h, cid, script["falas"])
         nota = client.post(f"/consultations/{cid}/finish", headers=h).json()["nota"]
         assert nota["modelo"]["id"] == ("evolucao_internacao" if script["tipo"] == "visita" else "consulta_clinica")
+
+
+def test_secao_inventada_pelo_cliente_nao_e_guardada(client, auth):
+    h = auth("medico")
+    done = finish(client, h, especialidade="pediatria")
+    nota = done["nota"]
+    for s in nota["secoes"]:
+        s["texto"] = "Preenchido pelo profissional"
+    for k in ("queixa_principal", "avaliacao", "plano"):
+        nota[k]["texto"] = nota[k]["texto"] or "Registrado"
+    nota["secoes"].append({"key": "inventada", "texto": "x", "refs": ["Observation/nao-existe"]})
+    ok = client.put(f"/consultations/{done['id']}/note", json=nota, headers=h)
+    assert ok.status_code == 200, ok.text
+    assert "inventada" not in [s["key"] for s in ok.json()["nota"]["secoes"]]

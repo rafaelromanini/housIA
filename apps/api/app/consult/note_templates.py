@@ -166,10 +166,11 @@ def upgrade(note: dict | None, kind: str, specialty: str) -> dict | None:
 def complete_sections(current: Any, model: dict) -> list[dict]:
     have = {s["key"]: s for s in (current or []) if isinstance(s, dict) and "key" in s}
     wanted = dynamic_keys(model)
+    known = {s.key for t in templates().values() for s in t.secoes}  # chave inventada pelo cliente não é guardada
     kept = [
         {"key": k, "texto": str(have[k].get("texto", "")), "refs": list(have[k].get("refs", []))}
         for k in have
-        if k not in wanted
+        if k not in wanted and k in known
     ]
     # seções de outro modelo ficam guardadas (a troca não perde texto); as do modelo vêm antes, na ordem dele
     return [
