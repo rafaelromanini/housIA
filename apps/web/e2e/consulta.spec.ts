@@ -22,6 +22,20 @@ async function openFresh(page: Page, patientId: string) {
   await expect(start).toBeVisible();
 }
 
+/** Atesta a revisão e aprova; se o servidor pedir justificativa por pendência crítica aberta, justifica e envia. */
+async function approveAndSend(page: Page) {
+  await page.getByLabel(/Revisei e assumo a responsabilidade/).check();
+  await page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ }).click();
+  const justification = page.getByLabel(/Justificativa do envio com pendência crítica/);
+  const done = page.getByText(/Enviado ao prontuário|Envio automático desligado/).first();
+  await expect(justification.or(done)).toBeVisible();
+  if (await justification.isVisible()) {
+    await justification.fill("Risco avaliado e discutido com a paciente e a filha.");
+    await page.getByRole("button", { name: "Enviar com justificativa" }).click();
+  }
+  await expect(done).toBeVisible();
+}
+
 async function simulate(page: Page) {
   await page.getByRole("tab", { name: /Simular consulta/ }).click();
   await page.getByLabel("Velocidade").selectOption("8");
@@ -72,8 +86,38 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
   // painel "Fora da nota": cobertura calculada e botão para incluir a fala
   await expect(page.getByTestId("cobertura-nota")).toContainText(/\d+ de \d+ falas clínicas citadas/);
   await page.getByLabel("Plano").fill("Suspender ibuprofeno e glibenclamida; reduzir metformina; retorno em 2 semanas.");
-  await page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ }).click();
-  await expect(page.getByText(/Enviado ao prontuário|Envio automático desligado/).first()).toBeVisible();
+  await approveAndSend(page);
+});
+
+test("revisão segura: CID por autocomplete, orientação editada, atestação, envio e diff com o rascunho da IA", async ({ page }) => {
+  await login(page, "medico");
+  await openFresh(page, "cen6");
+  await page.getByRole("button", { name: "Iniciar", exact: true }).click();
+  await simulate(page);
+  await page.getByRole("button", { name: "Finalizar e gerar nota" }).click();
+  await expect(page.getByText("Nota da consulta para revisão")).toBeVisible();
+
+  // sem atestação o servidor não deixa copiar nem enviar: os botões ficam desligados
+  await expect(page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Copiar para o prontuário" })).toBeDisabled();
+
+  // CID: busca na tabela oficial e inclusão
+  await page.getByLabel(/Buscar CID-10/).fill("hipoglicemia");
+  await page.getByRole("button", { name: /^Adicionar CID E16/ }).first().click();
+  await expect(page.getByLabel("CID-10 da nota")).toContainText("E16");
+  // orientação ao paciente editada
+  const orientation = page.getByLabel("Orientação 1");
+  await orientation.fill("Oriente a filha a conferir a glicemia antes do café da manhã.");
+  // a cronologia vem aberta, com o evento de medicamento da fala 26
+  await expect(page.getByTestId("cronologia")).toContainText(/Iniciou diurético/);
+
+  await approveAndSend(page);
+
+  // diff objetivo: a orientação e o CID mudaram em relação ao rascunho da IA
+  await page.getByRole("button", { name: "Comparar com o rascunho da IA" }).click();
+  const diff = page.getByTestId("painel-diff");
+  await expect(diff).toContainText(/Editado em relação ao rascunho da IA/);
+  await expect(diff.getByText(/% editado/).first()).toBeVisible();
 });
 
 test("consulta com IA: descartar uma pergunta com motivo a faz sumir e ela não volta durante a simulação", async ({ page }) => {
@@ -116,6 +160,7 @@ test("centro cirúrgico: relatório por ditado com pendências anti-glosa e conc
   await page.getByRole("button", { name: "Finalizar relatório" }).click();
   await expect(page.getByText("Relatório cirúrgico para revisão")).toBeVisible();
   // pendência crítica de faturamento: o envio pede justificativa (trava suave, auditada)
+  await page.getByLabel(/Revisei e assumo a responsabilidade/).check();
   await page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ }).click();
   await expect(page.getByLabel(/Justificativa do envio com pendência crítica/)).toBeVisible();
 });

@@ -24,7 +24,7 @@ from app.db.models import AuditLog
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
 from app.timeline.record import PatientRecord
-from tests.test_consult import start
+from tests.test_consult import approve, start
 
 
 @pytest.fixture(autouse=True)
@@ -171,14 +171,20 @@ def test_envio_cria_service_request_e_medication_request_draft_no_fhir_local(cli
     assert client.post(f"/consultations/{cid}/finish", headers=h).status_code == 200
 
     # EHR_WRITEBACK desligado: o Bundle exporta os rascunhos assinados (e só eles)
-    export = client.post(f"/consultations/{cid}/send", headers=h).json()
+    approve(client, h, cid)
+    export = client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco avaliado e discutido com a paciente."}, headers=h
+    ).json()
     assert export["enviado"] is False and len(export["pedidos"]) == 3
     assert export["bundle"]["type"] == "transaction" and len(export["bundle"]["entry"]) == 4  # nota + 3 pedidos
     assert "Pedidos e prescrições assinados" in export["texto"] and "Dipirona" in export["texto"]
 
     monkeypatch.setattr(consult_service.get_settings(), "ehr_writeback", True)
     before = {rt: set(store.resources[rt]) for rt in ("ServiceRequest", "MedicationRequest")}
-    sent = client.post(f"/consultations/{cid}/send", headers=h).json()
+    approve(client, h, cid)
+    sent = client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco avaliado e discutido com a paciente."}, headers=h
+    ).json()
     try:
         assert sent["enviado"] is True
         made = [r for r in sent["pedidos"]]
@@ -271,7 +277,10 @@ def test_pedidos_nao_assinados_ou_recusados_nao_vao_para_o_prontuario(client, au
     client.post(f"/consultations/{cid}/finish", headers=h)
     monkeypatch.setattr(consult_service.get_settings(), "ehr_writeback", True)
     before = set(store.resources["ServiceRequest"])
-    sent = client.post(f"/consultations/{cid}/send", headers=h).json()
+    approve(client, h, cid)
+    sent = client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco avaliado e discutido com a paciente."}, headers=h
+    ).json()
     try:
         assert len(sent["pedidos"]) == 1
         sr = store.resources["ServiceRequest"][sent["pedidos"][0].split("/")[1]]
@@ -572,7 +581,10 @@ def test_medicamentos_do_prontuario_mostram_a_prescricao_proposta(client, auth, 
     client.post(f"/consultations/{cid}/finish", headers=h)
     monkeypatch.setattr(consult_service.get_settings(), "ehr_writeback", True)
     before = set(store.resources["MedicationRequest"])
-    client.post(f"/consultations/{cid}/send", headers=h)
+    approve(client, h, cid)
+    client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco avaliado e discutido com a paciente."}, headers=h
+    )
     try:
         consult_service.clear_chart_cache()
         again = start(client, h)

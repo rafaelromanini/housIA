@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import extract, knowledge, orders, reminders, semiology, summary
+from app.consult import cronologia, extract, knowledge, orders, reminders, semiology, summary
 from app.consult.chart import ChartView, fmt_date
 from app.consult.cid import screen
 from app.consult.schemas import (
@@ -1213,6 +1213,11 @@ class Engine:
         )
 
     # ---------- tudo junto ----------
+    def timeline_events(self, ins: Insights) -> list[dict]:
+        """Cronologia viva: eventos tipados (queixa, negativa, achado, medicamento, exame, orientação, retorno) a cada
+        fala, com Fala/N, falante e mm:ss (#15). Só regras: vale com ou sem IA."""
+        return cronologia.build(self.segments, ins)
+
     def run(self) -> Insights:
         if self.kind == "cirurgia":
             report = surgical_report(

@@ -5,6 +5,7 @@ CID entra nos CID da nota; descartada vira negativa pertinente na Avaliação e 
 `extra_json["hipoteses"]` (CID → decisão), como a queixa principal fixada, e é reaplicada a cada análise.
 """
 
+from app.consult import notas
 from app.consult.schemas import Insights
 from app.reference import icd_entry, norm_icd
 
@@ -80,14 +81,13 @@ def apply_to_note(note: dict, ins: Insights) -> dict:
     note = note | {"cids": list(kept.values()), "condicoes_propostas": proposed_conditions(ins)}
     ruled_out = [h for h in ins.hipoteses if h.decisao == "descartada"]
     if ruled_out:
-        avaliacao = dict(note.get("avaliacao") or {"texto": "", "refs": []})
         negatives = "; ".join(
             f"{h.hipotese} ({h.cid})" + (f" — {h.decisao_motivo}" if h.decisao_motivo else "") for h in ruled_out
         )
         text = f"Hipóteses afastadas pelo profissional: {negatives}."
-        avaliacao["texto"] = (avaliacao.get("texto", "").rstrip() + " " + text).strip()
-        avaliacao["refs"] = list(
-            dict.fromkeys([*avaliacao.get("refs", []), *[r for h in ruled_out for r in h.refs[:2]]])
+        refs = [r for h in ruled_out for r in h.refs[:2]]
+        avaliacao = notas.append_text(
+            note.get("avaliacao") or {"texto": "", "refs": []}, text, refs, "regra" if refs else "profissional", " "
         )
         note["avaliacao"] = avaliacao
     return note

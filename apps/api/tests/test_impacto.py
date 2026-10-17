@@ -57,9 +57,11 @@ def consulta(client, h, t_start, t_finish, t_revise, t_send, edit: str | None):
     clock.freeze(t_revise)
     if edit:
         note["plano"]["texto"] = edit
-    assert client.put(f"/consultations/{cid}/note", json=note, headers=h).status_code == 200
+    assert client.put(f"/consultations/{cid}/note", json=note | {"atestacao": True}, headers=h).status_code == 200
     clock.freeze(t_send)
-    sent = client.post(f"/consultations/{cid}/send", headers=h).json()
+    sent = client.post(
+        f"/consultations/{cid}/send", json={"justificativa": "Risco avaliado e discutido com a paciente."}, headers=h
+    ).json()
     assert sent["enviado"] is True
     return cid
 

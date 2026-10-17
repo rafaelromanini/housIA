@@ -17,6 +17,7 @@ from app.consult import surgical
 from app.consult.knowledge import SPECIALTIES, demo_scripts, prophylaxis
 from app.consult.schemas import Segment
 from app.consult.templates import BaseTemplate, ProcedureTemplate, problems, surgical_templates
+from tests.test_consult import approve
 
 SURGICAL_SPECIALTIES = {
     "ortopedia",
@@ -275,12 +276,14 @@ def test_control_xray_is_proposed_and_becomes_pending_in_handoff_and_discharge(c
 
     done = client.post(f"/consultations/{c['id']}/finish", headers=h).json()
     assert done["nota"]["relatorio_cirurgico"]["pedidos"][0]["descricao"] == order["descricao"]
+    approve(client, h, c["id"])
     export = client.get(f"/consultations/{c['id']}/export", headers=h).json()
     assert export["pedidos"][0]["intent"] == "proposal" and "Verificações perioperatórias" in export["texto"]
 
     monkeypatch.setattr(consult_service.get_settings(), "ehr_writeback", True)
     created: list[tuple[str, str]] = []
     try:
+        approve(client, h, c["id"])
         sent = client.post(f"/consultations/{c['id']}/send", headers=h).json()
         assert sent["enviado"] is True and len(sent["pedidos"]) == 1
         created = [tuple(r.split("/")) for r in [sent["fhir_ref"], *sent["pedidos"]]]

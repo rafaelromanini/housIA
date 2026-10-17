@@ -41,6 +41,26 @@ def say(client, h, cid, falas):
     return res.json()["insights"]
 
 
+def approve(client, h, cid):
+    """Revisa e atesta a nota como ela está: o servidor só exporta e envia nota revisada e atestada (#14)."""
+    got = client.get(f"/consultations/{cid}", headers=h).json()
+    if got["status"] == "enviada":  # já no prontuário: nada a revisar
+        return got
+    res = client.put(f"/consultations/{cid}/note", json=got["nota"] | {"atestacao": True}, headers=h)
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def accept_critical(client, h, cid, ins):
+    """O profissional aceita os alertas críticos de medicamento na consulta (senão o envio pede justificativa)."""
+    for m in ins["sugestoes_medicamentos"]:
+        if m["severidade"] == "critico":
+            res = client.post(
+                f"/consultations/{cid}/insight-actions", json={"item_key": m["item_key"], "acao": "aceitar"}, headers=h
+            )
+            assert res.status_code == 200, res.text
+
+
 def all_refs(obj) -> list[str]:
     found = []
     if isinstance(obj, dict):
@@ -135,7 +155,7 @@ def test_speaker_is_inferred_when_capture_does_not_say(client, auth):
 def test_finish_review_and_send_to_ehr(client, auth, monkeypatch):
     h = auth("medico")
     cid = start(client, h)["id"]
-    say(client, h, cid, SCRIPT)
+    accept_critical(client, h, cid, say(client, h, cid, SCRIPT))
     done = client.post(f"/consultations/{cid}/finish", headers=h)
     assert done.status_code == 200, done.text
     note = done.json()["nota"]
@@ -154,7 +174,10 @@ def test_finish_review_and_send_to_ehr(client, auth, monkeypatch):
     assert bad.status_code == 422
     note["plano"]["texto"] = "Suspender ibuprofeno e glibenclamida; retorno em 2 semanas."
     reviewed = client.put(f"/consultations/{cid}/note", json=note, headers=h).json()
-    assert reviewed["nota_meta"]["revisada_por"]
+    assert reviewed["nota_meta"]["revisada_por"] and reviewed["nota_meta"]["atestacao"] is False
+    assert client.post(f"/consultations/{cid}/send", headers=h).status_code == 409  # revisou, mas não atestou
+    reviewed = client.put(f"/consultations/{cid}/note", json=note | {"atestacao": True}, headers=h).json()
+    assert reviewed["nota_meta"]["atestacao"] is True
 
     export = client.post(f"/consultations/{cid}/send", headers=h).json()
     assert export["enviado"] is False and export["recurso"]["resourceType"] == "DocumentReference"
@@ -363,6 +386,6 @@ def test_export_reidentifies_tokens_sent_to_the_llm(client, auth):
     say(client, h, cid, SCRIPT[:6])
     note = client.post(f"/consultations/{cid}/finish", headers=h).json()["nota"]
     note["hda"]["texto"] = "[PACIENTE] veio com a filha ([FAMILIAR]) relatando tontura."
-    client.put(f"/consultations/{cid}/note", json=note, headers=h)
+    client.put(f"/consultations/{cid}/note", json=note | {"atestacao": True}, headers=h)
     text = client.get(f"/consultations/{cid}/export", headers=h).json()["texto"]
     assert "Joana Ferreira Lima veio com a filha (Fernanda Lima Duarte)" in text and "[PACIENTE]" not in text

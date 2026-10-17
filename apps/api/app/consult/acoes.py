@@ -15,7 +15,7 @@ import hashlib
 from collections.abc import Iterator
 from typing import Any
 
-from app.consult.schemas import ConsultNote, Insights, NoteSection
+from app.consult.schemas import ConsultNote, Frase, Insights, NoteSection
 from app.consult.text import norm
 
 ACTIONS = ("aceitar", "descartar", "feita", "nao_se_aplica", "fixar")
@@ -205,6 +205,8 @@ def _append(section: NoteSection, line: str, refs: list[str]) -> None:
     empty_text = not text or text.lower().startswith("sem registro")
     section.texto = line if empty_text else f"{text.rstrip('.;')}; {line}"
     section.refs = list(dict.fromkeys([*section.refs, *refs]))
+    if refs:  # o item aceito pelo profissional entra com a fonte e a origem "regra"
+        section.frases = [*section.frases, Frase(texto=line, refs=list(dict.fromkeys(refs)), origem="regra")]
 
 
 def accepted_alerts(ins: Insights) -> list:

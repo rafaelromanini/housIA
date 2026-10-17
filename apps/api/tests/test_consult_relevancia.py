@@ -146,7 +146,7 @@ def test_ai_can_promote_a_social_utterance_and_invalid_labels_are_ignored():
 def test_ai_prompts_carry_the_relevance_instructions():
     conversa, note = load_prompt("consult_live_conversa"), load_prompt("consult_note")
     assert conversa.version == "1.5.0" and "relevancia" in conversa.system
-    assert note.version == "1.3.0" and "conversa social" in note.system
+    assert note.version == "1.4.0" and "conversa social" in note.system
     assert "relevancia" in consult_ai.ConversaOutput.model_fields
     assert set(consult_ai.AiRelevancia.model_fields) == {"n", "relevancia"}
 

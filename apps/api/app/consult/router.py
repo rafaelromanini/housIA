@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
-from app.consult import antiglosa, knowledge, opme, service, stt
+from app.consult import antiglosa, cid, knowledge, opme, service, stt
 from app.consult import ask as copilot
 from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
@@ -40,6 +40,12 @@ def config(_: User = Depends(get_current_user)) -> dict:
 def opme_catalog(q: str = Query("", max_length=80), _: User = Depends(clinician)) -> list[dict]:
     """Autocomplete do catálogo de OPME (demonstração: códigos DEMO-OPME-*) por código, descrição ou nome dito."""
     return opme.search(q)
+
+
+@router.get("/consult/cid10")
+def cid10_search(q: str = Query("", max_length=80), _: User = Depends(clinician)) -> list[dict]:
+    """Autocomplete da CID-10 oficial (DATASUS) por código ou descrição, para incluir ou trocar o CID na revisão."""
+    return cid.search(q)
 
 
 @router.get("/consult/convenios")
@@ -341,10 +347,32 @@ def finish(
 
 @router.put("/consultations/{cid}/note")
 def update_note(
-    cid: int, note: dict = Body(...), db: Session = Depends(get_db), user: User = Depends(clinician)
+    cid: int,
+    note: dict = Body(...),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
 ) -> dict:
-    """Revisão/edição da nota pelo profissional (obrigatória antes do envio)."""
-    return service.update_note(db, user, cid, note)
+    """Revisão/edição da nota pelo profissional (obrigatória antes do envio). Com `"atestacao": true` no corpo, o
+    profissional declara "Revisei e assumo a responsabilidade"; sem isso a nota não sai (409 em /send e /export)."""
+    return service.update_note(db, user, cid, note, fhir)
+
+
+@router.get("/consultations/{cid}/note/diff")
+def note_diff(cid: int, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    """Quanto o profissional mudou, seção a seção, em relação ao rascunho que a IA gerou (que fica guardado intacto)."""
+    return service.note_diff(db, user, cid)
+
+
+@router.post("/consultations/{cid}/surgical/recompute")
+def recompute_surgical(
+    cid: int,
+    note: dict = Body(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(clinician),
+) -> dict:
+    """Recalcula OPME, pendências e prontidão do relatório cirúrgico editado na revisão, sem salvar a nota."""
+    return service.recompute_surgical(db, user, cid, note)
 
 
 class SendIn(BaseModel):

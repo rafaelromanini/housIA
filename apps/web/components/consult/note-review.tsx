@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CircleCheck, ClipboardCopy, Download, FileCheck2, Loader2, Send, ShieldAlert, Trash2 } from "lucide-react";
+import { CircleCheck, ClipboardCopy, Download, FileCheck2, GitCompareArrows, Loader2, Plus, RefreshCw, Send, ShieldAlert, Trash2 } from "lucide-react";
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { FeedbackButtons } from "@/components/ai/feedback";
@@ -11,15 +11,19 @@ import { SourceRefs } from "@/components/source-ref";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CidEditor } from "@/components/consult/cid-editor";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
+import { Transcript } from "@/components/consult/transcript";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
-import { api, ApiError, type BillingItem, type ConsultNote, type Consultation, type NoteCoverage, type OpmeLine, type SurgicalReport } from "@/lib/api";
+import { api, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type OpmeLine, type SurgicalReport } from "@/lib/api";
+import { focusFala } from "@/components/source-ref";
 import { fmtDateTime } from "@/lib/format";
 
 const SECTIONS: { key: keyof ConsultNote; label: string; soap: string }[] = [
@@ -146,16 +150,102 @@ type ExportOut = {
   bundle?: Record<string, unknown> | null;
 };
 
-type Blocked = { mensagem: string; pendencias: BillingItem[] };
+/** Mínimo de caracteres da justificativa: pendência de faturamento (cirurgia) 15; pendência crítica de segurança 10. */
+const MIN_JUSTIFICATION = { prontidao_critica: 15, pendencia_critica: 10 } as const;
+type BlockCode = keyof typeof MIN_JUSTIFICATION;
+type Blocked = { codigo: BlockCode; mensagem: string; pendencias: { texto: string; fonte?: string; refs?: string[] }[] };
 
-/** 409 da trava de envio: pendência crítica de faturamento sem justificativa. */
+/** 409 da trava de envio: pendência crítica (faturamento ou segurança) sem justificativa. */
 function blockedBy(e: unknown): Blocked | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null;
-  const detail = (e.body as { detail?: { codigo?: string; mensagem?: string; pendencias?: BillingItem[] } } | null)?.detail;
-  return detail?.codigo === "prontidao_critica" ? { mensagem: detail.mensagem ?? "", pendencias: detail.pendencias ?? [] } : null;
+  const detail = (e.body as { detail?: { codigo?: string; mensagem?: string; pendencias?: Blocked["pendencias"] } } | null)?.detail;
+  if (detail?.codigo !== "prontidao_critica" && detail?.codigo !== "pendencia_critica") return null;
+  return { codigo: detail.codigo, mensagem: detail.mensagem ?? "", pendencias: detail.pendencias ?? [] };
 }
 
-/** Revisão obrigatória: o profissional edita, aprova e só então a nota vai para o prontuário. */
+const PLACEHOLDER = /^sem registro na consulta/i;
+const ORIGEM_LABEL = { ia: "IA", regra: "regra", profissional: "profissional" } as const;
+
+/** Seção sem nenhuma ref (nem nas frases) e com texto: o profissional vê o aviso "sem fonte" antes de assinar. */
+function semFonte(section: NoteSection): boolean {
+  const text = section.texto.trim();
+  if (!text || PLACEHOLDER.test(text)) return false;
+  return section.refs.length === 0 && !(section.frases ?? []).some((f) => f.refs.length > 0);
+}
+
+/** Frases de uma seção com a fonte de cada uma: clicar leva até a fala citada na transcrição. */
+function SentenceSources({
+  section,
+  patientId,
+  onPick,
+}: {
+  section: NoteSection;
+  patientId: string;
+  onPick: (refs: string[]) => void;
+}) {
+  const frases = section.frases ?? [];
+  if (frases.length === 0) return null;
+  return (
+    <details className="text-xs">
+      <summary className="min-h-9 cursor-pointer text-muted-foreground">Fonte de cada frase ({frases.length})</summary>
+      <ul className="mt-1 space-y-1">
+        {frases.map((f, i) => (
+          <li key={i} className="flex flex-wrap items-start gap-2 rounded-md bg-secondary/40 p-1.5">
+            <Badge variant={f.origem === "profissional" ? "ok" : f.origem === "ia" ? "ai" : "outline"} className="text-[10px]">
+              {ORIGEM_LABEL[f.origem]}
+            </Badge>
+            <button
+              type="button"
+              className="min-w-0 flex-1 text-left text-sm underline-offset-2 hover:underline"
+              onClick={() => onPick(f.refs)}
+              aria-label={`Destacar a fonte da frase: ${f.texto.slice(0, 60)}`}
+            >
+              {f.texto}
+            </button>
+            {f.refs.length > 0 ? <SourceRefs patientId={patientId} refs={f.refs} /> : <span className="text-muted-foreground">sem ref (escrita pelo profissional)</span>}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** Quanto o profissional mudou em cada seção em relação ao rascunho da IA (a prova da supervisão humana). */
+function DiffPanel({ diff }: { diff: NoteDiff }) {
+  return (
+    <section aria-label="Comparação com o rascunho da IA" className="space-y-2 rounded-md border p-3" data-testid="painel-diff">
+      <p className="text-sm font-bold">
+        Editado em relação ao rascunho da IA: <span className="tabular-nums">{diff.editado_pct}%</span> ({diff.palavras_alteradas} palavra(s))
+      </p>
+      <ul className="space-y-1 text-sm">
+        {diff.secoes.map((d) => (
+          <li key={d.secao}>
+            <details>
+              <summary className="flex min-h-9 cursor-pointer flex-wrap items-center gap-2">
+                <span className="font-bold">{d.rotulo}</span>
+                <Badge variant={d.pct_editado > 0 ? "atencao" : "outline"} className="tabular-nums">
+                  {d.pct_editado}% editado
+                </Badge>
+              </summary>
+              <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                <p className="rounded bg-secondary/50 p-2">
+                  <span className="block text-xs font-bold text-muted-foreground">Rascunho da IA</span>
+                  {d.antes || "—"}
+                </p>
+                <p className="rounded bg-secondary/50 p-2">
+                  <span className="block text-xs font-bold text-muted-foreground">Nota revisada</span>
+                  {d.depois || "—"}
+                </p>
+              </div>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Revisão obrigatória: o profissional edita, atesta e só então a nota vai para o prontuário (o servidor confere). */
 export function NoteReview({
   consultation: c,
   onChange,
@@ -169,53 +259,101 @@ export function NoteReview({
   const r = (t: string) => reidentify(t, patient.nome);
   const surgical = c.tipo === "cirurgia";
   const [draft, setDraft] = useState(() => structuredClone(c.nota) as Record<string, unknown>);
-  const [busy, setBusy] = useState<"save" | "send" | "copy" | "download" | null>(null);
+  const [busy, setBusy] = useState<"save" | "send" | "copy" | "download" | "recompute" | "diff" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sent = c.status === "enviada";
   const [blocked, setBlocked] = useState<Blocked | null>(null);
   const [justification, setJustification] = useState("");
+  const [attested, setAttested] = useState(Boolean(c.nota_meta?.atestacao));
+  const [diff, setDiff] = useState<NoteDiff | null>(null);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   const note = draft as unknown as ConsultNote;
   const report = (draft as { relatorio_cirurgico?: SurgicalReport }).relatorio_cirurgico;
+  // aprovada no servidor = revisada + atestada, e o que está na tela é o que foi salvo (copiar/baixar usam o servidor)
+  const approved = Boolean(c.nota_meta?.revisada_por && c.nota_meta?.atestacao);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(c.nota);
 
   function setSection(key: keyof ConsultNote, texto: string) {
     setDraft((d) => ({ ...d, [key]: { ...(d[key] as object), texto } }));
   }
-  function setOpme(code: string, patch: Partial<OpmeLine> | null) {
+  function patchReport(fn: (rep: SurgicalReport) => void) {
     setDraft((d) => {
       const rep = structuredClone((d as { relatorio_cirurgico: SurgicalReport }).relatorio_cirurgico);
-      rep.opme = patch === null ? rep.opme.filter((o) => o.codigo !== code) : rep.opme.map((o) => (o.codigo === code ? { ...o, ...patch } : o));
+      fn(rep);
       return { ...d, relatorio_cirurgico: rep };
+    });
+  }
+  function setOpme(code: string, patch: Partial<OpmeLine> | null) {
+    patchReport((rep) => {
+      rep.opme = patch === null ? rep.opme.filter((o) => o.codigo !== code) : rep.opme.map((o) => (o.codigo === code ? { ...o, ...patch } : o));
     });
   }
   function setField(i: number, texto: string) {
-    setDraft((d) => {
-      const rep = structuredClone((d as { relatorio_cirurgico: SurgicalReport }).relatorio_cirurgico);
+    patchReport((rep) => {
       rep.campos[i].texto = texto;
-      return { ...d, relatorio_cirurgico: rep };
     });
   }
+  function setList<K extends "orientacoes_paciente" | "cronologia">(key: K, items: ConsultNote[K]) {
+    setDraft((d) => ({ ...d, [key]: items }));
+  }
 
-  async function save(): Promise<Consultation | null> {
+  /** Clicar numa frase leva até a fala na transcrição (aberta aqui mesmo). */
+  function pickSource(refs: string[]) {
+    const falas = refs.filter((x) => x.startsWith("Fala/")).map((x) => Number(x.split("/")[1]));
+    if (falas.length === 0) return;
+    setTranscriptOpen(true);
+    window.setTimeout(() => focusFala(falas[0]), 80);
+  }
+
+  async function save(attest = attested): Promise<Consultation | null> {
     setBusy("save");
     setError(null);
     try {
-      const updated = await api<Consultation>(`/consultations/${c.id}/note`, { method: "PUT", json: draft });
+      const updated = await api<Consultation>(`/consultations/${c.id}/note`, { method: "PUT", json: { ...draft, atestacao: attest } });
       onChange(updated);
-      // o servidor recalcula a conciliação de OPME, as pendências e a prontidão: o rascunho mostra o que ele devolveu
-      const saved = updated.nota && "relatorio_cirurgico" in updated.nota ? updated.nota.relatorio_cirurgico : undefined;
-      if (saved) {
-        setDraft((d) => {
-          const rep = (d as { relatorio_cirurgico?: SurgicalReport }).relatorio_cirurgico;
-          return rep ? { ...d, relatorio_cirurgico: { ...rep, opme: saved.opme, pendencias: saved.pendencias, prontidao: saved.prontidao } } : d;
-        });
-      }
-      setMessage("Revisão salva.");
+      // o servidor recalcula conciliação de OPME, pendências, prontidão e a origem das frases: o rascunho mostra o que ele devolveu
+      if (updated.nota) setDraft(structuredClone(updated.nota) as Record<string, unknown>);
+      setMessage(attest ? "Revisão salva e atestada." : "Revisão salva (sem atestação: ainda não pode enviar).");
       return updated;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao salvar");
       return null;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Recalcula OPME, pendências e prontidão do relatório cirúrgico editado (não salva a nota). */
+  async function recompute() {
+    setBusy("recompute");
+    setError(null);
+    try {
+      const out = await api<{ relatorio_cirurgico: SurgicalReport }>(`/consultations/${c.id}/surgical/recompute`, {
+        method: "POST",
+        json: { relatorio_cirurgico: report },
+      });
+      patchReport((rep) => {
+        rep.opme = out.relatorio_cirurgico.opme;
+        rep.pendencias = out.relatorio_cirurgico.pendencias;
+        rep.prontidao = out.relatorio_cirurgico.prontidao;
+      });
+      setMessage("Pendências e prontidão recalculadas com o que está na tela.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível recalcular");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function loadDiff() {
+    setBusy("diff");
+    setError(null);
+    try {
+      setDiff(await api<NoteDiff>(`/consultations/${c.id}/note/diff`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível comparar");
     } finally {
       setBusy(null);
     }
@@ -230,8 +368,9 @@ export function NoteReview({
         { method: "POST", json: { n, destino } },
       );
       setDraft((d) => (destino === "pendencia" ? { ...d, pendencias: out.nota.pendencias } : { ...d, [destino]: out.nota[destino] }));
-      onChange({ ...c, nota: out.nota as unknown as Consultation["nota"], cobertura: out.cobertura });
-      setMessage(`Fala ${n} incluída na nota.`);
+      onChange({ ...c, nota: out.nota as unknown as Consultation["nota"], cobertura: out.cobertura, nota_meta: c.nota_meta ? { ...c.nota_meta, atestacao: false } : c.nota_meta });
+      setAttested(false);
+      setMessage(`Fala ${n} incluída na nota. Atestar de novo ao salvar a revisão.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Não foi possível incluir a fala");
     }
@@ -241,10 +380,11 @@ export function NoteReview({
     return api<ExportOut>(`/consultations/${c.id}/export`);
   }
 
+  // copiar e baixar leem a nota JÁ aprovada no servidor: não salvam nada por baixo (salvar é aprovar)
   async function copy() {
     setBusy("copy");
+    setError(null);
     try {
-      if (!sent && !(await save())) return;
       const out = await exportOut();
       await navigator.clipboard.writeText(out.texto);
       setMessage("Texto copiado: cole no prontuário.");
@@ -257,8 +397,8 @@ export function NoteReview({
 
   async function download() {
     setBusy("download");
+    setError(null);
     try {
-      if (!sent && !(await save())) return;
       const out = await exportOut();
       // cirurgia: Bundle de transação (relatório, pedidos, implantes, Procedure e Claim em rascunho);
       // com pedidos propostos e sem Bundle, uma coleção: relatório + ServiceRequest(s)
@@ -281,7 +421,7 @@ export function NoteReview({
   }
 
   async function send(withJustification = false) {
-    if (!(await save())) return;
+    if (!(await save(true))) return;
     setBusy("send");
     setError(null);
     try {
@@ -300,6 +440,8 @@ export function NoteReview({
       setBusy(null);
     }
   }
+
+  const minJustification = blocked ? MIN_JUSTIFICATION[blocked.codigo] : 10;
 
   return (
     <Card>
@@ -325,6 +467,12 @@ export function NoteReview({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {c.nota_meta?.aviso && (
+          <Alert variant="atencao" data-testid="aviso-ia-indisponivel">
+            <ShieldAlert aria-hidden />
+            {c.nota_meta.aviso}
+          </Alert>
+        )}
         {sent && c.fhir_ref && (
           <Alert variant="ok">
             <CircleCheck aria-hidden />
@@ -359,10 +507,8 @@ export function NoteReview({
                           size="sm"
                           aria-label={`Retirar o pedido: ${pedido.descricao}`}
                           onClick={() =>
-                            setDraft((d) => {
-                              const rep = structuredClone((d as { relatorio_cirurgico: SurgicalReport }).relatorio_cirurgico);
+                            patchReport((rep) => {
                               rep.pedidos = (rep.pedidos ?? []).filter((_, j) => j !== i);
-                              return { ...d, relatorio_cirurgico: rep };
                             })
                           }
                         >
@@ -374,9 +520,7 @@ export function NoteReview({
                 </ul>
               </div>
             )}
-            {c.nota && "relatorio_cirurgico" in c.nota && c.nota.relatorio_cirurgico?.prontidao && (
-              <ReadinessCard readiness={c.nota.relatorio_cirurgico.prontidao} patientId={patient.id} />
-            )}
+            {report.prontidao && <ReadinessCard readiness={report.prontidao} patientId={patient.id} />}
             {report.opme.length > 0 && (
               <fieldset className="rounded-md border p-3" disabled={sent}>
                 <legend className="px-1 text-sm font-bold">OPME e materiais (editável: o servidor mantém guia e etiquetas)</legend>
@@ -439,19 +583,53 @@ export function NoteReview({
                   className="min-h-16"
                   placeholder={f.obrigatorio ? "Obrigatório — não foi ditado" : "Não ditado"}
                 />
+                {f.texto.trim() !== "" && f.refs.length === 0 && (
+                  <Badge variant="atencao" className="text-[11px]">
+                    sem fonte
+                  </Badge>
+                )}
                 <SourceRefs patientId={patient.id} refs={f.refs} />
               </div>
             ))}
+            <CidEditor cids={report.cids} disabled={sent} reid={r} onChange={(cids) => patchReport((rep) => { rep.cids = cids; })} />
+            <fieldset className="space-y-2 rounded-md border p-3" disabled={sent}>
+              <legend className="px-1 text-sm font-bold">Pendências do relatório (editáveis)</legend>
+              {report.pendencias.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma pendência.</p>}
+              <ul className="space-y-2">
+                {report.pendencias.map((p, i) => (
+                  <li key={i} className="flex flex-wrap items-start gap-2 text-sm">
+                    <Badge variant={p.severidade === "critico" ? "critico" : p.severidade === "atencao" ? "atencao" : "info"}>{p.severidade}</Badge>
+                    <Textarea
+                      aria-label={`Pendência ${i + 1}`}
+                      value={p.texto}
+                      className="min-h-11 flex-1"
+                      onChange={(e) => patchReport((rep) => { rep.pendencias[i].texto = e.target.value; })}
+                    />
+                    <Button type="button" variant="ghost" size="sm" aria-label={`Retirar a pendência ${i + 1}`} onClick={() => patchReport((rep) => { rep.pendencias = rep.pendencias.filter((_, j) => j !== i); })}>
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <Button type="button" variant="outline" size="sm" onClick={() => void recompute()} disabled={busy !== null}>
+                {busy === "recompute" ? <Loader2 aria-hidden className="animate-spin" /> : <RefreshCw aria-hidden />} Recalcular pendências e prontidão
+              </Button>
+            </fieldset>
           </div>
         ) : (
           <div className="space-y-3">
             {SECTIONS.map(({ key, label, soap }) => {
-              const section = note[key] as { texto: string; refs: string[] };
+              const section = note[key] as NoteSection;
               return (
                 <div key={key} className="space-y-1">
                   <Label htmlFor={`sec-${key}`} className="flex items-center gap-2">
                     <span className="rounded bg-secondary px-1.5 font-mono text-xs">{soap}</span>
                     {label}
+                    {semFonte(section) && (
+                      <Badge variant="atencao" className="text-[11px]" data-testid={`sem-fonte-${key}`}>
+                        sem fonte
+                      </Badge>
+                    )}
                   </Label>
                   <Textarea
                     id={`sec-${key}`}
@@ -461,33 +639,12 @@ export function NoteReview({
                     className="min-h-16"
                   />
                   <SourceRefs patientId={patient.id} refs={section.refs} />
+                  <SentenceSources section={section} patientId={patient.id} onPick={pickSource} />
                 </div>
               );
             })}
 
-            <div>
-              <p className="text-sm font-bold">CID-10 sugeridos</p>
-              <ul className="mt-1 flex flex-wrap gap-1.5">
-                {note.cids.map((cid, i) => (
-                  <li key={cid.codigo + i}>
-                    <Badge variant={cid.tipo === "hipotese" ? "ai" : "outline"} className="gap-1.5">
-                      <span className="font-mono">{cid.codigo}</span> {r(cid.descricao)}
-                      <span className="text-[10px] uppercase">{cid.tipo}</span>
-                      {!sent && (
-                        <button
-                          type="button"
-                          aria-label={`Remover CID ${cid.codigo}`}
-                          className="ml-0.5 rounded p-0.5 hover:bg-muted"
-                          onClick={() => setDraft((d) => ({ ...d, cids: note.cids.filter((_, j) => j !== i) }))}
-                        >
-                          <Trash2 aria-hidden className="size-3.5" />
-                        </button>
-                      )}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <CidEditor cids={note.cids} disabled={sent} reid={r} onChange={(cids) => setDraft((d) => ({ ...d, cids }))} />
 
             {(note.condicoes_propostas ?? []).length > 0 && (
               <div>
@@ -519,27 +676,67 @@ export function NoteReview({
               </div>
             )}
 
-            {note.cronologia.length > 0 && (
-              <details className="text-sm">
-                <summary className="min-h-9 cursor-pointer font-bold">Linha do tempo da consulta ({note.cronologia.length})</summary>
-                <ol className="mt-1 space-y-0.5">
-                  {note.cronologia.map((m, i) => (
-                    <li key={i} className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">{m.quando}</span> {r(m.texto)}
-                      <SourceRefs patientId={patient.id} refs={m.refs} />
-                    </li>
-                  ))}
-                </ol>
-              </details>
-            )}
+            <details className="text-sm" open data-testid="cronologia">
+              <summary className="min-h-9 cursor-pointer font-bold">Resumo cronológico da consulta ({note.cronologia.length})</summary>
+              <ol className="mt-1 space-y-1">
+                {note.cronologia.map((m, i) => (
+                  <li key={i} className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs text-muted-foreground">{m.quando}</span>
+                    {m.tipo && <Badge variant="outline" className="text-[10px]">{m.tipo}</Badge>}
+                    <Input
+                      aria-label={`Evento ${i + 1} da cronologia`}
+                      value={r(m.texto)}
+                      readOnly={sent}
+                      className="min-h-9 min-w-48 flex-1"
+                      onChange={(e) => setList("cronologia", note.cronologia.map((x, j) => (j === i ? { ...x, texto: e.target.value } : x)))}
+                    />
+                    <SourceRefs patientId={patient.id} refs={m.refs} />
+                    {!sent && (
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Remover o evento ${i + 1} da cronologia`} onClick={() => setList("cronologia", note.cronologia.filter((_, j) => j !== i))}>
+                        <Trash2 aria-hidden />
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              {!sent && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-1"
+                  onClick={() => setList("cronologia", [...note.cronologia, { quando: "", texto: "", refs: [] } as ChronoItem])}
+                >
+                  <Plus aria-hidden /> Adicionar evento
+                </Button>
+              )}
+            </details>
 
             <div className="rounded-md border bg-secondary/40 p-3">
-              <p className="text-sm font-bold">Orientações ao paciente (linguagem simples)</p>
-              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
-                {note.orientacoes_paciente.map((o) => (
-                  <li key={o}>{r(o)}</li>
+              <p className="text-sm font-bold">Orientações ao paciente (linguagem simples, editáveis)</p>
+              <ul className="mt-1 space-y-1.5">
+                {note.orientacoes_paciente.map((o, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <Textarea
+                      aria-label={`Orientação ${i + 1}`}
+                      value={r(o)}
+                      readOnly={sent}
+                      className="min-h-11 flex-1 bg-card"
+                      onChange={(e) => setList("orientacoes_paciente", note.orientacoes_paciente.map((x, j) => (j === i ? e.target.value : x)))}
+                    />
+                    {!sent && (
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Remover a orientação ${i + 1}`} onClick={() => setList("orientacoes_paciente", note.orientacoes_paciente.filter((_, j) => j !== i))}>
+                        <Trash2 aria-hidden />
+                      </Button>
+                    )}
+                  </li>
                 ))}
               </ul>
+              {!sent && (
+                <Button type="button" variant="outline" size="sm" className="mt-1" onClick={() => setList("orientacoes_paciente", [...note.orientacoes_paciente, ""])}>
+                  <Plus aria-hidden /> Adicionar orientação
+                </Button>
+              )}
             </div>
 
             {(c.insights?.pedidos?.length ?? 0) > 0 && (
@@ -558,20 +755,29 @@ export function NoteReview({
           </div>
         )}
 
+        <details open={transcriptOpen} onToggle={(e) => setTranscriptOpen((e.target as HTMLDetailsElement).open)} className="rounded-md border p-3">
+          <summary className="min-h-9 cursor-pointer text-sm font-bold">Transcrição da consulta (clique numa fonte para destacar a fala)</summary>
+          <div className="mt-2 max-h-80 overflow-auto">
+            <Transcript segments={c.segmentos} interim={null} proLabel="Profissional" patientLanguage={c.idioma_paciente} />
+          </div>
+        </details>
+
+        {diff && <DiffPanel diff={diff} />}
+
         {error && <Alert variant="critico">{error}</Alert>}
         {blocked && (
-          <Alert variant="critico" className="flex-col">
+          <Alert variant="critico" className="flex-col" data-testid="trava-envio">
             <p className="font-bold">{blocked.mensagem}</p>
             <ul className="list-disc space-y-0.5 pl-5">
-              {blocked.pendencias.map((p) => (
-                <li key={p.regra + (p.campo ?? "")}>
-                  {p.texto} <span className="text-xs">(Fonte: {p.fonte})</span>
+              {blocked.pendencias.map((p, i) => (
+                <li key={i}>
+                  {p.texto} {p.fonte && <span className="text-xs">(Fonte: {p.fonte})</span>}
                 </li>
               ))}
             </ul>
             <Label htmlFor="justificativa-envio">Justificativa do envio com pendência crítica (fica no registro de auditoria)</Label>
             <Textarea id="justificativa-envio" value={justification} onChange={(e) => setJustification(e.target.value)} className="min-h-16 bg-card text-foreground" />
-            <Button onClick={() => void send(true)} disabled={busy !== null || justification.trim().length < 15} className="self-start">
+            <Button onClick={() => void send(true)} disabled={busy !== null || justification.trim().length < minJustification} className="self-start">
               <Send aria-hidden /> Enviar com justificativa
             </Button>
           </Alert>
@@ -582,25 +788,45 @@ export function NoteReview({
           </p>
         )}
 
+        {!sent && (
+          <div className="flex items-start gap-2 rounded-md border bg-secondary/40 p-3">
+            <Checkbox id="atestacao" checked={attested} onCheckedChange={(v) => setAttested(v === true)} className="mt-0.5" />
+            <Label htmlFor="atestacao" className="cursor-pointer leading-snug">
+              Revisei e assumo a responsabilidade por esta nota
+              <span className="block text-xs font-normal text-muted-foreground">
+                O servidor só exporta ou envia a nota revisada com esta atestação; ao editar de novo, atestar outra vez.
+              </span>
+            </Label>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {!sent && (
             <Button variant="outline" onClick={() => void save()} disabled={busy !== null}>
               {busy === "save" ? <Loader2 aria-hidden className="animate-spin" /> : <CircleCheck aria-hidden />} Salvar revisão
             </Button>
           )}
-          <Button variant="outline" onClick={() => void copy()} disabled={busy !== null}>
+          <Button variant="outline" onClick={() => void loadDiff()} disabled={busy !== null || !c.nota_meta?.revisada_por}>
+            <GitCompareArrows aria-hidden /> Comparar com o rascunho da IA
+          </Button>
+          <Button variant="outline" onClick={() => void copy()} disabled={busy !== null || !approved || dirty}>
             <ClipboardCopy aria-hidden /> Copiar para o prontuário
           </Button>
-          <Button variant="outline" onClick={() => void download()} disabled={busy !== null}>
+          <Button variant="outline" onClick={() => void download()} disabled={busy !== null || !approved || dirty}>
             <Download aria-hidden /> Baixar FHIR
           </Button>
           {!sent && (
-            <Button onClick={() => void send()} disabled={busy !== null}>
+            <Button onClick={() => void send()} disabled={busy !== null || !attested}>
               {busy === "send" ? <Loader2 aria-hidden className="animate-spin" /> : <Send aria-hidden />}
               {canSend ? "Aprovar e enviar ao prontuário" : "Aprovar e exportar"}
             </Button>
           )}
         </div>
+        {!sent && (!approved || dirty) && (
+          <p className="text-xs text-muted-foreground">
+            Copiar e baixar usam a nota já aprovada no servidor: salve a revisão com a atestação (ou use “Aprovar e enviar”) antes.
+          </p>
+        )}
         <FeedbackButtons kind="consulta_nota" entityId={c.id} patientId={patient.id} />
         {sent && <NpsPrompt />}
       </CardContent>
