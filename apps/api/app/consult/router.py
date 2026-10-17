@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
 from app.consult import antiglosa, knowledge, opme, service, stt
+from app.consult import ask as copilot
 from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
 from app.db.models import User
@@ -353,3 +354,46 @@ def export(
 ) -> dict:
     """Texto pronto para o prontuário e o recurso FHIR (DocumentReference), sem enviar."""
     return service.export(db, fhir, user, cid)
+
+
+class AskIn(BaseModel):
+    pergunta: str = Field(min_length=1, max_length=copilot.MAX_QUESTION)
+    via: Literal["texto", "voz"] = "texto"  # voz (Alt+Q) vira pergunta ao copiloto, nunca uma fala da consulta
+
+
+class InsertIn(BaseModel):
+    mensagem_id: int
+    destino: str = "avaliacao"
+    frases: list[int] | None = None  # índices das frases (padrão: todas)
+
+
+@router.get("/consultations/{cid}/copiloto")
+def copilot_state(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+) -> dict:
+    """Histórico do copiloto da consulta, inserções na nota e sugestões de discussão."""
+    return service.copilot_state(db, fhir, user, cid)
+
+
+@router.post("/consultations/{cid}/ask")
+def ask(
+    cid: int,
+    body: AskIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Pergunta livre ao prontuário e à conversa: regras primeiro, IA no que sobrar, fonte em cada frase."""
+    return service.ask(db, fhir, user, cid, body.pergunta, body.via)
+
+
+@router.post("/consultations/{cid}/copiloto/inserir")
+def copilot_insert(
+    cid: int,
+    body: InsertIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Insere na nota (com as refs, origem "copiloto") as frases de uma resposta do copiloto."""
+    return service.insert_into_note(db, fhir, user, cid, body.mensagem_id, body.destino, body.frases)

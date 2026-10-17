@@ -211,6 +211,14 @@ export function NoteReview({
           </Alert>
         )}
 
+        {!surgical && c.nota && "copiloto" in c.nota && (c.nota.copiloto?.length ?? 0) > 0 && (
+          <Alert variant="info">
+            Inserido pelo copiloto (com as fontes):{" "}
+            {c.nota.copiloto!.map((i) => i.destino === "pendencia" ? "pendência" : i.destino.replace("_", " ")).join(", ")}. Revise o
+            texto antes de enviar.
+          </Alert>
+        )}
+
         {surgical && report ? (
           <div className="space-y-3">
             {(report.pedidos?.length ?? 0) > 0 && (

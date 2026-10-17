@@ -998,6 +998,45 @@ export interface ConsultNote {
   orientacoes_paciente: string[];
   /** propostas de Condition das hipóteses confirmadas ou provisórias (o servidor as mantém) */
   condicoes_propostas?: ProposedCondition[];
+  /** o que o copiloto inseriu na nota (origem "copiloto"), com as refs; o servidor mantém na revisão */
+  copiloto?: CopilotInsertion[];
+}
+
+export interface CopilotPhrase {
+  texto: string;
+  refs: string[];
+  fonte: string;
+  origem: "regra" | "ia";
+}
+export interface CopilotAnswer {
+  intencao: string;
+  modo: "regras" | "ia";
+  frases: CopilotPhrase[];
+  aviso: string;
+  descartados: Record<string, unknown>[];
+  acao: { tipo: "plano" | "pendencia"; insercao: string } | null;
+}
+export interface CopilotMessage {
+  id: number;
+  pergunta: string;
+  via: "texto" | "voz";
+  em: string;
+  resposta: CopilotAnswer;
+}
+export interface CopilotInsertion {
+  id: string;
+  mensagem_id?: number;
+  destino: string;
+  texto: string;
+  refs: string[];
+  origem: "copiloto";
+  em: string;
+}
+export interface CopilotState {
+  mensagens: CopilotMessage[];
+  insercoes: CopilotInsertion[];
+  sugestoes: { alerta: string; pergunta: string }[];
+  llm_mode: string;
 }
 export interface Consultation {
   id: number;
