@@ -551,3 +551,8 @@ def planned_drugs(text: str) -> tuple[PlannedDrug, ...]:
                 found[ing] = PlannedDrug(ing, term, verb)
         carry = next((g for g in intents[-1].groups() if g), "") if intents else (carry if listing else "")
     return tuple(found.values())
+
+
+def negated_span(clause: str, start: int, end: int) -> bool:
+    """O trecho [start:end) da oração (normalizada) está negado? ("não tenho asma", "asma eu não tenho")."""
+    return _negated(clause[:start], clause[end:])

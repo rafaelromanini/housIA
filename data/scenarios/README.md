@@ -16,6 +16,8 @@ FHIR R4. **Todos os horários são relativos à âncora** (o "agora" da carga): 
                                       // {"tipo": "internacao", "urgente": true} vira um Encounter IMP anterior (reinternação)
   "diagnosticos": [{"cid": "I10", "texto": "...", "principal": true, "inicio": "-3650d", "registro": "-3d"}],
   "alergias": [{"principio_ativo": "dipirona" | "classe": "penicilina", "texto", "reacao", "criticidade"}],
+                                      // sem alergias, o construtor registra "nega alergias conhecidas"; com
+                                      // "sem_registro_alergia": true não registra nada (alergia nunca perguntada)
   "familiares": [{"nome", "parentesco", "codigo": "DAU", "cuidador": true, "telefone"}],
   "social": {"moradores": 1},
   "prescricoes": [{

@@ -2,6 +2,7 @@
   "id": "cen7e",
   "tag": "cenario-7e",
   "titulo": "Cenário 7e — Jornada: protocolo de APS vencido",
+  "sem_registro_alergia": true,
   "esperado": "Paciente ambulatorial com diabetes tipo 2 e hipertensão, última consulta há 200 dias, HbA1c de 250 dias atrás (intervalo de 180) e sem retorno agendado. Aparece pela regra de protocolo de acompanhamento vencido, citando o exame e o protocolo.",
   "paciente": {
     "nome": "Benedito Cardoso Nunes",

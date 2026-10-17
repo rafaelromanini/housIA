@@ -468,7 +468,8 @@ def test_cross_reactivity_is_an_attention_alert_with_the_rule_source(record):
     ins = e.run()
     cross = next(m for m in ins.sugestoes_medicamentos if m.texto.startswith("Reatividade cruzada"))
     assert cross.severidade == "atencao" and "Fala/1" in cross.refs and cross.fonte
-    assert not [m for m in ins.alertas if "Cefalexina" in m.texto]  # cruzada não é bloqueio: só alerta crítico bloqueia
+    # cruzada não é bloqueio: só alerta crítico bloqueia (a de atenção aparece em `alertas`, recolhida)
+    assert not [m for m in ins.alertas if "Cefalexina" in m.texto and m.severidade == "critico"]
 
 
 def test_reported_drug_is_crossed_with_the_chart_allergy_chart_py_fix(record):

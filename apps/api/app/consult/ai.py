@@ -50,6 +50,7 @@ from app.consult.schemas import (
     Segment,
     Severity,
     Summary,
+    SummarySentence,
     SurgeryItem,
     Tag,
     fala_ref,
@@ -151,6 +152,7 @@ class ConversaOutput(BaseModel):
     perguntas: list[AiQuestion]
     falantes: list[AiSpeaker]
     perguntas_abordadas: list[AiAbordada] = []
+    resumo_frases: list[AiText] = []  # frases do resumo, cada uma com a fonte; sem ref válida a frase é descartada
 
 
 class AiCampo(BaseModel):
@@ -232,6 +234,7 @@ class ConsultLiveOutput(BaseModel):
     perguntas_abordadas: list[AiAbordada] = []
     alergias_relatadas: list[AiAlergia] = []
     pedidos_ia: list[AiPedido] = []
+    resumo_frases: list[AiText] = []
 
 
 class AiTranslation(BaseModel):
@@ -364,6 +367,7 @@ def deterministic_payload(ins: Insights) -> dict:
             }
             for d in ins.pedidos
         ],
+        "resumo_por_regra": [f.texto for f in ins.resumo.frases] if ins.resumo else [],
         "protocolo_pendente": [f"{p.protocolo}: {p.item}" for p in ins.protocolos if p.status != "em_dia"],
         # semiologia que as regras já leram da conversa (cada campo com as falas de onde veio) e o que ainda falta
         "anamnese_por_regra": {
@@ -615,10 +619,18 @@ def merge_live(
     ]
     highlights = v.keep(ai.destaques, "destaques")
     rule_highlights = base.resumo.destaques if base.resumo else []
+    rule_sentences = base.resumo.frases if base.resumo else []
+    # frase da IA só entra com fonte válida (fala ou recurso do prontuário) e se as regras ainda não disseram o mesmo
+    ai_sentences = [
+        SummarySentence(texto=f.texto, refs=f.refs, origem="ia", chave=f"ia:{i}")
+        for i, f in enumerate(v.keep(ai.resumo_frases, "resumo"))
+        if not any(_similar(f.texto, r.texto) for r in rule_sentences)
+    ]
     out.resumo = Summary(
         texto=ai.resumo or (base.resumo.texto if base.resumo else ""),
         destaques=rule_highlights
         + [h for h in highlights if not any(_similar(h.texto, r.texto) for r in rule_highlights)],
+        frases=rule_sentences + ai_sentences,
     )
     out.anamnese = _merge_anamnese(base.anamnese, ai.anamnese, v, valid, segments)
     if out.anamnese:  # campo semiológico que a IA preencheu com fonte: a pergunta correspondente sai da lista
@@ -709,6 +721,7 @@ def mock_live(base: Insights) -> dict:
     """Modo mock: a "IA" devolve resumo e anamnese das regras (sem inventar itens)."""
     return {
         "resumo": base.resumo.texto if base.resumo else "",
+        "resumo_frases": [],
         "destaques": [],
         "queixas": [],
         "emocoes": [],

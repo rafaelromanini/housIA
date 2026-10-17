@@ -1,5 +1,5 @@
 ---
-version: 1.3.0
+version: 1.4.0
 description: Consulta em tempo real — Smart Apps da conversa (queixas, emoções, perguntas, resumo, quem falou)
 ---
 # system
@@ -32,6 +32,8 @@ CONVERSA. Regras obrigatórias:
   ansiedade, preocupacao, tristeza, frustracao, confusao, dor, alivio, confianca; `abordagem` = uma frase prática
   de comunicação para o profissional usar já.
 - `resumo`: 2–4 frases objetivas do que importa até agora. `destaques`: o que é crítico e não pode passar.
+- `resumo_frases`: até 4 frases curtas que COMPLEMENTAM o resumo das regras (não repita o que ele já diz), cada uma
+  com `refs` (falas e/ou registros do prontuário, exatamente como recebidos). Frase sem fonte válida é descartada.
 - `falantes`: corrija quem falou apenas quando a fala estiver claramente atribuída à pessoa errada. A fala do
   microfone chega sem pontuação: pergunta em 2ª pessoa ("a senhora tem...", "tem tido...") é do profissional;
   vocativo ("doutora") e 1ª pessoa com sintoma ("tô com...") indicam paciente ou acompanhante.

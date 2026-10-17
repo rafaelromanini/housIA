@@ -406,6 +406,8 @@ class ScenarioBuilder:
     def _allergies(self) -> None:
         allergies = self.s.get("alergias", [])
         recorded = iso(self.t(self.start_spec))
+        if not allergies and self.s.get("sem_registro_alergia"):
+            return  # alergia nunca perguntada: nem AllergyIntolerance nem "nega alergias" (lembrete da consulta)
         if not allergies:
             self.out.append(
                 {
@@ -757,7 +759,7 @@ class ScenarioBuilder:
                 if key in lab:
                     self.out.append(
                         self._obs(
-                            f"{self.sid}-lab{i}-{key}",
+                            f"{self.sid}-lab{i}-{key.replace('_', '-')}",
                             "laboratory",
                             measure,
                             when,

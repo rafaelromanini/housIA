@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
+  BellRing,
   BookOpenText,
   Bot,
   Brain,
@@ -33,12 +34,23 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import type { Anamnese, ConsultInsights, HypothesisDecision, Origin, ProtocolItem, QueixaDetalhada, SemioField } from "@/lib/api";
+import type {
+  Anamnese,
+  Conciliation,
+  ConsultInsights,
+  HypothesisDecision,
+  Origin,
+  ProtocolItem,
+  QueixaDetalhada,
+  Rcri,
+  SemioField,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type AppKey =
   | "perguntas"
   | "alertas"
+  | "lembretes"
   | "queixas"
   | "emocoes"
   | "resumo"
@@ -55,6 +67,7 @@ type AppKey =
 const APPS: { key: AppKey; label: string; tab: TabKey }[] = [
   { key: "perguntas", label: "Sugestão de perguntas", tab: "vivo" },
   { key: "alertas", label: "Alertas de segurança", tab: "vivo" },
+  { key: "lembretes", label: "Lembretes", tab: "vivo" },
   { key: "queixas", label: "Queixa principal", tab: "vivo" },
   { key: "emocoes", label: "Análise multidimensional", tab: "vivo" },
   { key: "resumo", label: "Sumarizador", tab: "vivo" },
@@ -415,21 +428,25 @@ export function SmartAppsPanel({
         </AppCard>
       )}
 
-      {show("alertas") && ins.sugestoes_medicamentos.some((m) => m.severidade === "critico") && (
-        <AppCard title="Alertas de segurança" Icon={ShieldAlert} hint="Regras determinísticas: rodam sempre, antes da IA.">
-          <ul className="space-y-2">
-            {ins.sugestoes_medicamentos
-              .filter((m) => m.severidade === "critico")
-              .map((m) => (
-                <li key={m.texto} className="flex gap-2 rounded-md border border-critico-border bg-critico-bg p-2 text-sm">
-                  <SeverityIcon severity="critico" className="mt-0.5 size-5 shrink-0" />
-                  <div>
-                    <p className="font-bold text-critico">{r(m.texto)}</p>
-                    {m.fonte && <p className="text-xs text-muted-foreground">Fonte da regra: {m.fonte}</p>}
-                    <SourceRefs patientId={pid} refs={m.refs} />
-                  </div>
-                </li>
-              ))}
+      {show("alertas") && ins.alertas.length > 0 && <AlertsCard ins={ins} pid={pid} r={r} />}
+
+      {show("lembretes") && (ins.lembretes ?? []).length > 0 && (
+        <AppCard
+          title="Lembretes"
+          Icon={BellRing}
+          count={(ins.lembretes ?? []).length}
+          hint="Assuntos que ainda não apareceram na conversa. Cada lembrete some quando o assunto é tratado."
+        >
+          <ul className="space-y-1.5">
+            {(ins.lembretes ?? []).map((l) => (
+              <li key={l.chave} className="flex gap-2 text-sm">
+                <SeverityIcon severity={l.severidade} className="mt-0.5 size-4 shrink-0" />
+                <span className="flex-1">
+                  {r(l.texto)} <SourceRefs patientId={pid} refs={l.refs} />
+                  {l.fonte && <span className="block text-xs text-muted-foreground">Fonte: {l.fonte}</span>}
+                </span>
+              </li>
+            ))}
           </ul>
         </AppCard>
       )}
@@ -562,7 +579,25 @@ export function SmartAppsPanel({
 
       {show("resumo") && ins.resumo && (
         <AppCard title="Sumarizador" Icon={BookOpenText} hint="Resumo dinâmico com os pontos críticos da consulta até aqui.">
-          <p className="text-sm leading-relaxed">{r(ins.resumo.texto)}</p>
+          {(ins.resumo.frases ?? []).length > 0 ? (
+            <ul className="space-y-1.5 text-sm leading-relaxed" aria-label="Frases do resumo, cada uma com a fonte">
+              {(ins.resumo.frases ?? []).map((f) => (
+                <li key={f.chave || f.texto} className="flex flex-wrap items-baseline gap-1.5">
+                  {f.nova && (
+                    <Badge variant="info" className="text-[11px]">
+                      Nova
+                    </Badge>
+                  )}
+                  <span className="flex-1">
+                    {r(f.texto)}
+                    {f.origem === "ia" && <> <OriginBadge origem="ia" /></>} <SourceRefs patientId={pid} refs={f.refs} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm leading-relaxed">{r(ins.resumo.texto)}</p>
+          )}
           {ins.resumo.destaques.length > 0 && (
             <ul className="mt-2 space-y-1">
               {ins.resumo.destaques.map((h) => (
@@ -717,7 +752,7 @@ export function SmartAppsPanel({
             <Empty>Sem cirurgias no prontuário ou na conversa.</Empty>
           ) : (
             <ul className="space-y-1.5 text-sm">
-              {ins.cirurgia.map((c) => (
+              {ins.cirurgia.filter((c) => !(ins.rcri && c.texto === ins.rcri.interpretacao)).map((c) => (
                 <li key={c.texto} className="flex flex-wrap items-center gap-1.5">
                   <Badge variant={c.tipo === "checagem" ? "info" : c.tipo === "planejada" ? "atencao" : "outline"} className="text-[11px]">
                     {{ historico: "Histórico", planejada: "Planejada/citada", checagem: "Checagem" }[c.tipo]}
@@ -729,6 +764,7 @@ export function SmartAppsPanel({
               ))}
             </ul>
           )}
+          {ins.rcri && <RcriBlock rcri={ins.rcri} pid={pid} r={r} />}
         </AppCard>
       )}
 
@@ -875,7 +911,13 @@ export function SmartAppsPanel({
                     }[h.tipo]
                   }
                 </Badge>
-                <span className="flex-1">{r(h.texto)}</span>
+                {h.conciliacao && <ConciliationBadge value={h.conciliacao} />}
+                <span className="flex-1">
+                  {r(h.texto)}
+                  {h.cid && <span className="ml-1 font-mono text-xs text-muted-foreground">CID {h.cid}</span>}
+                  {h.intercorrencia && <span className="ml-1 text-xs text-atencao">Intercorrência: {h.intercorrencia}</span>}
+                  {h.conciliacao === "diverge" && h.observacao && <span className="block text-xs text-muted-foreground">{h.observacao}</span>}
+                </span>
                 <SourceRefs patientId={pid} refs={h.refs} />
               </li>
             ))}
@@ -898,7 +940,13 @@ export function SmartAppsPanel({
                       {{ baixo: "Baixo", normal: "Normal", alto: "Alto" }[e.status]}
                     </Badge>
                     <span className="text-xs text-muted-foreground">{e.data}</span>
-                    {e.tendencia && (
+                    {e.origem_dado && e.origem_dado !== "prontuário" && (
+                      <Badge variant="atencao" className="text-[11px]">
+                        {e.origem_dado}
+                      </Badge>
+                    )}
+                    {e.conciliacao && e.origem_dado !== "prontuário" && <ConciliationBadge value={e.conciliacao} exam />}
+                    {e.tendencia && e.origem_dado === "prontuário" && (
                       <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
                         {e.tendencia.startsWith("subiu") ? (
                           <TrendingUp aria-hidden className="size-3.5" />
@@ -911,6 +959,7 @@ export function SmartAppsPanel({
                       </span>
                     )}
                   </div>
+                  {e.comparacao && e.origem_dado !== "prontuário" && <p className="mt-0.5 text-xs text-muted-foreground">Comparação: {e.comparacao}</p>}
                   <p className="mt-0.5">{e.explicacao}</p>
                   <SourceRefs patientId={pid} refs={e.refs} />
                 </li>
@@ -933,6 +982,93 @@ export function SmartAppsPanel({
         </AppCard>
       )}
     </section>
+  );
+}
+
+const CONCILIATION: Record<Conciliation, { label: string; examLabel: string; variant: "ok" | "atencao" | "critico" | "outline" }> = {
+  prontuario: { label: "No prontuário", examLabel: "Coerente com o prontuário", variant: "ok" },
+  relatado_nao_registrado: { label: "Só relatado", examLabel: "Sem série no prontuário", variant: "atencao" },
+  diverge: { label: "Diverge do prontuário", examLabel: "Diverge do prontuário", variant: "critico" },
+};
+
+/** Selo de conciliação: o que o paciente disse × o que o prontuário registra. */
+function ConciliationBadge({ value, exam }: { value: Conciliation; exam?: boolean }) {
+  const c = CONCILIATION[value];
+  return (
+    <Badge variant={c.variant} className="text-[11px]">
+      {exam ? c.examLabel : c.label}
+    </Badge>
+  );
+}
+
+/** Alertas: os críticos em destaque; os de atenção recolhidos logo abaixo. */
+function AlertsCard({ ins, pid, r }: { ins: ConsultInsights; pid: string; r: (t: string) => string }) {
+  const critical = ins.alertas.filter((a) => a.severidade === "critico");
+  const attention = ins.alertas.filter((a) => a.severidade === "atencao");
+  const source = (texto: string) => ins.sugestoes_medicamentos.find((m) => m.texto === texto)?.fonte;
+  return (
+    <AppCard title="Alertas de segurança" Icon={ShieldAlert} hint="Regras determinísticas: rodam sempre, antes da IA." count={critical.length + attention.length}>
+      {critical.length > 0 && (
+        <ul className="space-y-2">
+          {critical.map((m) => (
+            <li key={m.texto} className="flex gap-2 rounded-md border border-critico-border bg-critico-bg p-2 text-sm">
+              <SeverityIcon severity="critico" className="mt-0.5 size-5 shrink-0" />
+              <div>
+                <p className="font-bold text-critico">{r(m.texto)}</p>
+                {source(m.texto) && <p className="text-xs text-muted-foreground">Fonte da regra: {source(m.texto)}</p>}
+                <SourceRefs patientId={pid} refs={m.refs} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {attention.length > 0 && (
+        <details className={cn("rounded-md border", critical.length > 0 && "mt-2")}>
+          <summary className="min-h-11 cursor-pointer px-3 py-2 text-sm font-bold">
+            {attention.length} alerta{attention.length > 1 ? "s" : ""} de atenção
+          </summary>
+          <ul className="space-y-1.5 border-t p-3">
+            {attention.map((m) => (
+              <li key={m.texto} className="flex gap-2 text-sm">
+                <SeverityIcon severity="atencao" className="mt-0.5 size-4 shrink-0" />
+                <span className="flex-1">
+                  {r(m.texto)} <SourceRefs patientId={pid} refs={m.refs} />
+                  {source(m.texto) && <span className="block text-xs text-muted-foreground">Fonte da regra: {source(m.texto)}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </AppCard>
+  );
+}
+
+/** Índice de Lee (RCRI) da cirurgia planejada: pontos por critério, cada um com o recurso que o sustenta. */
+function RcriBlock({ rcri, pid, r }: { rcri: Rcri; pid: string; r: (t: string) => string }) {
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <h4 className="text-sm font-bold">Risco cardíaco perioperatório (RCRI)</h4>
+        <Badge variant={rcri.pontos === 0 ? "ok" : rcri.pontos === 1 ? "atencao" : "critico"} className="text-[11px]">
+          {rcri.pontos} ponto{rcri.pontos === 1 ? "" : "s"} · classe {rcri.classe}
+        </Badge>
+      </div>
+      <p className="text-sm">{r(rcri.interpretacao)}</p>
+      <ul className="space-y-1 text-sm" aria-label={`Critérios do RCRI para ${rcri.cirurgia}`}>
+        {rcri.itens.map((i) => (
+          <li key={i.criterio} className="flex flex-wrap items-baseline gap-1.5">
+            <Badge variant={i.presente ? "atencao" : "outline"} className="text-[11px]">
+              {i.pontos} {i.pontos === 1 ? "ponto" : "pontos"}
+            </Badge>
+            <span className="flex-1">
+              <span className="font-bold">{i.criterio}.</span> {r(i.evidencia)} <SourceRefs patientId={pid} refs={i.refs} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground">Fonte: {rcri.fonte}</p>
+    </div>
   );
 }
 

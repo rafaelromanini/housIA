@@ -136,12 +136,24 @@ class Hypothesis(BaseModel):
     decisao_motivo: str = ""
 
 
+Conciliation = Literal["prontuario", "relatado_nao_registrado", "diverge"]
+
+
 class HistoryItem(BaseModel):
     texto: str
     quando: str | None = None
     tipo: Literal["diagnostico", "cirurgia", "internacao", "pronto_socorro", "consulta", "familiar", "relatado"]
     refs: list[str]
     origem: Origin = "regra"
+    # antecedente ou cirurgia dito na conversa (app/consult/extract.py): estruturado e conciliado com o prontuário
+    condicao: str = ""  # antecedente pessoal: nome da condição (condition_lexicon.csv)
+    procedimento: str = ""  # cirurgia prévia: nome do procedimento (procedure_lexicon.csv)
+    cid: str = ""
+    inicio_aprox: str | None = None  # "há 5 anos (≈ 2021)", "desde a infância"
+    ano: int | None = None  # ano aproximado do início ou da cirurgia
+    intercorrencia: str = ""  # cirurgia: "sangramento", "reação à anestesia"
+    conciliacao: Conciliation | None = None  # prontuario = no prontuário; diverge = o prontuário diz outra coisa
+    observacao: str = ""
 
 
 class AllergyInfo(BaseModel):
@@ -170,6 +182,10 @@ class ExamInfo(BaseModel):
     tendencia: str | None = None
     refs: list[str]
     origem: Origin = "regra"
+    origem_dado: str = "prontuário"  # "relatado (fala 7)" quando o valor veio da conversa
+    comparacao: str = ""  # relatado × último resultado da série FHIR
+    conciliacao: Conciliation | None = None  # relatado: coerente com a série, diverge ou sem série
+    valor_num: float | None = None
 
 
 class MedItem(BaseModel):
@@ -274,9 +290,20 @@ class Anamnese(BaseModel):
     campos_especialidade: list[CampoEspecialidade] = []
 
 
-class Summary(BaseModel):
+class SummarySentence(BaseModel):
+    """Uma frase do resumo, com a fonte (falas e/ou recursos FHIR) e a marca do que mudou desde o resumo anterior."""
+
     texto: str
+    refs: list[str]
+    nova: bool = False
+    chave: str = ""  # identifica a frase entre uma análise e a seguinte (para marcar a nova)
+    origem: Origin = "regra"
+
+
+class Summary(BaseModel):
+    texto: str  # as frases juntas (compatibilidade com quem lê só o texto)
     destaques: list[Highlight]
+    frases: list[SummarySentence] = []
 
 
 # ---------- relatório cirúrgico (ditado) ----------
@@ -495,6 +522,44 @@ class OrderDraft(BaseModel):
     decisao: OrderDecision = Field(default_factory=OrderDecision)
 
 
+class RcriItem(BaseModel):
+    """Um dos seis critérios do índice de Lee (RCRI): vale 1 ponto quando presente, sempre com a fonte."""
+
+    criterio: str
+    pontos: int
+    presente: bool
+    evidencia: str
+    refs: list[str] = []
+    sem_dado: bool = False  # não há dado no prontuário nem na conversa para decidir
+
+
+class Rcri(BaseModel):
+    """Risco cardíaco perioperatório (índice de Lee revisado) para a cirurgia planejada."""
+
+    cirurgia: str
+    pontos: int
+    classe: str
+    risco_pct: float
+    interpretacao: str
+    itens: list[RcriItem]
+    fonte: str
+    refs: list[str]
+
+
+ReminderKind = Literal["alergia", "protocolo", "sinais_vitais", "pos_alta"]
+
+
+class Reminder(BaseModel):
+    """Lembrete ao vivo: o assunto que ainda não apareceu na conversa. Some quando o assunto é tratado."""
+
+    chave: str
+    tipo: ReminderKind
+    texto: str
+    refs: list[str] = []
+    severidade: Severity = "info"
+    fonte: str = ""
+
+
 class Insights(BaseModel):
     tipo: ConsultKind
     especialidade: str
@@ -516,10 +581,12 @@ class Insights(BaseModel):
     protocolos: list[ProtocolItem] = []
     resumo: Summary | None = None
     anamnese: Anamnese | None = None
-    alertas: list[Highlight] = []
+    alertas: list[Highlight] = []  # críticos primeiro; os de atenção vêm depois (a tela os recolhe)
+    lembretes: list[Reminder] = []
     relatorio_cirurgico: SurgicalReport | None = None
     pedidos: list[OrderDraft] = []
     tfg: float | None = None
+    rcri: Rcri | None = None
     descartados: list[dict] = []
 
 

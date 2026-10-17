@@ -559,12 +559,23 @@ export interface ProposedCondition {
   motivo: string;
   refs: string[];
 }
+/** Conciliação do que o paciente disse com o prontuário: no prontuário, só relatado ou divergente. */
+export type Conciliation = "prontuario" | "relatado_nao_registrado" | "diverge";
 export interface HistoryItem {
   texto: string;
   quando: string | null;
   tipo: "diagnostico" | "cirurgia" | "internacao" | "pronto_socorro" | "consulta" | "familiar" | "relatado";
   refs: string[];
   origem: Origin;
+  /** antecedente ou cirurgia dito na conversa (estruturado) */
+  condicao?: string;
+  procedimento?: string;
+  cid?: string;
+  inicio_aprox?: string | null;
+  ano?: number | null;
+  intercorrencia?: string;
+  conciliacao?: Conciliation | null;
+  observacao?: string;
 }
 export interface AllergyInfo {
   alergeno: string;
@@ -593,6 +604,11 @@ export interface ExamInfo {
   tendencia: string | null;
   refs: string[];
   origem: Origin;
+  /** "relatado (fala 7)" quando o valor veio da conversa */
+  origem_dado?: string;
+  comparacao?: string;
+  conciliacao?: Conciliation | null;
+  valor_num?: number | null;
 }
 export interface MedItem {
   medicamento: string;
@@ -624,6 +640,41 @@ export interface SurgeryItem {
   texto: string;
   tipo: "historico" | "planejada" | "checagem";
   refs: string[];
+  origem: Origin;
+}
+export interface RcriItem {
+  criterio: string;
+  pontos: number;
+  presente: boolean;
+  evidencia: string;
+  refs: string[];
+  sem_dado: boolean;
+}
+/** Índice de risco cardíaco revisado (Lee) da cirurgia planejada, com a fonte de cada ponto. */
+export interface Rcri {
+  cirurgia: string;
+  pontos: number;
+  classe: string;
+  risco_pct: number;
+  interpretacao: string;
+  itens: RcriItem[];
+  fonte: string;
+  refs: string[];
+}
+export interface Reminder {
+  chave: string;
+  tipo: "alergia" | "protocolo" | "sinais_vitais" | "pos_alta";
+  texto: string;
+  refs: string[];
+  severidade: Severity;
+  fonte: string;
+}
+export interface SummarySentence {
+  texto: string;
+  refs: string[];
+  /** não estava no resumo anterior */
+  nova: boolean;
+  chave: string;
   origem: Origin;
 }
 export interface ProtocolItem {
@@ -916,9 +967,12 @@ export interface ConsultInsights {
   sugestoes_medicamentos: MedSuggestion[];
   cirurgia: SurgeryItem[];
   protocolos: ProtocolItem[];
-  resumo: { texto: string; destaques: Highlight[] } | null;
+  resumo: { texto: string; destaques: Highlight[]; frases?: SummarySentence[] } | null;
   anamnese: Anamnese | null;
+  /** críticos primeiro; os de atenção vêm depois (a tela os recolhe) */
   alertas: Highlight[];
+  lembretes?: Reminder[];
+  rcri?: Rcri | null;
   relatorio_cirurgico: SurgicalReport | null;
   pedidos?: OrderDraft[];
   tfg: number | null;

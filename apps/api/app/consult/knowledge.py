@@ -339,6 +339,82 @@ def lab_lay() -> dict[str, dict[str, str]]:
     return {r["chave"]: r for r in _read_csv("lab_lay.csv")}
 
 
+@dataclass(frozen=True)
+class ConditionDef:
+    """Antecedente pessoal (data/reference/condition_lexicon.csv): termo popular ou técnico → CID-10."""
+
+    key: str
+    label: str
+    cid: str
+    terms: tuple[str, ...]
+    source: str
+
+
+@lru_cache
+def conditions() -> tuple[ConditionDef, ...]:
+    return tuple(
+        ConditionDef(r["chave"], r["condicao"], r["cid"], _words(r["termos"]), r["fonte"])
+        for r in _read_csv("condition_lexicon.csv")
+    )
+
+
+@dataclass(frozen=True)
+class ProcedureDef:
+    """Cirurgia prévia (data/reference/procedure_lexicon.csv): como o paciente fala e como o prontuário escreve."""
+
+    key: str
+    label: str
+    terms: tuple[str, ...]
+    chart_patterns: tuple[str, ...]  # expressões regulares sobre o texto normalizado de Procedure.code.text
+    source: str
+
+
+@lru_cache
+def procedures() -> tuple[ProcedureDef, ...]:
+    return tuple(
+        ProcedureDef(r["chave"], r["procedimento"], _words(r["termos"]), _words(r["termos_prontuario"]), r["fonte"])
+        for r in _read_csv("procedure_lexicon.csv")
+    )
+
+
+@dataclass(frozen=True)
+class AnalyteDef:
+    """Analito que o paciente pode citar (data/reference/lab_lay.csv): sinônimos e faixa de referência."""
+
+    key: str
+    label: str
+    unit: str
+    low: float | None
+    high: float | None
+    decimals: int
+    synonyms: tuple[str, ...]
+    qualitative: bool  # sem valor numérico (EAS): só a explicação em linguagem simples
+
+
+@lru_cache
+def analytes() -> tuple[AnalyteDef, ...]:
+    from app.fhir_client import codes
+
+    out = []
+    for key, r in lab_lay().items():
+        m = codes.LABS.get(key)  # a faixa do prontuário (codes.LABS) prevalece sobre a do CSV
+        low = m.low if m else _num(r.get("ref_min", ""))
+        high = m.high if m else _num(r.get("ref_max", ""))
+        out.append(
+            AnalyteDef(
+                key,
+                m.label if m else r.get("rotulo") or key,
+                m.unit if m else r.get("unidade", ""),
+                low,
+                high,
+                m.decimals if m else int(r.get("casas") or 0),
+                _words(r.get("sinonimos", "")),
+                not (low is not None or high is not None),
+            )
+        )
+    return tuple(out)
+
+
 @lru_cache
 def allergy_defs() -> tuple[AllergyDef, ...]:
     return tuple(

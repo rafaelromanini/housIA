@@ -8,12 +8,12 @@ from datetime import datetime
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, stt
+from app.consult import ai, antiglosa, gs1, hipoteses, knowledge, opme, stt, summary
 from app.consult import orders as order_drafts
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
@@ -35,7 +35,7 @@ from app.consult.schemas import (
     fala_ref,
 )
 from app.consult.surgical import ORDER_SYSTEM
-from app.db.models import Consultation, User
+from app.db.models import Consultation, MedrecRun, User
 from app.fhir_client.client import FhirSource
 from app.llm.client import LLMError
 from app.llm.pseudonymize import Pseudonymizer
@@ -70,8 +70,19 @@ def _segments(c: Consultation) -> list[Segment]:
     return [Segment.model_validate(s) for s in c.segments_json or []]
 
 
+def _medrec_runs(c: Consultation) -> list[str]:
+    """Datas das reconciliações medicamentosas do paciente (o lembrete pós-alta some se houve uma na internação)."""
+    db = object_session(c)
+    if db is None:
+        return []
+    return [r.isoformat() for r in db.scalars(select(MedrecRun.created_at).where(MedrecRun.patient_id == c.patient_id))]
+
+
 def _engine(c: Consultation, record, events, ctx, segments: list[Segment]) -> Engine:
-    return Engine(record, events, ctx, segments, c.specialty, c.kind, clock.now(), c.extra_json or {})
+    extra = dict(c.extra_json or {})
+    if c.kind != "cirurgia":
+        extra["medrec_runs"] = _medrec_runs(c)  # só para ler: não é gravado em extra_json
+    return Engine(record, events, ctx, segments, c.specialty, c.kind, clock.now(), extra)
 
 
 def _valid_refs(record: PatientRecord, events: list[ClinicalEvent], ctx: PatientContext, segments) -> set[str]:
@@ -115,8 +126,10 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
         valid = _valid_refs(record, events, ctx, segments)
         merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
         ai.reconcile_ai_allergies(engine, merged)
-        return hipoteses.apply(merged, c.extra_json)
-    return hipoteses.apply(base, c.extra_json)
+        base = merged
+    result = hipoteses.apply(base, c.extra_json)
+    summary.mark_new(result, c.insights_json)
+    return result
 
 
 def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
@@ -708,7 +721,9 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         "descartados": merged.descartados,
         "saida": saida,
     }
-    c.insights_json = hipoteses.apply(merged, c.extra_json).model_dump(mode="json")
+    final = hipoteses.apply(merged, c.extra_json)
+    summary.mark_new(final, c.insights_json)
+    c.insights_json = final.model_dump(mode="json")
     log_action(
         db,
         user,

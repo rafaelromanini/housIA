@@ -99,6 +99,17 @@ LABS: dict[str, Measure] = {
         Measure("bnp", LOINC, "30934-4", "BNP", "pg/mL", None, 100, None, 1000),
         Measure("hba1c", LOINC, "4548-4", "Hemoglobina glicada", "%", None, 5.7, None, None, 1),
         Measure("ldl", LOINC, "13457-7", "Colesterol LDL", "mg/dL", None, 130, None, None),
+        Measure("colesterol_total", LOINC, "2093-3", "Colesterol total", "mg/dL", None, 190, None, None),
+        Measure("hdl", LOINC, "2085-9", "Colesterol HDL", "mg/dL", 40, None, None, None),
+        Measure("triglicerides", LOINC, "2571-8", "Triglicérides", "mg/dL", None, 150, None, None),
+        Measure("tsh", LOINC, "3016-3", "TSH", "mUI/L", 0.4, 4.5, None, None, 1),
+        Measure("t4_livre", LOINC, "3024-7", "T4 livre", "ng/dL", 0.7, 1.8, None, None, 1),
+        Measure("tgo", LOINC, "1920-8", "TGO (AST)", "U/L", None, 40, None, None),
+        Measure("tgp", LOINC, "1742-6", "TGP (ALT)", "U/L", None, 41, None, None),
+        Measure("acido_urico", LOINC, "3084-1", "Ácido úrico", "mg/dL", 2.5, 7.0, None, None, 1),
+        Measure("ferritina", LOINC, "2276-4", "Ferritina", "ng/mL", 30, 300, None, None),
+        Measure("b12", LOINC, "2132-9", "Vitamina B12", "pg/mL", 200, 900, None, None),
+        Measure("psa", LOINC, "2857-1", "PSA", "ng/mL", None, 4.0, None, None, 1),
     ]
 }
 

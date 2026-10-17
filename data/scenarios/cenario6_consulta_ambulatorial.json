@@ -56,8 +56,8 @@
     {"t": "-5m", "pa": [118, 72], "fc": 88, "glicemia": 64}
   ],
   "exames": [
-    {"t": "-370d", "hba1c": 7.4, "glicose": 142, "creatinina": 1.1, "potassio": 4.4, "sodio": 140, "ldl": 128},
-    {"t": "-188d", "hba1c": 8.4, "glicose": 168, "creatinina": 1.3, "potassio": 4.6, "sodio": 139, "ldl": 112},
+    {"t": "-370d", "hba1c": 7.4, "glicose": 142, "creatinina": 1.1, "potassio": 4.4, "sodio": 140, "ldl": 128, "colesterol_total": 214, "tsh": 3.4},
+    {"t": "-188d", "hba1c": 8.4, "glicose": 168, "creatinina": 1.3, "potassio": 4.6, "sodio": 139, "ldl": 112, "colesterol_total": 196, "tsh": 3.1},
     {"t": "-10d", "hba1c": 7.1, "glicose": 118, "creatinina": 1.5, "potassio": 5.3, "sodio": 131, "ldl": 96, "hemoglobina": 11.6}
   ],
   "procedimentos": [

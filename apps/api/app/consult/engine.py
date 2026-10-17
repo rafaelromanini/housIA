@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import knowledge, orders, semiology
+from app.consult import extract, knowledge, orders, reminders, semiology, summary
 from app.consult.chart import ChartView, fmt_date
 from app.consult.cid import screen
 from app.consult.schemas import (
@@ -27,6 +27,7 @@ from app.consult.schemas import (
     MedSuggestion,
     QueixaDetalhada,
     Question,
+    Rcri,
     Segment,
     Summary,
     SurgeryItem,
@@ -250,6 +251,8 @@ class Engine:
         self.denied: dict[str, list[str]] = {}
         self.tags_denied: list[Tag] = []
         self.dropped: list[dict] = []  # itens recusados pelas regras (ex.: CID que a tabela oficial não aceita)
+        self._extraction: extract.Extraction | None = None
+        self.rcri: Rcri | None = None
 
     # ---------- utilidades ----------
     def said(self, words: tuple[str, ...], speakers: tuple[str, ...] | None = None) -> list[Segment]:
@@ -1060,6 +1063,22 @@ class Engine:
         return "baixa" if contains(clause, REACTION_LOW) else "indeterminada"
 
     # ---------- Histórico relatado + cirurgia citada ----------
+    def extraction(self) -> extract.Extraction:
+        """Antecedentes, cirurgias e exames ditos na conversa, estruturados e conciliados (uma vez por análise)."""
+        if self._extraction is None:
+            self._extraction = extract.extract_all(self.segments, self.chart)
+        return self._extraction
+
+    def history(self) -> list[HistoryItem]:
+        """Prontuário + o que foi dito. O item do prontuário que um relato já cobre sai (o relato o cita)."""
+        found = self.extraction()
+        covered = found.matched_chart_refs
+        items = [h for h in self.chart.history() if not set(h.refs) & covered]
+        items += self.reported_history() + found.antecedentes + found.cirurgias
+        order = {"diagnostico": 0, "cirurgia": 1, "internacao": 2, "pronto_socorro": 3, "consulta": 4, "relatado": 5}
+        items.sort(key=lambda i: -1 if i.condicao else order.get(i.tipo, 9))
+        return items
+
     def reported_history(self) -> list[HistoryItem]:
         out = []
         for s in self.patient_segments:
@@ -1081,14 +1100,23 @@ class Engine:
         return out
 
     def surgery(self) -> tuple[list[SurgeryItem], list[str]]:
-        items = self.chart.surgical_history()
+        found = self.extraction()
+        covered = found.matched_chart_refs
+        items = [i for i in self.chart.surgical_history() if not set(i.refs) & covered]
         for s in self.segments:
             if keyword_status(s.texto, SURGERY_PLAN_WORDS) != "presente":  # "não vai precisar operar"
                 continue
             items.append(
                 SurgeryItem(texto=f"Citado na consulta: {self.quote(s, 110)}", tipo="planejada", refs=[fala_ref(s.n)])
             )
+        items += [
+            SurgeryItem(texto=f"Cirurgia prévia relatada: {h.texto}", tipo="historico", refs=h.refs)
+            for h in found.cirurgias
+        ]
+        structured = {r for h in found.cirurgias for r in h.refs}
         for s in self.patient_segments:
+            if fala_ref(s.n) in structured:  # a cirurgia desta fala já saiu estruturada (procedimento, ano, selo)
+                continue
             if keyword_status(s.texto, SURGERY_PAST_WORDS) != "presente":  # "nunca fui operada"
                 continue
             items.append(
@@ -1099,40 +1127,35 @@ class Engine:
         planned = [i for i in items if i.tipo == "planejada"]
         if planned:
             items += self.chart.perioperative_checks()
+            self.rcri = extract.rcri(self.chart, found, planned)
+            if self.rcri:
+                # checagem pré-operatória como as do prontuário: cita os recursos FHIR (as falas estão no RCRI completo)
+                refs = [r for r in self.rcri.refs if not r.startswith("Fala/")]
+                items.append(SurgeryItem(texto=self.rcri.interpretacao, tipo="checagem", refs=refs))
         return items, [r for i in planned for r in i.refs]
 
     # ---------- Resumo e anamnese ----------
-    def summary(self, tags: list[Tag], hyps: list[Hypothesis], meds: list[MedSuggestion], exams) -> Summary:
-        r = self.r
-        dx = [t for _, t, _ in self.chart.conditions][:5]
-        egfr = self.chart.egfr
-        parts = [f"[PACIENTE], {r.age} anos" + (f", com {', '.join(dx)}" if dx else "")]
-        if egfr and egfr[0] < 60:
-            parts[0] += f" (TFG estimada ~{round(egfr[0])})"
-        present = [t.rotulo.lower() for t in tags if t.status == "presente"]
-        negated = [t.rotulo.lower() for t in tags if t.status == "negado"]
-        if present:
-            parts.append("Queixas: " + ", ".join(present))
-        if negated:
-            parts.append("Nega: " + ", ".join(negated))
-        abnormal = [f"{e.exame.lower()} {e.valor}" for e in exams if e.status != "normal"][:4]
-        if abnormal:
-            parts.append("Exames alterados: " + "; ".join(abnormal))
-        if hyps:
-            parts.append("Hipóteses principais: " + "; ".join(h.hipotese.lower() for h in hyps[:3]))
-        text = ". ".join(parts) + "."
+    def summary(self, tags: list[Tag], hyps: list[Hypothesis], meds: list[MedSuggestion], exams, emotions) -> Summary:
+        sentences = summary.build(self, tags, hyps, exams, emotions)
         highlights: list[Highlight] = [
             Highlight(texto=m.texto, severidade=m.severidade, refs=m.refs) for m in meds if m.severidade == "critico"
         ]
+        highlights += reminders.critical_vitals(self)
         for e in exams:
-            if e.status != "normal" and e.chave in ("glicemia", "potassio", "sodio"):
+            if e.status != "normal" and e.chave in ("glicemia", "potassio", "sodio") and e.origem_dado == "prontuário":
                 highlights.append(
                     Highlight(texto=f"{e.exame}: {e.valor} ({e.data})", severidade="atencao", refs=e.refs)
                 )
         for t in tags:
             if t.status == "presente" and t.rotulo in ("Queda ou quase queda", "Dor no peito", "Falta de ar"):
                 highlights.append(Highlight(texto=f"Relata: {t.rotulo.lower()}", severidade="atencao", refs=t.refs))
-        return Summary(texto=text, destaques=highlights[:8])
+        return Summary(texto=summary.text_of(sentences), destaques=highlights[:8], frases=sentences)
+
+    def alerts(self, meds: list[MedSuggestion]) -> list[Highlight]:
+        """Críticos primeiro (medicamento e sinal vital da triagem), depois os de atenção, que a tela recolhe."""
+        found = [Highlight(texto=m.texto, severidade=m.severidade, refs=m.refs) for m in meds if m.severidade != "info"]
+        found += reminders.critical_vitals(self)
+        return sorted(found, key=lambda h: SEVERITY[h.severidade])
 
     def semiology(self, present: dict[str, list[str]]) -> semiology.Semiology:
         """Semiologia das queixas presentes; a queixa principal que o profissional fixou vai para o começo."""
@@ -1231,8 +1254,8 @@ class Engine:
         allergies = self.allergies(planned)
         meds_safety = self.med_safety(allergies, present, planned)
         reported = self.reported_meds()
-        exams = self.chart.exams()
-        history = self.chart.history() + self.reported_history()
+        exams = self.chart.exams() + self.extraction().exames
+        history = self.history()
         egfr = self.chart.egfr
         protocols = self.chart.protocols()
         order_ctx = orders.OrderContext(
@@ -1243,11 +1266,7 @@ class Engine:
             pending=self.r.pending_exams,
         )
         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
-        alerts = [
-            Highlight(texto=m.texto, severidade=m.severidade, refs=m.refs)
-            for m in meds_safety
-            if m.severidade == "critico"
-        ]
+        alerts = self.alerts(meds_safety)
         return Insights(
             tipo=self.kind,
             especialidade=self.specialty,
@@ -1268,9 +1287,11 @@ class Engine:
             cirurgia=surgery_items,
             protocolos=protocols,
             pedidos=drafts,
-            resumo=self.summary(tags, hyps, meds_safety, exams),
+            resumo=self.summary(tags, hyps, meds_safety, exams, emotions),
+            lembretes=reminders.build(self),
             anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),
             alertas=alerts,
             tfg=egfr[0] if egfr else None,
+            rcri=self.rcri,
             descartados=self.dropped,
         )
