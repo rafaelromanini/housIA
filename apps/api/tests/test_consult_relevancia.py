@@ -256,3 +256,16 @@ def test_old_consultations_without_relevance_are_classified_on_read():
         "cronologia": [{"refs": ["Fala/5"]}],
     }
     assert relevancia.cited_falas(note) == {3, 4, 5}
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "sinto um caroço no seio",
+        "to cagando muito",
+        "a criança engasgou",
+        "faz dias que sinto uma coisa estranha",
+    ],
+)
+def test_sintoma_coloquial_nao_vira_social(texto):
+    assert relevancia.classify(texto) == "clinica"
