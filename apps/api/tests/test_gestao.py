@@ -265,6 +265,14 @@ def test_summary_validator_drops_invented_numbers_and_missing_sources(painel):
     assert len(dropped) == 4 and "número fora do painel: 47" in motivos and "sem indicador" in motivos
 
 
+def test_summary_validator_catches_numbers_written_in_words(painel):
+    client, gestor, _ = painel
+    body = get(client, gestor)
+    frases = [gestao.ResumoFrase(texto="Cem altas travadas na semana.", refs=["altas_travadas"])]
+    keep, dropped = gestao.validate_summary(frases, body)
+    assert not keep and "número fora do painel: 100" in dropped[0]["motivo"]
+
+
 def test_summary_from_the_model_is_filtered_before_it_reaches_the_screen(painel, monkeypatch):
     from app.llm.client import LLMResult
 

@@ -659,8 +659,23 @@ def panel_numbers(report: dict) -> set[str]:
     return {n for v in found for n in {f"{v:g}", f"{int(v)}" if v.is_integer() else f"{v:g}"}}
 
 
+_EXTENSO = {
+    "dois": 2, "duas": 2, "três": 3, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6, "sete": 7, "oito": 8,
+    "nove": 9, "dez": 10, "onze": 11, "doze": 12, "treze": 13, "catorze": 14, "quatorze": 14, "quinze": 15,
+    "dezesseis": 16, "dezessete": 17, "dezoito": 18, "dezenove": 19, "vinte": 20, "trinta": 30, "quarenta": 40,
+    "cinquenta": 50, "sessenta": 60, "setenta": 70, "oitenta": 80, "noventa": 90, "cem": 100, "mil": 1000,
+}  # fmt: skip
+_LIMIAR_11H = re.compile(r"antes das onze horas", re.IGNORECASE)  # limiar fixo do indicador, não é número do painel
+
+
 def _numbers_of(text: str) -> set[str]:
-    return {f"{float(m.group(0).replace(',', '.')):g}" for m in _NUM.finditer(text)}
+    """Algarismos e números por extenso ("dez altas" não pode passar por número fora do painel)."""
+    text = _LIMIAR_11H.sub("", text)
+    found = {f"{float(m.group(0).replace(',', '.')):g}" for m in _NUM.finditer(text)}
+    for w in re.findall(r"[a-zçãéê]+", text.lower()):
+        if w in _EXTENSO:
+            found.add(f"{_EXTENSO[w]:g}")
+    return found
 
 
 def validate_summary(frases: list[ResumoFrase], report: dict) -> tuple[list[dict], list[dict]]:
