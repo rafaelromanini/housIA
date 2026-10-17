@@ -49,6 +49,7 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.audio": "Áudio transcrito (o áudio não é guardado)",
   "consulta.analise_ia": "Análise da consulta pela IA",
   "consulta.traducao": "Falas traduzidas",
+  "consulta.fala_incluida_na_nota": "Fala incluída na nota",
   "consulta.erro_llm": "Erro do LLM na consulta",
   "consulta.queixa_principal": "Queixa principal fixada",
   "consulta.hipotese": "Hipótese decidida (confirmada, provisória ou descartada)",
