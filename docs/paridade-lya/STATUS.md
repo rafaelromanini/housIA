@@ -96,27 +96,30 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 
 ## O que falta, na ordem
 
-1. **Resto da Onda 1, frente A, em sequência:** #7+#8 (histórico e exames ditos e resumo com fonte por frase e
-   lembretes), #10 (relevância de cada fala e o painel "fora da nota"). Nenhum começado (os agentes foram parados antes
-   de mudar arquivos). Prefixo de migração: c0.
-2. **Onda 2, frente B, restante:** #20 (copiloto) e #36+#37 (painel Impacto e copiloto do gestor). Prefixo d1. O #19
-   já está feito e juntado.
-3. **Onda 2, frente A** (e o que sobrar da B):
-   - Frente A: #2+#13 (transcrição editável e consentimento), #3 (aceitar, descartar e fixar insights), #14+#15
-     (revisão segura e cronologia), #16 (modelos de nota, SOAP e-SUS), #22 (tradução em 95+ idiomas).
-   - Frente B: ~~#19~~ (feito), #20 (copiloto), #36+#37 (painel Impacto e copiloto do gestor).
-4. **Onda 3.**
-   - Frente A: #21 (Smart Apps como plug-ins), #27 (pacotes de especialidade), #28 (protocolos de APS), #17
-     (Bundle FHIR), #18 (codificação), #29 ("Antes de encaminhar").
-   - Frente B: #31 (privacidade), #32 (prontidão de produção), #33 (organizações), #34 (consultório), #35 (planos).
-5. **Onda 4:** #11 (Whisper on-premise com streaming), #12 (PWA e tablet), depois os P1 (#38 a #54) e os P2 (#55 a
-   #57).
-6. **Pitch:** refazer o vídeo (#0) com a Consulta com IA como foco. Precisa mostrar a transcrição ao vivo, a pergunta
-   sugerida saindo da lista quando é feita, o alerta crítico com o chip "fala N", a nota indo ao FHIR e a ponte com
-   a passagem e a alta. Os scripts do vídeo estão em `brag-output/scripts/`; `capture-consult.mjs` captura a
-   consulta real. Também atualizar `brag-output/share-copy.txt`, o texto do login (`login-form.tsx`), a
-   `description` em `app/layout.tsx` e o topo do README.
-7. **Se sobrar tempo:** polir o front com as skills de UI mais usadas.
+Feito e verificado nesta sessão (tudo no branch, head 900b5df): Onda 1 inteira (#7+#8, #10), Onda 2 frente B (#20,
+#36+#37, migração d101) e frente A #2+#13, #3 (migração d201), #14+#15, #16 (prompt consult_note 1.5.0). e2e: 9/9
+verdes depois do #10; ainda não rodados depois de #2+#13, #3, #14+#15, #16 (specs editadas).
+
+1. **#22 (tradução):** implementado mas NÃO verificado nem juntado. Está em `docs/paridade-lya/wip/`:
+   `22-implementacao.patch` (commit 4251908, base f039757; aplicar com `git am`) e `22-verificacao-parcial.patch`
+   (correções em andamento do verificador: engine, fidelidade, idiomas, text, allergy_cross.csv e
+   test_consult_traducao_adversarial.py; aplicar com `git apply`). Rodar a verificação cética (esforço alto), juntar
+   com o head (conflitos esperados em service.py, router.py, live-consult.tsx) e apagar a pasta wip.
+2. **Subir a stack, recarregar o seed (esperar o seed do `up` terminar antes do `run --rm seed`) e rodar os e2e.**
+3. **Onda 3.** Frente A: #21 (Smart Apps como plug-ins; não começado), #27, #28, #17, #18, #29. Frente B: #31, #32,
+   #33, #34, #35. Prefixos de migração livres: c2 (A) e d4 (B).
+4. **Onda 4:** #11, #12, depois P1 (#38 a #54) e P2 (#55 a #57).
+5. **Pitch:** refazer o vídeo (#0) com a Consulta com IA como foco: transcrição ao vivo, pergunta sugerida saindo da
+   lista, alerta crítico com chip "fala N", revisão com atestação, nota indo ao FHIR, ponte com passagem e alta.
+   Scripts em `brag-output/scripts/` (`capture-consult.mjs`). Atualizar também `brag-output/share-copy.txt`,
+   `login-form.tsx`, a `description` em `app/layout.tsx` e o topo do README.
+6. **Se sobrar tempo:** polir o front.
+
+Pendências conhecidas (não bloqueiam): ligação Charlson/LACE com a alta (#7); "tem alergia a dipirona?" devolve a lista
+inteira (#20); a pausa não bloqueia insights/copiloto e a revogação não apaga análise já guardada (#13, decidir);
+reenvio após falha parcial do FHIR pode duplicar DocumentReference (#14); "Sem registro…" no início conta como seção
+vazia (#16); validador do resumo do gestor não confere número × indicador (#37); avisos de consentimento em 9 idiomas
+precisam de revisão nativa/jurídica.
 
 Fora de escopo, porque depende de terceiros ou de licença (detalhes em `backlog.json`, `plano.fora_de_escopo`):
 

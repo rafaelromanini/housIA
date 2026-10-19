@@ -1,0 +1,286 @@
+diff --git a/apps/api/app/consult/engine.py b/apps/api/app/consult/engine.py
+index cc87888..0661695 100644
+--- a/apps/api/app/consult/engine.py
++++ b/apps/api/app/consult/engine.py
+@@ -158,8 +158,16 @@ PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
+ RELATIVE_ALLERGY = re.compile(
+     r"(?<!\w)(minha|meu|a|o|do|da) (mae|pai|irma|irmao|filha|filho|avo|avos|marido|esposa|tia|tio|neta|neto|sobrinha"
+     r"|sobrinho|prima|primo|genro|nora|sogra|sogro|vizinha|vizinho|amiga|amigo)(?!\w)"
++    # parentes citados em espanhol e inglês (fala ainda sem tradução)
++    r"|(?<!\w)(mi|mis|su|sus|el|la|my|her|his|our) (madre|mama|padre|papa|hermana|hermano|hija|hijo|abuela|abuelo"
++    r"|esposo|esposa|marido|tia|tio|nieta|nieto|sobrina|sobrino|prima|primo|yerno|nuera|suegra|suegro|vecina|vecino"
++    r"|amiga|amigo|mother|mom|father|dad|sister|brother|daughter|son|wife|husband|aunt|uncle|grandmother|grandma"
++    r"|grandfather|grandpa|cousin|neighbou?r|friend)(?!\w)"
++)
++SELF_ALLERGY = re.compile(
++    r"(?<!\w)(eu tambem|tambem tenho|eu tenho|eu sou|sou alergic|eu tb|comigo tambem"
++    r"|yo tambien|tambien soy|yo soy|soy alergic|yo tengo|i am allergic|i'?m allergic|i also|me too|so am i)(?!\w)"
+ )
+-SELF_ALLERGY = re.compile(r"(?<!\w)(eu tambem|tambem tenho|eu tenho|eu sou|sou alergic|eu tb|comigo tambem)(?!\w)")
+ HIGH_ALERT_SOURCE = "Lista de medicamentos potencialmente perigosos (high_alert_meds.csv; conceito do ISMP)"
+ PLANNED_SUFFIX = " (a prescrever)"  # medicamento que o profissional disse que vai passar: ainda não está no prontuário
+ MAX_HYPOTHESES = 8
+@@ -1057,7 +1065,7 @@ class Engine:
+         for s in self.patient_segments:
+             for clause in self.norm[s.n].split("."):
+                 # "não tenho alergia a dipirona", "alergia a dipirona não", "tem alergia a algum remédio" (pergunta)
+-                if keyword_status(clause, ("alergi",), skip_questions=True) != "presente":
++                if keyword_status(clause, ("alergi", "allergi"), skip_questions=True) != "presente":
+                     continue
+                 if s.falante == "paciente" and RELATIVE_ALLERGY.search(clause) and not SELF_ALLERGY.search(clause):
+                     continue  # "minha mãe tem alergia a sulfa" é da mãe, não do paciente
+diff --git a/apps/api/app/consult/fidelidade.py b/apps/api/app/consult/fidelidade.py
+index fe0dbf1..515d3d7 100644
+--- a/apps/api/app/consult/fidelidade.py
++++ b/apps/api/app/consult/fidelidade.py
+@@ -19,6 +19,9 @@ _EXTENSO = {
+     "dois": "2", "duas": "2", "two": "2", "tres": "3", "three": "3", "quatro": "4", "cuatro": "4", "four": "4",
+     "cinco": "5", "five": "5", "seis": "6", "six": "6", "sete": "7", "siete": "7", "seven": "7", "oito": "8",
+     "ocho": "8", "eight": "8", "nove": "9", "nueve": "9", "nine": "9", "dez": "10", "diez": "10", "ten": "10",
++    "twice": "2", "vinte": "20", "veinte": "20", "twenty": "20", "trinta": "30", "treinta": "30", "thirty": "30",
++    "quarenta": "40", "cuarenta": "40", "forty": "40", "cinquenta": "50", "cincuenta": "50", "fifty": "50",
++    "quinhentos": "500", "quinientos": "500",
+ }  # fmt: skip
+ _EXTENSO_RE = re.compile(r"(?<!\w)(" + "|".join(_EXTENSO) + r")(?!\w)")
+ # "dos" é o 2 do espanhol, mas em português é "de os": só conta diante de unidade de tempo ou de dose
+@@ -26,6 +29,9 @@ _DOS = re.compile(r"(?<!\w)dos(?= (dias|horas|semanas|meses|anos|veces|pastillas
+ 
+ 
+ def _valor(txt: str) -> str:
++    # "1.000 mg" (pt/es) e "1,000 mg" (en) são mil, não um: separador de milhar = 1 a 3 dígitos (sem zero à frente) + 3
++    if re.fullmatch(r"[1-9]\d{0,2}[.,]\d{3}", txt):
++        return txt[:-4] + txt[-3:]
+     v = txt.replace(",", ".")
+     if "." in v:
+         v = v.rstrip("0").rstrip(".")
+@@ -38,6 +44,17 @@ def numeros(texto: str) -> set[tuple[str, str]]:
+     return {(_valor(m.group(1)), (m.group(2) or "").lower()) for m in NUMERO.finditer(t)}
+ 
+ 
++# nomes em inglês (ou grafias do espanhol) que não são o radical do nome em português do drugs.csv
++_ALIAS = {
++    "warfarin": "varfarina", "warfarina": "varfarina", "acetaminophen": "paracetamol", "acetaminofen": "paracetamol",
++    "aspirin": "aas", "dipyrone": "dipirona", "metamizol": "dipirona", "morphine": "morfina",
++    "simvastatin": "sinvastatina", "levothyroxine": "levotiroxina", "dexamethasone": "dexametasona",
++    "amoxicillin": "amoxicilina", "ampicillin": "ampicilina", "furosemide": "furosemida",
++    "spironolactone": "espironolactona", "hydrochlorothiazide": "hidroclorotiazida", "atorvastatin": "atorvastatina",
++    "rivaroxaban": "rivaroxabana", "apixaban": "apixabana", "enoxaparin": "enoxaparina", "gabapentin": "gabapentina",
++}  # fmt: skip
++
++
+ @lru_cache
+ def _radicais() -> tuple[tuple[str, str], ...]:
+     """(radical, princípio ativo): 'losartan' acha 'losartana' (pt) e 'losartán' (es); 'metformin' acha o inglês."""
+@@ -47,6 +64,7 @@ def _radicais() -> tuple[tuple[str, str], ...]:
+             stem = name.rstrip("aeo")
+             if len(stem) >= 6:
+                 out.append((stem, ing))
++    out += [(alias, ing) for alias, ing in _ALIAS.items() if ing in drugs()]
+     return tuple(out)
+ 
+ 
+@@ -55,6 +73,22 @@ def medicamentos(texto: str) -> set[str]:
+     return {ing for stem, ing in _radicais() if re.search(rf"(?<!\w){re.escape(stem)}", t)}
+ 
+ 
++# período/frequência: "por día" → "por semana" ou "de noche" → "de dia" muda a posologia sem mudar nenhum número
++_PERIODOS = {
++    "dia": r"dias?|days?|diari[oa]s?|diariamente|daily",
++    "semana": r"semanas?|weeks?|semanal(?:mente)?|weekly",
++    "mes": r"mes(?:es)?|months?|mensal(?:mente)?|mensual(?:mente)?|monthly",
++    "hora": r"horas?|hours?|hourly",
++    "noite": r"noche|noite|night|nocturn[oa]|noturn[oa]",
++}
++_PERIODOS_RE = {k: re.compile(rf"(?<!\w)(?:{v})(?!\w)") for k, v in _PERIODOS.items()}
++
++
++def periodos(texto: str) -> set[str]:
++    t = norm(texto)
++    return {k for k, rx in _PERIODOS_RE.items() if rx.search(t)}
++
++
+ def divergencias(original: str, traducao: str) -> list[str]:
+     """Descrições das diferenças entre a fala e a tradução (lista vazia: a tradução é fiel nesses pontos)."""
+     out: list[str] = []
+@@ -72,4 +106,7 @@ def divergencias(original: str, traducao: str) -> list[str]:
+     da, db = medicamentos(original), medicamentos(traducao)
+     if da != db:
+         out.append("medicamentos diferentes entre original e tradução: " + ", ".join(sorted(da ^ db)))
++    pa, pb = periodos(original), periodos(traducao)
++    if pa != pb:
++        out.append("período ou frequência diferente (dia, semana, mês, hora, noite): " + ", ".join(sorted(pa ^ pb)))
+     return out
+diff --git a/apps/api/app/consult/idiomas.py b/apps/api/app/consult/idiomas.py
+index be2b252..2e32d85 100644
+--- a/apps/api/app/consult/idiomas.py
++++ b/apps/api/app/consult/idiomas.py
+@@ -92,10 +92,24 @@ _NEGA = {
+ }
+ 
+ 
++# O chip de idioma segue o falante (paciente = idioma do cadastro), mas o acompanhante pode falar português: nesse caso
++# o "no" de "dor no peito" não é negação. Marcas inequívocas de português (e "ã/õ/ç") desligam a troca.
++_PT = re.compile(
++    r"(?<!\w)(nao|dor|dores|estou|tenho|minha|meu|sinto|ontem|voce|senhora|doutor|doutora|sim|muito|faz|ficou|passou"
++    r"|piorou|melhorou)(?!\w)"
++)
++
++
++def parece_portugues(texto: str) -> bool:
++    if re.search("[ãõç]", texto.lower()):
++        return True
++    return bool(_PT.search(normalize(texto)))
++
++
+ def texto_para_regras(texto: str, idioma: str) -> str:
+     """Texto que o motor lê numa fala estrangeira sem tradução; em pt-BR (ou outro idioma) devolve o texto como está."""
+     base = (resolver(idioma) or idioma).split("-")[0]
+     pattern = _NEGA.get(base)
+-    if pattern is None:
++    if pattern is None or parece_portugues(texto):
+         return texto
+     return pattern.sub(" nao ", normalize(texto))
+diff --git a/apps/api/app/consult/text.py b/apps/api/app/consult/text.py
+index 8a7dcda..17c7482 100644
+--- a/apps/api/app/consult/text.py
++++ b/apps/api/app/consult/text.py
+@@ -31,7 +31,7 @@ LIGHT_WORDS = set(
+         "ha necessario necessaria necessidade indicacao "
+         # espanhol e inglês (fala estrangeira sem tradução): auxiliares e artigos que não interrompem a negação
+         "me te se el la los las en mi mis he has tengo tienes tiene tenido tuve tenia siento sentido estoy "
+-        "i have had having do does did feel felt any my the an got am im ive"
++        "i have had having do does did feel felt any my the an got am im ive i'm i've soy es eres al lo su sus"
+     ).split()
+ )
+ # "não vai ter que operar": o "que" de "ter que" não interrompe o alcance; "nada de dor no peito" é negativa
+diff --git a/apps/api/tests/test_consult_traducao_adversarial.py b/apps/api/tests/test_consult_traducao_adversarial.py
+new file mode 100644
+index 0000000..0ceb9a7
+--- /dev/null
++++ b/apps/api/tests/test_consult_traducao_adversarial.py
+@@ -0,0 +1,99 @@
++"""Tradução (#22), verificação adversarial: negação es/en, "no" em português, alergia em outro idioma, fidelidade."""
++
++import pytest
++
++from app.consult import fidelidade, idiomas
++from tests.test_consult import start
++from tests.test_consult_traducao import falas, tag
++
++
++def queixa(client, auth, texto, idioma, rotulo="Dor no peito", paciente="cen8"):
++    h = auth("medico")
++    cid = start(client, h, paciente)["id"]
++    ins = falas(client, h, cid, [{"falante": "paciente", "texto": texto, "t": 1, "idioma": idioma}])["insights"]
++    t = tag(ins, rotulo)
++    return t and t["status"]
++
++
++@pytest.mark.parametrize(
++    ("texto", "idioma", "status"),
++    [
++        ("No tengo dolor de pecho ni falta de aire.", "es", "negado"),
++        ("No, me duele el pecho, doctora.", "es", "presente"),
++        ("No tengo fiebre, pero me duele el pecho.", "es", "presente"),
++        ("No chest pain, doctor.", "en", "negado"),
++        ("No, I have chest pain since yesterday.", "en", "presente"),
++        ("I don't have a fever, but I have chest pain.", "en", "presente"),
++        ("¿Le duele el pecho?", "es", "presente"),
++        # chip de idioma errado: o acompanhante fala português, "no" é "em o" e não pode virar negação
++        ("Ela sente dor no peito desde ontem.", "es", "presente"),
++        ("Sinto uma dor no peito.", "en", "presente"),
++        ("Ela não sente dor no peito.", "es", "negado"),
++    ],
++)
++def test_negation_and_portuguese_no(client, auth, texto, idioma, status):
++    assert queixa(client, auth, texto, idioma) == status
++
++
++@pytest.mark.parametrize(
++    ("texto", "idioma", "esperado"),
++    [
++        ("Soy alérgica a la penicilina, me da urticaria.", "es", True),
++        ("Tengo alergia a la dipirona, me hincha la cara.", "es", True),
++        ("I am allergic to penicillin, I get hives.", "en", True),
++        ("No soy alérgica a la penicilina.", "es", False),
++        ("I'm not allergic to penicillin.", "en", False),
++        ("Sin alergias conocidas.", "es", False),
++        ("Mi madre es alérgica a la penicilina.", "es", False),  # alergia de parente não é do paciente
++        ("My mother is allergic to penicillin.", "en", False),
++        ("Ela sente dor, e eu tenho alergia a dipirona.", "es", True),  # português sob chip errado
++    ],
++)
++def test_allergy_said_in_another_language_reaches_the_allergy_rule(client, auth, texto, idioma, esperado):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    ins = falas(client, h, cid, [{"falante": "paciente", "texto": texto, "t": 1, "idioma": idioma}])["insights"]
++    relatadas = [a for a in ins["alergias"] if a["fonte"] == "relatado"]
++    assert bool(relatadas) == esperado, relatadas
++    assert all(a["refs"] == ["Fala/1"] for a in relatadas)
++
++
++def test_spanish_allergy_brings_avoid_list_and_reaction_severity(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    texto = "Soy alérgica a la penicilina, se me cerró la garganta."
++    ins = falas(client, h, cid, [{"falante": "paciente", "texto": texto, "t": 1, "idioma": "es"}])["insights"]
++    penicilina = next(a for a in ins["alergias"] if a["fonte"] == "relatado")
++    assert penicilina["alergeno"] == "Penicilinas" and penicilina["evitar"] and penicilina["refs"] == ["Fala/1"]
++
++
++@pytest.mark.parametrize(
++    ("original", "traducao", "diverge"),
++    [
++        ("Tomo 500 mg dos veces al día", "Tomo 500 mg uma vez ao dia", True),  # frequência
++        ("Take 10 mg twice a day", "Tomo 10 mg uma vez ao dia", True),
++        ("Tomo 500 mg cada 8 horas", "Tomo 500 mg a cada 12 horas", True),
++        ("Tomo 5 mg por día", "Tomo 5 mg por semana", True),  # período sem número
++        ("Tomo 0,5 mg", "Tomo 0.5 mg", False),  # vírgula decimal x ponto decimal
++        ("Take 0.5 mg", "Tomo 0,5 mg", False),
++        ("Tomo 0,5 mg", "Tomo 5 mg", True),
++        ("Tomo 1.000 mg", "Tomo 1000 mg", False),  # milhar
++        ("Take 1,000 mg", "Tomo 1 mg", True),
++        ("Tomo 1.000 mg", "Tomo 1 mg", True),
++        ("Tomo insulina 10 unidades", "Tomo insulina 100 unidades", True),
++        ("Tomo veinte unidades de insulina", "Tomo 2 unidades de insulina", True),
++        ("Tomo 500 mg", "Tomo 500 mg de ibuprofeno", True),  # remédio inventado
++        ("Tomo warfarina 5 mg", "Tomo varfarina 5 mg", False),  # grafia do espanhol x pt
++        ("I take warfarin 5 mg daily", "Tomo varfarina 5 mg diariamente", False),
++        ("I take warfarin 5 mg daily", "Tomo aspirina 5 mg diariamente", True),  # remédio trocado
++        ("Tomo 5 mg todos los días", "Tomo 5 mg todos os dias", False),
++        ("Hace dos días tengo tos", "Há 2 dias estou com tosse", False),
++    ],
++)
++def test_fidelity_adversarial(original, traducao, diverge):
++    assert bool(fidelidade.divergencias(original, traducao)) == diverge, fidelidade.divergencias(original, traducao)
++
++
++def test_portuguese_markers_disable_the_negation_swap():
++    assert idiomas.texto_para_regras("Sinto dor no peito", "es") == "Sinto dor no peito"
++    assert "nao" in idiomas.texto_para_regras("No me duele el pecho", "es")
+diff --git a/data/reference/allergy_cross.csv b/data/reference/allergy_cross.csv
+index 6ba7087..260eff3 100644
+--- a/data/reference/allergy_cross.csv
++++ b/data/reference/allergy_cross.csv
+@@ -1,8 +1,8 @@
+ alergeno,rotulo,palavras,reatividade_cruzada,evitar,alternativas,dicas,cruza_com,fonte
+-@penicilina,Penicilinas,penicilina|amoxicilina|ampicilina|benzetacil|oxacilina,"Todas as penicilinas; reação cruzada com cefalosporinas é baixa (cerca de 1–2%, menor com as de 3ª geração), mas exige avaliação.","Amoxicilina, ampicilina, benzilpenicilina (Benzetacil), amoxicilina + clavulanato.",Conforme a infecção: macrolídeos (ex.: azitromicina) ou outras classes — decisão médica; considerar teste de desalergização com alergista quando a penicilina for essencial.,"Leve sempre um cartão ou pulseira de alergia; avise em toda consulta, farmácia e pronto-socorro; confira a bula de qualquer antibiótico.",@cefalosporina,AAAAI/ACAAI: Drug allergy practice parameter (2022)
+-dipirona,Dipirona,dipirona|metamizol|novalgina|anador,Outros derivados pirazolônicos (ex.: propifenazona em associações); parte dos pacientes com reação a AINE também reage.,Dipirona e analgésicos combinados que a contenham (leia o rótulo).,"Paracetamol, se não houver contraindicação.",Muitos analgésicos de farmácia têm dipirona na fórmula: confira o rótulo antes de tomar.,,ASBAI e bula da dipirona (ANVISA): reações de hipersensibilidade
+-@aine,Anti-inflamatórios (AINE),anti-inflamatorio|ibuprofeno|diclofenaco|nimesulida|naproxeno|cetoprofeno|celecoxibe,"Outros AINE; parte dos pacientes reage também ao AAS e, mais raramente, à dipirona.","Ibuprofeno, diclofenaco, nimesulida, naproxeno, cetoprofeno.","Paracetamol; para inflamação local, avaliar alternativas tópicas com o médico.",Pomadas e remédios para gripe podem ter anti-inflamatório: leia o rótulo.,aas|dipirona,AAAAI/ACAAI: Drug allergy practice parameter (2022)
+-aas,Ácido acetilsalicílico (AAS),aas|aspirina|acido acetilsalicilico|somalgin|ecasil,AINE em geral (inibição da COX-1); reação respiratória ao AAS costuma cruzar com todos os AINE não seletivos.,"AAS, aspirina e associações para gripe e dor que o contenham.",Paracetamol; antiagregante alternativo (clopidogrel) quando houver indicação — decisão médica.,Avise antes de cirurgias e de procedimentos cardíacos: o AAS é muito usado como antiagregante.,@aine,AAAAI/ACAAI: Drug allergy practice parameter (2022)
++@penicilina,Penicilinas,penicilina|amoxicilina|ampicilina|benzetacil|oxacilina|penicillin|amoxicillin|ampicillin,"Todas as penicilinas; reação cruzada com cefalosporinas é baixa (cerca de 1–2%, menor com as de 3ª geração), mas exige avaliação.","Amoxicilina, ampicilina, benzilpenicilina (Benzetacil), amoxicilina + clavulanato.",Conforme a infecção: macrolídeos (ex.: azitromicina) ou outras classes — decisão médica; considerar teste de desalergização com alergista quando a penicilina for essencial.,"Leve sempre um cartão ou pulseira de alergia; avise em toda consulta, farmácia e pronto-socorro; confira a bula de qualquer antibiótico.",@cefalosporina,AAAAI/ACAAI: Drug allergy practice parameter (2022)
++dipirona,Dipirona,dipirona|metamizol|novalgina|anador|dipyrone|metamizole,Outros derivados pirazolônicos (ex.: propifenazona em associações); parte dos pacientes com reação a AINE também reage.,Dipirona e analgésicos combinados que a contenham (leia o rótulo).,"Paracetamol, se não houver contraindicação.",Muitos analgésicos de farmácia têm dipirona na fórmula: confira o rótulo antes de tomar.,,ASBAI e bula da dipirona (ANVISA): reações de hipersensibilidade
++@aine,Anti-inflamatórios (AINE),anti-inflamatorio|antiinflamatorio|ibuprofeno|diclofenaco|nimesulida|naproxeno|cetoprofeno|celecoxibe|ibuprofen|naproxen|diclofenac|nsaid,"Outros AINE; parte dos pacientes reage também ao AAS e, mais raramente, à dipirona.","Ibuprofeno, diclofenaco, nimesulida, naproxeno, cetoprofeno.","Paracetamol; para inflamação local, avaliar alternativas tópicas com o médico.",Pomadas e remédios para gripe podem ter anti-inflamatório: leia o rótulo.,aas|dipirona,AAAAI/ACAAI: Drug allergy practice parameter (2022)
++aas,Ácido acetilsalicílico (AAS),aas|aspirina|acido acetilsalicilico|somalgin|ecasil|aspirin,AINE em geral (inibição da COX-1); reação respiratória ao AAS costuma cruzar com todos os AINE não seletivos.,"AAS, aspirina e associações para gripe e dor que o contenham.",Paracetamol; antiagregante alternativo (clopidogrel) quando houver indicação — decisão médica.,Avise antes de cirurgias e de procedimentos cardíacos: o AAS é muito usado como antiagregante.,@aine,AAAAI/ACAAI: Drug allergy practice parameter (2022)
+ @sulfonamida,Sulfas,sulfa|sulfametoxazol|bactrim,"Outras sulfonamidas antibióticas; reação cruzada com sulfonamidas não antibióticas (diuréticos, sulfonilureias) é rara.",Sulfametoxazol + trimetoprima (Bactrim).,Outras classes conforme a infecção — decisão médica.,Avise sobre a alergia a sulfa antes de qualquer antibiótico.,,AAAAI/ACAAI: Drug allergy practice parameter (2022)
+ @cefalosporina,Cefalosporinas (geral),cefalosporina|cefalosporinas,Outras cefalosporinas com cadeia lateral semelhante; algumas penicilinas dividem cadeia lateral (risco baixo).,"Cefalexina, cefazolina, ceftriaxona e demais cefalosporinas até esclarecer qual reagiu.",Outras classes — decisão médica.,Avise sobre a alergia antes de cirurgias (cefazolina é usada como profilaxia).,@penicilina,AAAAI/ACAAI: Drug allergy practice parameter (2022)
+ cefazolina,Cefazolina,cefazolina|kefazol,A cefazolina tem cadeia lateral própria: reação cruzada com outros betalactâmicos é muito baixa.,Cefazolina (profilaxia cirúrgica).,"Cefuroxima, clindamicina ou vancomicina na profilaxia — decisão do cirurgião e do anestesista.",Avise a equipe antes da cirurgia: a cefazolina é o antibiótico mais usado na profilaxia.,,AAAAI/ACAAI: Drug allergy practice parameter (2022)
+@@ -19,7 +19,7 @@ fenobarbital,Fenobarbital e anticonvulsivantes aromáticos,fenobarbital|gardenal
+ @contraste_iodado,Iodo e contraste iodado,iodo|contraste|contraste iodado|contraste de tomografia|contraste da tomografia|iohexol|omnipaque,Reação prévia a contraste iodado aumenta o risco de nova reação com outro contraste; alergia a frutos do mar e a iodo tópico NÃO é contraindicação por si.,"Contraste iodado (tomografia, cateterismo) sem preparo prévio.",Exame sem contraste ou com outro método; premedicação e contraste de outra molécula com orientação do radiologista.,Avise o serviço de imagem antes de tomografia ou cateterismo; confirme a função renal.,,ACR Manual on Contrast Media
+ gadolinio,Contraste de ressonância (gadolínio),gadolinio|contraste da ressonancia|contraste de ressonancia,Reações são raras; quem já reagiu a um quelato de gadolínio pode reagir a outro.,Agente de gadolínio que causou a reação.,Ressonância sem contraste ou agente de outra estrutura — decisão do radiologista.,Avise antes da ressonância.,,ACR Manual on Contrast Media
+ latex,Látex,latex|luva de borracha,"Alguns alimentos (banana, abacate, kiwi, castanha).","Luvas, sondas e balões de látex.",Materiais sem látex.,Avise antes de qualquer procedimento ou cirurgia: a sala precisa ser preparada.,,AAAAI/ACAAI e ASA: orientações sobre alergia ao látex
+-alimento:camarao,Camarão/crustáceos,camarao|frutos do mar|crustaceo|lagosta|caranguejo,"Outros crustáceos (lagosta, caranguejo, siri); às vezes moluscos.",Crustáceos e pratos com caldo ou molho de frutos do mar.,—,Avise em restaurantes; tenha um plano para reação grave se já teve inchaço de boca ou garganta.,,EAACI: Food allergy and anaphylaxis guidelines
++alimento:camarao,Camarão/crustáceos,camarao|frutos do mar|crustaceo|lagosta|caranguejo|mariscos|camarones|shrimp|shellfish,"Outros crustáceos (lagosta, caranguejo, siri); às vezes moluscos.",Crustáceos e pratos com caldo ou molho de frutos do mar.,—,Avise em restaurantes; tenha um plano para reação grave se já teve inchaço de boca ou garganta.,,EAACI: Food allergy and anaphylaxis guidelines
+ alimento:amendoim,Amendoim,amendoim|pacoca,Às vezes outras oleaginosas (castanhas).,"Amendoim e derivados (paçoca, pé de moleque, óleos e doces).",—,"Leia rótulos (""pode conter traços""); reações graves exigem plano de emergência.",,EAACI: Food allergy and anaphylaxis guidelines
+ alimento:castanhas,Castanhas e oleaginosas,castanha|nozes|amendoa|avela|pistache|oleaginosa,"Entre as oleaginosas (castanha-do-pará, caju, nozes, amêndoa).","Castanhas, nozes, amêndoas, avelãs e produtos que as contenham.",—,Leia rótulos; avise em restaurantes e na escola.,,EAACI: Food allergy and anaphylaxis guidelines
+ alimento:ovo,Ovo,ovo|clara de ovo,Proteínas da clara (ovalbumina) em alimentos e em algumas preparações.,"Ovo e alimentos que o contenham (bolos, massas, maionese).",—,"A vacina contra a gripe pode ser aplicada na maioria dos alérgicos a ovo, com orientação médica.",,EAACI: Food allergy and anaphylaxis guidelines
