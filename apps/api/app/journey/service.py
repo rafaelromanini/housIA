@@ -13,11 +13,13 @@ from app import clock
 from app.alerts.service import upsert_alert
 from app.audit.service import log_action
 from app.db.models import Consultation, DischargeAssessment, JourneyContact, JourneyTask, MedrecRun, User
+from app.db.tenancy import current_org
 from app.discharge.documents import HOME_ROUTES
 from app.fhir_client import codes
 from app.fhir_client.client import FhirSource
 from app.journey import reference
 from app.journey.rules import SEVERITY_RANK, Facts, Item, discharge_of, evaluate, local_day
+from app.patients import avulso
 from app.patients.service import load_record
 from app.timeline.record import PatientRecord, coding, parse_dt
 
@@ -42,7 +44,11 @@ def load_facts(db: Session, now: datetime) -> Facts:
     window = now - timedelta(days=reference.params()["adesao_janela_dias"] + 1)
     for c in db.scalars(
         select(Consultation)
-        .where(Consultation.status.in_(("finalizada", "enviada")), Consultation.created_at >= window)
+        .where(
+            Consultation.status.in_(("finalizada", "enviada")),
+            Consultation.created_at >= window,
+            Consultation.sandbox.is_(False),  # sandbox é teste, não gera acompanhamento (#34)
+        )
         .order_by(Consultation.id.desc())
     ):
         facts.consultations.setdefault(c.patient_id, []).append(c)
@@ -134,7 +140,12 @@ def worklist(
             for e in fhir.active_encounters()
             if not e.get("partOf") and e.get("class", {}).get("code") == "IMP"
         }
-        patient_ids = [p["id"] for p in fhir.list_patients() if p["id"] not in admitted or p["id"] in confirmed]
+        org = current_org(db)
+        patient_ids = [
+            p["id"]
+            for p in fhir.list_patients()
+            if (p["id"] not in admitted or p["id"] in confirmed) and avulso.visible(p["id"], org)
+        ]
     rows: list[dict] = []
     for pid in patient_ids:
         record = load_record(fhir, pid)

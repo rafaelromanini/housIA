@@ -408,7 +408,7 @@ class FactBuilder:
 
     def _next_doses(self, horizon_h: int = 12) -> None:
         # "primeira dose" = nenhum registro de administração do mesmo princípio ativo nesta internação
-        ingredient_of = {f"MedicationRequest/{m.ref.split('/', 1)[1]}": m.ingredient for m in self.r.medications}
+        ingredient_of = {m.ref: m.ingredient for m in self.r.medications}
         administered = {
             ingredient_of.get((e.value or {}).get("pedido") or "")
             for e in self.events

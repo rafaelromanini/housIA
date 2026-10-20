@@ -22,6 +22,7 @@ from app.consult import (
     antiglosa,
     apps,
     consentimento,
+    consultorio,
     fidelidade,
     gs1,
     hipoteses,
@@ -30,6 +31,7 @@ from app.consult import (
     notas,
     note_templates,
     opme,
+    pdf,
     privacidade,
     relevancia,
     stt,
@@ -41,6 +43,7 @@ from app.consult.edicao import edit_percent
 from app.consult.edicao import section_diff as edit_sections
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
+    KIND_TITLE,
     claim_resource,
     device_resources,
     document_reference,
@@ -264,6 +267,7 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "idioma_paciente": c.patient_language,
         "consentimento": consentimento.public((c.extra_json or {}).get("consentimento")),
         "status": c.status,
+        "sandbox": bool(c.sandbox),
         "segmentos": [s.model_dump() for s in segments],
         "cobertura": relevancia.coverage(segments, c.note_json) if c.kind != "cirurgia" else None,
         "insights": c.insights_json,
@@ -342,6 +346,7 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
     if body.especialidade not in knowledge.SPECIALTIES:
         raise HTTPException(422, "Especialidade desconhecida")
     record, events, ctx = _chart(fhir, patient_id)
+    consultorio.check_start(db, record, body.sandbox)  # sandbox só em cenário sintético; plano de teste grátis
     consent = _consent_record(fhir, user, patient_id, record, body)
     visits = [
         e
@@ -362,6 +367,7 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
         specialty=body.especialidade,
         patient_language=body.idioma_paciente or idiomas.do_paciente(record.patient)[0] or idiomas.PADRAO,
         status="em_andamento",
+        sandbox=body.sandbox,
         segments_json=[],
         extra_json=extra,
         created_by=user.id,
@@ -376,7 +382,13 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
         "consulta.iniciada",
         "consultation",
         c.id,
-        {"patient_id": patient_id, "tipo": c.kind, "especialidade": c.specialty, "idioma": c.patient_language},
+        {
+            "patient_id": patient_id,
+            "tipo": c.kind,
+            "especialidade": c.specialty,
+            "idioma": c.patient_language,
+            "sandbox": c.sandbox,
+        },
         commit=False,
     )
     log_action(
@@ -1853,7 +1865,7 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
         c.patient_language,
         _signed_orders(c),
         interpretacao=interp,
-        selo=selo_profissional(user),
+        selo=consultorio.selo_sandbox(selo_profissional(user)) if c.sandbox else selo_profissional(user),
     )
     doc = document_reference(
         interpretacao=interp,
@@ -1945,6 +1957,15 @@ def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     return result
 
 
+def export_pdf(db: Session, fhir: FhirSource, user: User, cid: int) -> tuple[bytes, str]:
+    """Nota revisada e atestada em PDF (mesmas travas da exportação em texto). Devolve o arquivo e o nome sugerido."""
+    result = export(db, fhir, user, cid)
+    c = _get(db, cid)
+    log_action(db, user, "consulta.exportada_pdf", "consultation", c.id, {"patient_id": c.patient_id})
+    title = KIND_TITLE.get(c.kind, "Nota clínica") + (" (sandbox)" if c.sandbox else "")
+    return pdf.render(title, result["texto"], rodape=f"HousIA · consulta {c.id}"), f"nota-consulta-{c.id}.pdf"
+
+
 def _author(doc: dict) -> str:
     return (doc.get("author") or [{}])[0].get("display") or ""
 
@@ -2005,7 +2026,7 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     _gate_clinical(db, user, c, justification)
     record = load_record(fhir, c.patient_id)
     text, doc = _document(db, fhir, user, c)
-    if not get_settings().ehr_writeback:
+    if not get_settings().ehr_writeback or c.sandbox:  # sandbox nunca escreve no prontuário (#34)
         log_action(
             db,
             user,
@@ -2017,7 +2038,11 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
         orders = _orders(c, _author(doc), clock.now())
         return {
             "enviado": False,
-            "motivo": "Envio automático desligado (EHR_WRITEBACK=false): copie o texto ou baixe o FHIR.",
+            "motivo": (
+                "Consulta de sandbox (cenário sintético): nunca é enviada ao prontuário. Copie o texto ou baixe o PDF."
+                if c.sandbox
+                else "Envio automático desligado (EHR_WRITEBACK=false): copie o texto ou baixe o FHIR."
+            ),
             "texto": text,
             "recurso": doc,
             "pedidos": orders,

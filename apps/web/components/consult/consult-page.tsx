@@ -55,6 +55,11 @@ export function ConsultPage() {
   const [relatedId, setRelatedId] = useState("");
   const [finalidades, setFinalidades] = useState<ConsentPurposes>({ transcricao: true, ia_externa: true, traducao: true, emocoes: true });
   const [recusou, setRecusou] = useState(false);
+  // sandbox (#34): paciente de cenário sintético, fora do contador do plano e nunca enviado ao prontuário
+  const [sandbox, setSandbox] = useState(false);
+  useEffect(() => {
+    if (patient.cenario && new URLSearchParams(window.location.search).get("sandbox") === "1") setSandbox(true);
+  }, [patient.cenario]);
   const [avisoLido, setAvisoLido] = useState(false);
   const [tab, setTab] = useState<"nota" | "transcricao">("nota");
   const proLabel = user?.role === "enfermagem" ? "Enfermagem" : "Médico(a)";
@@ -84,10 +89,12 @@ export function ConsultPage() {
   useEffect(() => {
     if (resumed || !history.data) return;
     setResumed(true);
-    const running = history.data.find((h) => h.status === "em_andamento");
-    if (running) {
+    // atalho da fila de revisão (/consultas): ?consulta=ID abre aquela consulta; senão retoma a em andamento
+    const wanted = Number(new URLSearchParams(window.location.search).get("consulta"));
+    const target = history.data.find((h) => h.id === wanted) ?? history.data.find((h) => h.status === "em_andamento");
+    if (target) {
       setResumeBusy(true);
-      void open(running.id).finally(() => setResumeBusy(false));
+      void open(target.id).finally(() => setResumeBusy(false));
     }
   }, [history.data, resumed, open]);
   // enquanto não se sabe se há consulta em andamento, não mostra o formulário de início (evita abrir uma segunda consulta por cima)
@@ -103,6 +110,7 @@ export function ConsultPage() {
           tipo,
           especialidade: chosenSpecialty,
           idioma_paciente: surgicalMode ? "pt-BR" : idioma,
+          sandbox: sandbox && Boolean(patient.cenario),
           consentimento: {
             quem,
             related_person_id: quem !== "paciente" && relatedId ? relatedId : null,
@@ -170,6 +178,11 @@ export function ConsultPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-muted-foreground">
             Consulta de {fmtDateTime(current.created_at)} · {current.segmentos.length} falas · {current.especialidade_rotulo}
+            {current.sandbox && (
+              <Badge variant="ai" className="ml-2">
+                Sandbox: não conta no plano
+              </Badge>
+            )}
           </p>
           <Button
             variant="outline"
@@ -307,6 +320,17 @@ export function ConsultPage() {
               Tradução simultânea: as falas do paciente aparecem traduzidas para você e as suas, no idioma do paciente (com áudio).
               {config.data.llm_mode === "mock" && " No modo demonstração a tradução fica marcada como pendente do LLM real."}
             </p>
+          )}
+          {patient.cenario && (
+            <div className="flex items-start gap-2 rounded-lg border border-dashed border-primary/50 bg-secondary/40 p-3" data-testid="sandbox-opcao">
+              <Checkbox id="sandbox" checked={sandbox} onCheckedChange={(v) => setSandbox(v === true)} className="mt-0.5" />
+              <Label htmlFor="sandbox" className="cursor-pointer leading-snug">
+                Testar no sandbox (cenário sintético)
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Não entra na contagem do teste grátis e a nota nunca é enviada ao prontuário.
+                </span>
+              </Label>
+            </div>
           )}
           <fieldset className="space-y-3 rounded-lg border bg-card p-3" data-testid="consentimento">
             <legend className="flex items-center gap-1.5 px-1 font-bold">

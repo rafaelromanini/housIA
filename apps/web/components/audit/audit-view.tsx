@@ -71,6 +71,8 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.nota_revisada": "Nota revisada pelo profissional",
   "consulta.modelo_nota": "Modelo da nota trocado na revisão",
   "consulta.exportada": "Nota exportada (envio automático desligado)",
+  "consulta.exportada_pdf": "Nota baixada em PDF",
+  "paciente.avulso_criado": "Paciente avulso cadastrado",
   "consulta.envio_com_pendencia": "Nota enviada com pendência crítica justificada",
   "consulta.enviada": "Nota enviada ao prontuário",
   "cirurgia.prontidao": "Prontidão para faturamento verificada",

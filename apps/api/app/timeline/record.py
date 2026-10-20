@@ -86,7 +86,7 @@ def med_identity(cc: dict) -> tuple[str, str, str]:
 
 def med_info(mr: dict) -> MedInfo:
     ingredient, name, drug_class = med_identity(mr.get("medicationCodeableConcept", {}))
-    dosage = (mr.get("dosageInstruction") or [{}])[0]
+    dosage = (mr.get("dosageInstruction") or mr.get("dosage") or [{}])[0]  # MedicationStatement usa "dosage"
     repeat = dosage.get("timing", {}).get("repeat", {})
     bounds = repeat.get("boundsPeriod", {})
     dq = (dosage.get("doseAndRate") or [{}])[0].get("doseQuantity")
@@ -97,7 +97,7 @@ def med_info(mr: dict) -> MedInfo:
     else:
         dose = mr.get("medicationCodeableConcept", {}).get("text", name).replace(name, "").strip() or "—"
     return MedInfo(
-        ref=f"MedicationRequest/{mr['id']}",
+        ref=f"{mr.get('resourceType', 'MedicationRequest')}/{mr['id']}",
         ingredient=ingredient,
         name=name,
         drug_class=drug_class,
@@ -107,12 +107,12 @@ def med_info(mr: dict) -> MedInfo:
         times=tuple(t[:5] for t in repeat.get("timeOfDay", [])),
         prn=bool(dosage.get("asNeededBoolean")),
         status=mr.get("status", "unknown"),
-        start=parse_dt(bounds.get("start")) or parse_dt(mr.get("authoredOn")),
+        start=parse_dt(bounds.get("start")) or parse_dt(mr.get("authoredOn") or mr.get("dateAsserted")),
         end=parse_dt(bounds.get("end")),
         reason=(mr.get("statusReason") or {}).get("text"),
         encounter_id=ref_id(mr.get("encounter")),
         prior_ref=(mr.get("priorPrescription") or {}).get("reference"),
-        authored=parse_dt(mr.get("authoredOn")),
+        authored=parse_dt(mr.get("authoredOn") or mr.get("dateAsserted")),
     )
 
 
@@ -333,7 +333,10 @@ class PatientRecord:
     @cached_property
     def medications(self) -> list[MedInfo]:
         """Prescrições do prontuário. Rascunhos (status=draft, propostos pela consulta com IA) ficam de fora."""
-        return [med_info(mr) for mr in self.resources.get("MedicationRequest", []) if mr.get("status") != "draft"]
+        requests = [med_info(mr) for mr in self.resources.get("MedicationRequest", []) if mr.get("status") != "draft"]
+        # medicamentos em uso informados no cadastro do paciente avulso (MedicationStatement, #34)
+        declared = [med_info(ms) for ms in self.resources.get("MedicationStatement", [])]
+        return requests + declared
 
     @cached_property
     def proposed_meds(self) -> list[MedInfo]:
