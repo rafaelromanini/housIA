@@ -74,12 +74,18 @@ export function ConsultPage() {
 
   // ao abrir a página, retoma a consulta em andamento deste paciente (uma vez só)
   const [resumed, setResumed] = useState(false);
+  const [resumeBusy, setResumeBusy] = useState(false);
   useEffect(() => {
     if (resumed || !history.data) return;
     setResumed(true);
     const running = history.data.find((h) => h.status === "em_andamento");
-    if (running) void open(running.id);
+    if (running) {
+      setResumeBusy(true);
+      void open(running.id).finally(() => setResumeBusy(false));
+    }
   }, [history.data, resumed, open]);
+  // enquanto não se sabe se há consulta em andamento, não mostra o formulário de início (evita abrir uma segunda consulta por cima)
+  const resuming = allowed && !history.error && (!resumed || resumeBusy);
 
   async function start() {
     setOpening(true);
@@ -239,6 +245,11 @@ export function ConsultPage() {
             gera a nota para você revisar e enviar.
           </CardDescription>
         </CardHeader>
+        {resuming ? (
+          <CardContent>
+            <Skeleton className="h-40 w-full" />
+          </CardContent>
+        ) : (
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
@@ -344,6 +355,7 @@ export function ConsultPage() {
             {opening ? <Loader2 aria-hidden className="animate-spin" /> : <Mic aria-hidden />} Iniciar
           </Button>
         </CardContent>
+        )}
       </Card>
 
       <Card className="self-start">

@@ -100,7 +100,7 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
 test("revisão segura: CID por autocomplete, orientação editada, atestação, envio e diff com o rascunho da IA", async ({ page }) => {
   await login(page, "medico");
   await openFresh(page, "cen6");
-  await page.getByRole("button", { name: "Iniciar", exact: true }).click();
+  await startWithConsent(page);
   await simulate(page);
   await page.getByRole("button", { name: "Finalizar e gerar nota" }).click();
   await expect(page.getByText("Nota da consulta para revisão")).toBeVisible();
@@ -114,10 +114,12 @@ test("revisão segura: CID por autocomplete, orientação editada, atestação, 
   await page.getByRole("button", { name: /^Adicionar CID E16/ }).first().click();
   await expect(page.getByLabel("CID-10 da nota")).toContainText("E16");
   // orientação ao paciente editada
-  const orientation = page.getByLabel("Orientação 1");
+  const orientation = page.getByLabel("Orientação 1", { exact: true });
   await orientation.fill("Oriente a filha a conferir a glicemia antes do café da manhã.");
-  // a cronologia vem aberta, com o evento de medicamento da fala 26
-  await expect(page.getByTestId("cronologia")).toContainText(/Iniciou diurético/);
+  // a cronologia vem aberta e editável (cada evento é um campo de texto), com o evento de medicamento da fala 26
+  await expect
+    .poll(() => page.getByTestId("cronologia").getByRole("textbox").evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value).join("\n")))
+    .toMatch(/Iniciou diurético/);
 
   await approveAndSend(page);
 
@@ -131,7 +133,7 @@ test("revisão segura: CID por autocomplete, orientação editada, atestação, 
 test("consulta com IA: descartar uma pergunta com motivo a faz sumir e ela não volta durante a simulação", async ({ page }) => {
   await login(page, "medico");
   await openFresh(page, "cen6");
-  await page.getByRole("button", { name: "Iniciar", exact: true }).click();
+  await startWithConsent(page);
 
   const anesthesia = /problema com anestesia em cirurgias/;
   await page.getByText(/Mais \d+ perguntas/).click();
@@ -189,7 +191,7 @@ test("transcrição editável: 'fala N' da nota rola até a fala e a edição pe
   await expect(page.locator(`#fala-${n}`)).toHaveClass(/ring-2/);
 
   // edição: texto novo, selo "editada" e persistência após recarregar
-  await page.getByRole("button", { name: `Editar a fala ${n}` }).click();
+  await page.getByRole("button", { name: `Editar a fala ${n}`, exact: true }).click();
   await page.getByLabel(`Texto da fala ${n}`).fill("Texto corrigido pelo profissional.");
   await page.getByRole("button", { name: "Salvar correção" }).click();
   const row = page.locator(`#fala-${n}`);

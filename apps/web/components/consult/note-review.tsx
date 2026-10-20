@@ -19,7 +19,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CidEditor } from "@/components/consult/cid-editor";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
-import { Transcript } from "@/components/consult/transcript";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
 import { api, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
@@ -283,7 +282,6 @@ export function NoteReview({
   const [justification, setJustification] = useState("");
   const [attested, setAttested] = useState(Boolean(c.nota_meta?.atestacao));
   const [diff, setDiff] = useState<NoteDiff | null>(null);
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   const note = draft as unknown as ConsultNote;
   const report = (draft as { relatorio_cirurgico?: SurgicalReport }).relatorio_cirurgico;
@@ -364,11 +362,10 @@ export function NoteReview({
     setDraft((d) => ({ ...d, [key]: items }));
   }
 
-  /** Clicar numa frase leva até a fala na transcrição (aberta aqui mesmo). */
+  /** Clicar numa frase leva até a fala na transcrição ao lado da nota (a página cuida da aba no celular). */
   function pickSource(refs: string[]) {
     const falas = refs.filter((x) => x.startsWith("Fala/")).map((x) => Number(x.split("/")[1]));
     if (falas.length === 0) return;
-    setTranscriptOpen(true);
     window.setTimeout(() => focusFala(falas[0]), 80);
   }
 
@@ -873,13 +870,6 @@ export function NoteReview({
             )}
           </div>
         )}
-
-        <details open={transcriptOpen} onToggle={(e) => setTranscriptOpen((e.target as HTMLDetailsElement).open)} className="rounded-md border p-3">
-          <summary className="min-h-9 cursor-pointer text-sm font-bold">Transcrição da consulta (clique numa fonte para destacar a fala)</summary>
-          <div className="mt-2 max-h-80 overflow-auto">
-            <Transcript segments={c.segmentos} interim={null} proLabel="Profissional" patientLanguage={c.idioma_paciente} />
-          </div>
-        </details>
 
         {diff && <DiffPanel diff={diff} />}
 
