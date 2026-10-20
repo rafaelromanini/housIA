@@ -1,0 +1,33 @@
+versao: "1.0.0"
+id: osteossintese
+rotulo: Osteossíntese (fixação de fratura)
+especialidade: ortopedia
+detectar: [osteossintese, reducao aberta e fixacao interna, reducao cruenta, fixacao interna, haste intramedular, fixador externo]
+sitio: [femur, tibia, fibula, umero, "radio ", ulna, tornozelo, maleolo, punho, clavicula, antebraco, perna, "braco "]
+profilaxia: [cefazolina]
+exame_controle:
+  descricao: "Radiografia de controle do segmento operado ({lado}) em duas incidências"
+campos:
+  - campo: reducao
+    rotulo: Redução da fratura
+    sinonimos: [reducao, reduzid, alinhamento]
+    obrigatorio: true
+    granular: true
+    motivo: A qualidade da redução obtida sustenta o resultado e o seguimento da fratura.
+    fonte: ao_fraturas
+  - campo: implante
+    rotulo: Implante (placa, parafusos, haste, fios)
+    sinonimos: [placa, parafuso, haste, fio de kirschner, fios de kirschner, fixador, implante, etiqueta]
+    obrigatorio: true
+    granular: true
+    motivo: Implantes usados (tipo, tamanho e etiquetas) são OPME e exigem rastreabilidade.
+    fonte: anvisa_tecnovigilancia
+  - campo: garrote
+    rotulo: Garrote pneumático
+    sinonimos: [garrote, torniquete, isquemia]
+    obrigatorio: false
+    granular: true
+    motivo: Quando usado, o tempo de garrote precisa constar (risco acima de 2 horas).
+    fonte: aorn_garrote
+obrigatoriedade:
+  lateralidade: {obrigatorio: true, motivo: "Membros são pares: o lado ditado é conferido com o agendamento.", fonte: ms_cirurgia_segura}

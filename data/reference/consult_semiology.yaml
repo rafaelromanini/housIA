@@ -1,0 +1,230 @@
+# Semiologia por queixa da consulta com IA (app/consult/semiology.py).
+#
+# O que fica aqui: quais campos a anamnese deve preencher para cada tipo de queixa, o vocabulário que o extrator
+# reconhece na fala (fatores de piora e melhora, localização) e os campos extras por especialidade.
+# As perguntas que cobrem cada campo vazio estão em consult_questions.csv (gatilho "semiologia:<campo>", com fonte).
+# Textos sem acento e em minúsculas: a fala é normalizada antes da comparação. Base de demonstração, editável pelo
+# hospital; a fonte vale para o desenho dos campos, não substitui a avaliação clínica.
+
+versao: "1.0"
+fonte: >-
+  Porto, Semiologia Médica (caracterização do sintoma: início, duração, localização, intensidade, fatores de piora e
+  melhora, frequência e sintomas associados); Bates, Propedêutica Médica (mnemônico OLDCARTS).
+
+# campos de uma queixa, na ordem em que são perguntados
+campos:
+  inicio_duracao: Início e duração
+  localizacao: Localização
+  intensidade: Intensidade
+  piora: Fatores de piora
+  melhora: Fatores de melhora
+  frequencia: Frequência
+  associados: Sintomas associados
+
+# quais campos se aplicam a cada tipo de queixa; a queixa fora de qualquer grupo usa o grupo "geral"
+grupos:
+  - id: dor
+    rotulo: Dor
+    sintomas:
+      - dor_joelho
+      - cefaleia
+      - dor_abdominal
+      - dor_toracica
+      - dor_garganta
+      - dor_ouvido
+      - dor_lombar
+      - dor_muscular
+      - dor_articular
+      - dor_perna
+      - dor_estomago
+      - dor_olho
+    campos: [inicio_duracao, localizacao, intensidade, piora, melhora, frequencia, associados]
+    fonte: >-
+      Porto, Semiologia Médica (semiologia da dor: localização, irradiação, intensidade, fatores de piora e melhora,
+      sintomas associados); escala numérica de dor de 0 a 10.
+  - id: episodico
+    rotulo: Episódio
+    sintomas:
+      - queda
+      - desmaio
+      - convulsao
+      - palpitacao
+      - hemoptise
+      - hematemese
+      - sangue_fezes
+      - hematuria
+      - sangramento_vaginal
+    campos: [inicio_duracao, frequencia, piora, associados]
+    fonte: >-
+      Porto, Semiologia Médica (queixas episódicas: quando começou, quantas vezes, circunstância e sintomas que
+      acompanham).
+  - id: febril
+    rotulo: Febre
+    sintomas:
+      - febre
+      - febre_crianca
+    campos: [inicio_duracao, melhora, frequencia, associados]
+    fonte: >-
+      Porto, Semiologia Médica (febre: início, duração, padrão, antitérmicos usados e sintomas que a acompanham);
+      AIDPI Criança (Ministério da Saúde).
+  - id: geral
+    rotulo: Sintoma geral
+    sintomas: []
+    campos: [inicio_duracao, intensidade, piora, melhora, frequencia, associados]
+    fonte: >-
+      Porto, Semiologia Médica; Bates, Propedêutica Médica (OLDCARTS).
+
+# "piora" e "melhora": o extrator procura estas expressões na fala da queixa. exige_pista: só vale se a oração também
+# tem uma pista de piora ("piora", "pior", "agrava") ou de melhora ("melhora", "alivia", "passa"); sem pista, a
+# expressão sozinha já descreve o gatilho ("quando eu levanto").
+piora:
+  - valor: ao levantar
+    palavras: [quando levanto, quando eu levanto, ao levantar, levanto rapido, levantar rapido, levanto da cama, levanto do sofa, levanto da cadeira, me levanto, vez que levanto, sempre que levanto, quando fico em pe]
+  - valor: ao subir escada
+    palavras: [subir escada, subindo escada, ao subir, subir ladeira]
+  - valor: ao caminhar
+    palavras: [quando ando, quando caminho, ao andar, ao caminhar, caminhando, andando]
+  - valor: aos esforços
+    palavras: [esforco, esforcos, quando corro, ao correr, ao carregar peso]
+  - valor: ao deitar
+    palavras: [quando deito, quando me deito, ao deitar, quando fico deitad]
+  - valor: ao tossir
+    palavras: [quando tusso, ao tossir]
+  - valor: ao respirar fundo
+    palavras: [respirar fundo, respiro fundo, ao respirar, inspirar]
+  - valor: ao engolir
+    palavras: [ao engolir, pra engolir, para engolir, quando engulo]
+  - valor: ao urinar
+    palavras: [quando urino, ao urinar, para urinar, pra urinar]
+  - valor: ao se mexer
+    palavras: [quando me mexo, ao me mexer, ao movimentar, mexendo]
+  - valor: depois de comer
+    palavras: [depois de comer, depois das refeicoes, depois do almoco, apos comer, depois que como, depois de almocar]
+  - valor: antes do almoço
+    palavras: [antes do almoco, antes das refeicoes, em jejum, antes do cafe, antes do jantar]
+  - valor: à noite
+    palavras: [a noite, de noite, durante a noite, de madrugada]
+    exige_pista: true
+  - valor: pela manhã
+    palavras: [de manha, pela manha, ao acordar]
+    exige_pista: true
+  - valor: com o frio
+    palavras: [frio, tempo frio, friagem]
+    exige_pista: true
+  - valor: com nervosismo
+    palavras: [nervoso, nervosa, estresse, estressad]
+    exige_pista: true
+  - valor: com alimentos gordurosos
+    palavras: [gordura, gorduroso, fritura]
+    exige_pista: true
+
+melhora:
+  - valor: com repouso
+    palavras: [repouso, descansando, descanso, quando paro, quando sento, sentando, sento]
+    exige_pista: true
+  - valor: ao deitar
+    palavras: [deito, deitando, deitada, deitado]
+    exige_pista: true
+  - valor: com remédio
+    palavras: [dipirona, paracetamol, analgesico, remedio pra dor, remedio para dor, tomo um remedio]
+    exige_pista: true
+  - valor: com calor local
+    palavras: [calor, bolsa quente, compressa quente, banho quente]
+    exige_pista: true
+  - valor: com gelo
+    palavras: [gelo, compressa fria]
+    exige_pista: true
+  - valor: ao comer
+    palavras: [quando como, comendo, depois de comer, acucar, suco]
+    exige_pista: true
+  - valor: ao dormir
+    palavras: [dormindo, quando durmo, depois de dormir]
+    exige_pista: true
+  - valor: com água
+    palavras: [beber agua, tomar agua, hidratar]
+    exige_pista: true
+
+pista_piora: [pior, piora, piorando, piorou, agrava, agravando, aumenta, dispara, desencadeia, mais forte, incomoda mais, ataca]
+pista_melhora: [melhora, melhorou, melhorando, alivia, aliviou, passa, passou, some, diminui, ameniza, melhor com, fica melhor, ajuda]
+
+# localização: lateralidade ("joelho direito") é lida por padrão; estes termos cobrem o resto
+localizacao:
+  - valor: no peito
+    palavras: [no peito, do peito]
+  - valor: na barriga
+    palavras: [na barriga, da barriga, no abdome, no abdomen, no estomago, na boca do estomago]
+  - valor: na região lombar
+    palavras: [nas costas, na lombar, na coluna]
+  - valor: na cabeça
+    palavras: [na cabeca, na testa, na nuca, na tempora]
+  - valor: na garganta
+    palavras: [na garganta]
+  - valor: no ouvido
+    palavras: [no ouvido, na orelha]
+  - valor: na perna
+    palavras: [na perna, nas pernas, na panturrilha, na coxa]
+  - valor: no braço
+    palavras: [no braco, nos bracos]
+  - valor: no ombro
+    palavras: [no ombro]
+  - valor: no pé
+    palavras: ["no pe ", "nos pes "]
+  - valor: no olho
+    palavras: [no olho, nos olhos]
+  - valor: irradia para o braço
+    palavras: [irradia para o braco, irradia pro braco, vai para o braco, vai pro braco]
+  - valor: irradia para a mandíbula
+    palavras: [irradia para a mandibula, irradia pra mandibula, vai para a mandibula]
+  - valor: irradia para as costas
+    palavras: [irradia para as costas, irradia pras costas, vai para as costas, vai pras costas]
+  - valor: irradia para a perna
+    palavras: [irradia para a perna, irradia pra perna, desce para a perna, desce pra perna]
+
+# campos extras por especialidade: lidos da fala do paciente ou do acompanhante e cobrados por perguntas
+# "semiologia:<campo>". idade_max: não se aplica a quem passa dessa idade (a especialidade é escolhida à mão)
+especialidades:
+  pediatria:
+    idade_max: 17
+    campos:
+      - campo: gestacao_parto
+        rotulo: Gestação e parto
+        fonte: Caderneta da Criança (Ministério da Saúde), registro de nascimento
+        entradas:
+          - valor: parto normal
+            palavras: [parto normal]
+          - valor: cesariana
+            palavras: [cesarea, cesariana, nasceu de cesarea]
+          - valor: a termo
+            palavras: [a termo, nasceu de 39 semanas, nasceu de 40 semanas, nasceu de 38 semanas, nasceu de 41 semanas]
+          - valor: prematuro
+            palavras: [prematur, nasceu de 34 semanas, nasceu de 35 semanas, nasceu de 36 semanas, nasceu de 32 semanas]
+          - valor: gestação sem intercorrências
+            palavras: [gestacao tranquila, gestacao normal, gestacao sem problema, gravidez tranquila, gravidez normal]
+          - valor: intercorrências na gestação
+            palavras: [pressao alta na gestacao, diabetes na gestacao, gestacao de risco, gravidez de risco, internei na gestacao]
+      - campo: vacinas
+        rotulo: Vacinação
+        fonte: Calendário Nacional de Vacinação (Programa Nacional de Imunizações)
+        entradas:
+          - valor: em dia
+            palavras: [vacinas em dia, vacina em dia, vacinas estao em dia, vacina esta em dia, vacinas ta em dia, vacinas tao em dia, vacinas estao todas em dia, vacinacao em dia, caderneta em dia, todas as vacinas, vacinas completas]
+          - valor: atrasada
+            palavras: [vacina atrasada, vacinas atrasadas, vacinas estao atrasadas, vacinacao atrasada, faltam vacinas, falta vacina, nao tomou as vacinas, nao vacinou, vacinas nao estao em dia, vacina nao esta em dia, vacinas nao estao completas]
+      - campo: dnpm
+        rotulo: Desenvolvimento (DNPM)
+        fonte: Caderneta da Criança (Ministério da Saúde), marcos do desenvolvimento
+        entradas:
+          - valor: sustenta a cabeça
+            palavras: [sustenta a cabeca, sustentou a cabeca]
+          - valor: senta sem apoio
+            palavras: [senta sem apoio, sentou sem apoio, ja senta, sentou com]
+          - valor: engatinha
+            palavras: [engatinha, engatinhou]
+          - valor: anda
+            palavras: [anda sozinho, anda sozinha, andou com, comecou a andar, ja anda]
+          - valor: fala
+            palavras: [falou as primeiras palavras, fala palavras, fala frases, ja fala, falou com]
+          - valor: desenvolvimento adequado
+            palavras: [desenvolvimento normal, desenvolvimento adequado, desenvolve bem, desenvolvimento esta bom]
+          - valor: atraso relatado
+            palavras: [atraso no desenvolvimento, nao fala ainda, nao anda ainda, nao senta ainda, atraso na fala]

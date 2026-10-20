@@ -1,0 +1,81 @@
+{
+  "id": "cen3",
+  "tag": "cenario-3",
+  "titulo": "Cenário 3 — Alta de alto risco: idoso que mora sozinho, insulina nova",
+  "esperado": "Score LACE alto (internação longa, via urgência, Charlson elevado, 3 idas ao PS em 6 meses) + score social alto (mora sozinho, sem cuidador). Risco final ALTO: o botão de confirmar alta fica travado até reavaliação ou override justificado. A IA sugere ajustes concretos no plano de alta.",
+  "paciente": {
+    "nome": "Sebastião Alves Moreira",
+    "sexo": "male",
+    "nascimento": "1945-06-30",
+    "cpf": "731.902.448-15",
+    "telefone": "(11) 3271-8890",
+    "endereco": "Rua Tabatinguera, 45, casa 2, Sé, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-6d3h",
+    "alta_prevista": "+20h",
+    "tipo": "urgencia",
+    "motivo": "Insuficiência cardíaca descompensada com hiperglicemia",
+    "setores": [
+      {"id": "enf", "setor": "Enfermaria 3B", "leito": "09", "inicio": "-6d3h"}
+    ]
+  },
+  "encontros_anteriores": [
+    {"inicio": "-160d", "motivo": "Dispneia — insuficiência cardíaca descompensada", "duracao": "8h"},
+    {"inicio": "-98d", "motivo": "Hiperglicemia e desidratação", "duracao": "6h"},
+    {"inicio": "-41d", "motivo": "Queda da própria altura em domicílio", "duracao": "5h"}
+  ],
+  "diagnosticos": [
+    {"cid": "I50.0", "texto": "Insuficiência cardíaca congestiva", "principal": true, "inicio": "-6d3h"},
+    {"cid": "E11.2", "texto": "Diabetes mellitus tipo 2 com complicações renais", "inicio": "-5475d", "registro": "-6d3h"},
+    {"cid": "N18.3", "texto": "Doença renal crônica estágio 3", "inicio": "-1460d", "registro": "-6d3h"},
+    {"cid": "J44.9", "texto": "Doença pulmonar obstrutiva crônica", "inicio": "-2920d", "registro": "-6d3h"},
+    {"cid": "I10", "texto": "Hipertensão arterial sistêmica", "inicio": "-7300d", "registro": "-6d3h"}
+  ],
+  "alergias": [],
+  "familiares": [
+    {"nome": "Cláudia Moreira", "parentesco": "filha", "codigo": "DAU", "descricao": "filha (mora em Campinas)", "telefone": "(19) 99812-3344"}
+  ],
+  "social": {"moradores": 1},
+  "prescricoes": [
+    {"id": "furosemida", "med": "furosemida", "dose": "40 mg", "via": "VO", "horarios": ["08:00"], "inicio": "-2d"},
+    {"id": "furosemida_iv", "med": "furosemida", "dose": "40 mg", "via": "IV", "horarios": ["08:00", "16:00"], "fim": "-2d",
+     "status": "stopped", "motivo": "Transição para via oral"},
+    {"id": "carvedilol", "med": "carvedilol", "dose": "6,25 mg", "via": "VO", "horarios": ["08:00", "20:00"]},
+    {"id": "enalapril", "med": "enalapril", "dose": "10 mg", "via": "VO", "horarios": ["08:00", "20:00"]},
+    {"id": "atorvastatina", "med": "atorvastatina", "dose": "40 mg", "via": "VO", "horarios": ["20:00"]},
+    {"id": "insulina_nph", "med": "insulina_nph", "dose": "10 UI", "via": "SC", "horarios": ["07:00", "19:00"], "inicio": "-3d",
+     "observacao": "Insulinização iniciada nesta internação (primeiro uso de insulina)"},
+    {"id": "insulina_regular", "med": "insulina_regular", "dose": "conforme esquema", "via": "SC", "se_necessario": true,
+     "condicao": "conforme glicemia capilar", "administracoes": ["-1d4h", "-5h"]},
+    {"id": "salbutamol", "med": "salbutamol", "dose": "100 mcg (2 jatos)", "via": "inalatória", "se_necessario": true,
+     "condicao": "se dispneia/sibilância"}
+  ],
+  "sinais": [
+    {"t": "-6d2h", "pa": [168, 94], "fc": 104, "fr": 26, "temp": 36.4, "spo2": 89, "glicemia": 412},
+    {"t": "-4d", "pa": [146, 86], "fc": 90, "fr": 22, "temp": 36.5, "spo2": 92, "glicemia": 268},
+    {"t": "-2d", "pa": [134, 78], "fc": 78, "fr": 19, "temp": 36.6, "spo2": 93, "glicemia": 196},
+    {"t": "-1d", "pa": [130, 76], "fc": 72, "fr": 18, "temp": 36.5, "spo2": 94, "glicemia": 168},
+    {"t": "-12h", "pa": [126, 74], "fc": 70, "fr": 18, "temp": 36.6, "spo2": 94, "glicemia": 142},
+    {"t": "-4h", "pa": [124, 72], "fc": 68, "fr": 17, "temp": 36.4, "spo2": 95, "glicemia": 136}
+  ],
+  "exames": [
+    {"t": "-6d2h", "bnp": 2400, "creatinina": 1.9, "ureia": 92, "potassio": 4.9, "glicose": 412, "hba1c": 9.8},
+    {"t": "-1d", "bnp": 620, "creatinina": 1.7, "ureia": 68, "potassio": 4.6, "glicose": 160}
+  ],
+  "balanco": [
+    {"t": "-10h", "diurese": 900},
+    {"t": "-3h", "diurese": 500}
+  ],
+  "escalas": [
+    {"t": "-10h", "morse": 65, "braden": 15}
+  ],
+  "evolucoes": [
+    {"t": "-1d", "tipo": "medica", "autor": "Dr. Felipe Andrade (Clínica Médica)",
+     "texto": "Paciente evolui com melhora da congestão, perda de 4 kg desde a admissão. Diurético em transição para via oral. Iniciada insulina NPH nesta internação (HbA1c 9,8%): primeiro uso de insulina, necessário treinamento do paciente para aplicação domiciliar. Previsão de alta em 24–48h."},
+    {"t": "-6h", "tipo": "enfermagem", "autor": "Enf. Marcos Lima (Enfermaria 3B)",
+     "texto": "Sr. Sebastião refere morar sozinho; a filha mora em outra cidade. Iniciado treinamento de aplicação de insulina: ainda com dificuldade para aspirar a dose correta (baixa acuidade visual). Deambula com andador. Morse 65."},
+    {"t": "-2h", "tipo": "medica", "autor": "Dr. Felipe Andrade (Clínica Médica)",
+     "texto": "Discutido plano de alta. Paciente com 3 idas ao PS nos últimos 6 meses. Avaliar suporte domiciliar e acesso aos medicamentos antes da alta."}
+  ]
+}

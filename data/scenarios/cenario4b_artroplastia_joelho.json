@@ -1,0 +1,61 @@
+{
+  "id": "cen4b",
+  "tag": "cenario-4b",
+  "titulo": "Cenário 4b — Centro cirúrgico: artroplastia total de joelho direito",
+  "esperado": "Ditado escolhe o modelo de ortopedia (lateralidade, garrote, implante e radioscopia obrigatórios) e confere o lado com o agendamento (bodySite: joelho direito). Paciente de 130 kg com cefazolina 2 g gera alerta de dose (3 g a partir de 120 kg). O RX de controle citado vira pedido proposto e, depois de aprovado, pendência na passagem de plantão e no Waze da alta.",
+  "paciente": {
+    "nome": "Roberto Alves Teixeira",
+    "sexo": "male",
+    "nascimento": "1958-03-22",
+    "cpf": "418.207.335-60",
+    "telefone": "(11) 98471-2230",
+    "endereco": "Rua Domingos de Morais, 2100, apto 42, Vila Mariana, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-6h",
+    "alta_prevista": "+21h",
+    "tipo": "eletiva",
+    "motivo": "Artroplastia total de joelho direito (gonartrose)",
+    "setores": [
+      {"id": "cc", "setor": "Clínica Cirúrgica 4A", "leito": "04", "inicio": "-6h"}
+    ]
+  },
+  "diagnosticos": [
+    {"cid": "M17.1", "texto": "Gonartrose primária do joelho direito", "principal": true, "inicio": "-1460d", "registro": "-6h"},
+    {"cid": "I10", "texto": "Hipertensão arterial essencial", "inicio": "-2920d", "registro": "-6h"},
+    {"cid": "E66.9", "texto": "Obesidade", "inicio": "-3650d", "registro": "-6h"}
+  ],
+  "alergias": [],
+  "familiares": [
+    {"nome": "Sandra Teixeira", "parentesco": "esposa", "codigo": "WIFE", "cuidador": true, "telefone": "(11) 98471-2200"}
+  ],
+  "social": {"moradores": 2},
+  "prescricoes": [
+    {"id": "losartana", "med": "losartana", "dose": "50 mg", "via": "VO", "horarios": ["20:00"], "inicio": "-6h"},
+    {"id": "cefazolina", "med": "cefazolina", "dose": "2 g", "via": "IV", "frequencia": "dose única na indução (profilaxia cirúrgica)",
+     "inicio": "-2h", "administrar": false},
+    {"id": "dipirona", "med": "dipirona", "dose": "1 g", "via": "IV", "se_necessario": true, "condicao": "se dor ou febre", "inicio": "-6h"}
+  ],
+  "sinais": [
+    {"t": "-6h", "pa": [142, 86], "fc": 78, "fr": 16, "temp": 36.4, "spo2": 96, "dor": 5, "peso": 130},
+    {"t": "-3h", "pa": [136, 82], "fc": 74, "fr": 16, "temp": 36.3, "spo2": 97, "dor": 4}
+  ],
+  "exames": [
+    {"t": "-15d", "hemoglobina": 13.9, "creatinina": 1.0, "potassio": 4.4, "glicose": 98, "inr": 1.0, "plaquetas": 231}
+  ],
+  "escalas": [
+    {"t": "-5h", "morse": 35, "braden": 19}
+  ],
+  "cirurgias": [
+    {"id": "atj", "procedimento": "Artroplastia total de joelho", "sitio": "Joelho direito",
+     "t": "-1h30m", "duracao": "3h", "solicitado": "-30d", "status": "active",
+     "cirurgiao": "Dr. Henrique Sato (Ortopedia)", "especialidade": "Ortopedia", "sala": "Centro Cirúrgico — Sala 3",
+     "consentimento": {"t": "-1d", "texto": "Termo de consentimento livre e esclarecido: artroplastia total de joelho DIREITO. Riscos de infecção, trombose venosa, rigidez, lesão nervosa e soltura da prótese explicados ao paciente e à esposa."}}
+  ],
+  "evolucoes": [
+    {"t": "-5h30m", "tipo": "medica", "autor": "Dra. Marina Coutinho (Anestesiologia)",
+     "texto": "Avaliação pré-anestésica: ASA II (hipertensão controlada, obesidade; peso 130 kg). Jejum adequado, via aérea sem preditores de dificuldade. Plano: raquianestesia com sedação. Profilaxia antimicrobiana com cefazolina na indução."},
+    {"t": "-5h", "tipo": "enfermagem", "autor": "Enf. Rafael Duarte (Clínica Cirúrgica 4A)",
+     "texto": "Admitido para cirurgia eletiva. Lado operatório (joelho direito) marcado e conferido com o paciente. Termo de consentimento assinado. Pulseira de identificação conferida."}
+  ]
+}

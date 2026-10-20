@@ -1,0 +1,56 @@
+# Waze da jornada: regras determinísticas da lista de pacientes em risco de abandono e parâmetros das métricas.
+# HEURÍSTICAS PROVISÓRIAS, NÃO VALIDADAS: os prazos abaixo são de demonstração e exigem validação clínica e
+# operacional da equipe antes de qualquer uso real. Cada item da lista cita a regra, a fonte e os recursos FHIR.
+versao: 1
+parametros:
+  alta_sem_contato_horas: 72     # prazo do primeiro contato após a alta de alto risco
+  janela_pos_alta_dias: 30       # quanto tempo depois da alta o paciente segue acompanhado pelas regras de alta
+  retorno_carencia_horas: 48     # tempo após a alta até cobrar o agendamento do retorno
+  retorno_atrasado_dias: 7       # sem retorno agendado há mais que isso, a pendência sobe para crítica se o risco é alto
+  falta_janela_dias: 60          # faltas (noshow) mais antigas que isso saem da lista
+  adesao_janela_dias: 30         # consulta recente com sinal de não adesão
+  troca_janela_dias: 60          # troca de medicamento recente
+  max_tentativas: 3              # tentativas de contato sem sucesso antes de sugerir visita domiciliar
+  reinternacao_dias: 30          # janela da métrica de reinternação
+  retorno_perdido_dias: 30       # janela para o retorno ocorrer; depois disso é retorno perdido
+regras:
+  alta_sem_contato_72h:
+    titulo: Alta de alto risco sem contato pós-alta
+    papel: enfermagem
+    prazo_horas: 24
+    fonte: >-
+      Risco = LACE + score social do Waze da alta (ADR 0007); prazo de 72 h para o primeiro contato é
+      heurística de demonstração (prática de transição de cuidado), configurável neste arquivo.
+  retorno_nao_agendado:
+    titulo: Retorno pós-alta não agendado
+    papel: enfermagem
+    prazo_horas: 48
+    fonte: >-
+      Nenhum Appointment (FHIR) do paciente depois da alta; o checklist social de alta pergunta pela consulta de
+      retorno (score social do ADR 0007). Prazo de carência de demonstração.
+  falta_ao_retorno:
+    titulo: Faltou à consulta agendada
+    papel: enfermagem
+    prazo_horas: 24
+    fonte: Appointment com status noshow (FHIR R4) sem novo agendamento ou contato depois da falta.
+  protocolo_aps_vencido:
+    titulo: Protocolo de acompanhamento (APS) vencido
+    papel: medico
+    prazo_horas: 120
+    fonte: >-
+      Protocolos de data/reference/care_protocols.csv (intervalos de demonstração, mesma base da Consulta com IA)
+      avaliados sobre Condition e exames do FHIR.
+  nao_adesao_consulta:
+    titulo: Sinal de não adesão em consulta recente
+    papel: enfermagem
+    prazo_horas: 48
+    fonte: >-
+      Sugestão de adesão das regras da Consulta com IA (fala do paciente: esquecimento, tomar quando lembra,
+      parou de tomar), citando as falas da consulta.
+  troca_sem_reconciliacao:
+    titulo: Medicamento trocado sem reconciliação
+    papel: medico
+    prazo_horas: 48
+    fonte: >-
+      MedicationRequest com priorPrescription (substituição) sem nenhuma reconciliação medicamentosa do HousIA
+      (pilar 2) executada depois da troca.

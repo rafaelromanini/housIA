@@ -1,0 +1,66 @@
+id: aps_esus
+versao: 1.0.0
+rotulo: Atendimento na APS (SOAP e-SUS)
+titulo: Atendimento individual (SOAP, e-SUS APS)
+tipo: aps
+especialidades: []
+automatico: false
+loinc:
+  codigo: 11488-4
+  display: Consult note
+fonte: Ficha de Atendimento Individual do e-SUS APS (SOAP); CIAP-2 (WONCA)
+secoes:
+- key: queixa_principal
+  rotulo: S - Motivo da consulta
+  soap: S
+  obrigatoria: true
+  dica: Motivo nas palavras do paciente.
+  loinc: 10154-3
+- key: hda
+  rotulo: S - Subjetivo
+  soap: S
+  obrigatoria: false
+  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
+  loinc: 10164-2
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: exame_fisico
+  rotulo: O - Objetivo (exame físico)
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi medido ou verbalizado.
+  loinc: 29545-1
+- key: exames_complementares
+  rotulo: Exames complementares
+  soap: O
+  obrigatoria: false
+  dica: Resultados relevantes, com data.
+  loinc: 30954-2
+- key: avaliacao
+  rotulo: A - Avaliação (CID-10)
+  soap: A
+  obrigatoria: true
+  dica: Problemas e condições avaliados, com CID-10.
+  loinc: 51848-0
+- key: ciap2
+  rotulo: A - CIAP-2 (problema/condição avaliada)
+  soap: A
+  obrigatoria: true
+  dica: Código CIAP-2 do problema avaliado; a sugestão vem do CID-10 das hipóteses e do prontuário.
+  padrao: '{{ciap2}}'
+- key: plano
+  rotulo: P - Plano
+  soap: P
+  obrigatoria: false
+  dica: Condutas combinadas; o que não foi combinado fica como "a confirmar".
+  loinc: 18776-5

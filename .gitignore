@@ -1,0 +1,27 @@
+# Segredos
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.db
+*.egg-info/
+build/
+
+# Node
+node_modules/
+
+# SO / editores
+.DS_Store
+.idea/
+.vscode/
+.sandbox-ca.crt
+
+# brag (vídeo): frames e intermediários
+brag-output/work/

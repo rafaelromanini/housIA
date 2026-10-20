@@ -1,0 +1,8 @@
+# Valores sintéticos só para `helm lint` / `helm template` no CI (nada disto é segredo real).
+domain: housia.example.test
+secrets:
+  jwtSecret: "valor-sintetico-de-lint-com-mais-de-32-caracteres"
+  postgresPassword: "valor-sintetico-de-lint"
+llm:
+  mode: mock
+  allowMock: true

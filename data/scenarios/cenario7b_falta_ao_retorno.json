@@ -1,0 +1,72 @@
+{
+  "id": "cen7b",
+  "tag": "cenario-7b",
+  "titulo": "Cenário 7b — Jornada: faltou ao retorno pós-alta",
+  "esperado": "Alta há 12 dias; o retorno agendado há 5 dias foi registrado como falta (Appointment noshow) e não há novo agendamento. Aparece na lista pela regra de falta; a tarefa sugerida é do papel enfermagem.",
+  "paciente": {
+    "nome": "Lúcia Helena Moura Duarte",
+    "sexo": "female",
+    "nascimento": "1958-09-04",
+    "cpf": "529.811.370-42",
+    "telefone": "(11) 98127-4455",
+    "endereco": "Av. Celso Garcia, 3300, Tatuapé, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-16d4h",
+    "fim": "-12d",
+    "tipo": "urgencia",
+    "motivo": "Pneumonia adquirida na comunidade",
+    "setores": [
+      {
+        "id": "enf",
+        "setor": "Enfermaria 3B",
+        "leito": "11",
+        "inicio": "-16d4h",
+        "fim": "-12d"
+      }
+    ]
+  },
+  "diagnosticos": [
+    {
+      "cid": "J18.9",
+      "texto": "Pneumonia não especificada",
+      "principal": true,
+      "inicio": "-16d4h"
+    },
+    {
+      "cid": "I10",
+      "texto": "Hipertensão arterial sistêmica",
+      "inicio": "-3650d",
+      "registro": "-16d4h"
+    }
+  ],
+  "alergias": [],
+  "familiares": [
+    {
+      "nome": "Renato Duarte",
+      "parentesco": "marido",
+      "codigo": "SPS",
+      "cuidador": true,
+      "telefone": "(11) 98127-0021"
+    }
+  ],
+  "social": {
+    "moradores": 2
+  },
+  "agendamentos": [
+    {
+      "id": "ret",
+      "t": "-5d",
+      "status": "noshow",
+      "motivo": "Retorno pós-alta: pneumonia, radiografia de controle"
+    }
+  ],
+  "evolucoes": [
+    {
+      "t": "-12d1h",
+      "tipo": "medica",
+      "autor": "Dra. Camila Rocha (Clínica Médica)",
+      "texto": "Alta com melhora clínica. Retorno em 7 dias com radiografia de tórax de controle."
+    }
+  ]
+}

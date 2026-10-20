@@ -1,0 +1,50 @@
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import engine_from_config, pool
+
+from app.config import get_settings
+from app.db import models  # noqa: F401  (registra as tabelas no metadata)
+from app.db.session import Base
+
+config = context.config
+config.set_main_option("sqlalchemy.url", get_settings().database_url)
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+
+def render_item(type_, obj, autogen_context):
+    """UTCDateTime é só um adaptador de leitura: na migração vira DateTime(timezone=True)."""
+    if type_ == "type" and isinstance(obj, models.UTCDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
+
+
+def run_migrations_offline() -> None:
+    context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata, literal_binds=True)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    url = get_settings().database_url
+    ssl = (
+        {"connect_args": {"sslmode": get_settings().db_sslmode}}
+        if get_settings().db_sslmode and not url.startswith("sqlite")
+        else {}
+    )
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool, **ssl
+    )  # DB_SSLMODE vale também para a migration, não só para a API
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata, render_item=render_item)
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

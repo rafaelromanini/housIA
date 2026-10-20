@@ -1,0 +1,21 @@
+alvo,rotulo,gestacao,lactacao,orientacao,fonte
+varfarina,Varfarina,contraindicado,compativel,Atravessa a placenta (embriopatia no 1º trimestre); trocar por heparina com a obstetrícia.,Bula (ANVISA) e LactMed: base de demonstração
+@ieca,IECA,contraindicado,cautela,"Fetotoxicidade no 2º e 3º trimestres; trocar o anti-hipertensivo. Na lactação, enalapril e captopril são os mais estudados.",Bula (ANVISA) e LactMed: base de demonstração
+@bra,BRA,contraindicado,evitar,Fetotoxicidade no 2º e 3º trimestres; na lactação faltam dados.,Bula (ANVISA) e LactMed: base de demonstração
+@estatina,Estatina,evitar,evitar,"Suspender na gestação e na lactação, salvo decisão especializada.",Bula (ANVISA) e LactMed: base de demonstração
+@aine,AINE,evitar,cautela,Evitar a partir de 20 semanas (ducto arterioso e líquido amniótico); na lactação o ibuprofeno é o preferido.,Bula (ANVISA) e LactMed: base de demonstração
+metformina,Metformina,cautela,compativel,Uso na gestação só por decisão com a obstetrícia; compatível com a lactação.,Bula (ANVISA) e LactMed: base de demonstração
+@sulfonilureia,Sulfonilureia,evitar,cautela,Na gestação a insulina é a opção; risco de hipoglicemia do bebê na lactação.,Bula (ANVISA) e LactMed: base de demonstração
+levotiroxina,Levotiroxina,compativel,compativel,Manter; a necessidade de dose costuma subir na gestação (controlar o TSH).,Bula (ANVISA) e LactMed: base de demonstração
+@tetraciclina,Tetraciclina,contraindicado,cautela,Alteração dos dentes e dos ossos do feto; evitar a partir do 2º trimestre.,Bula (ANVISA) e LactMed: base de demonstração
+@fluoroquinolona,Fluoroquinolona,evitar,cautela,Preferir outra classe quando houver alternativa.,Bula (ANVISA) e LactMed: base de demonstração
+fluconazol,Fluconazol,evitar,compativel,Doses altas e prolongadas são teratogênicas; dose única é compatível com a lactação.,Bula (ANVISA) e LactMed: base de demonstração
+sertralina,Sertralina,cautela,compativel,Pesar risco e benefício na gestação; é um dos antidepressivos preferidos na lactação.,Bula (ANVISA) e LactMed: base de demonstração
+@benzodiazepinico,Benzodiazepínico,cautela,cautela,Uso crônico perto do parto pode causar sedação e abstinência no recém-nascido.,Bula (ANVISA) e LactMed: base de demonstração
+amiodarona,Amiodarona,contraindicado,contraindicado,Efeito na tireoide do feto e do bebê; avaliar alternativa com a cardiologia.,Bula (ANVISA) e LactMed: base de demonstração
+@diuretico_tiazidico,Diurético tiazídico,cautela,cautela,Pode reduzir o volume de líquido amniótico e a produção de leite.,Bula (ANVISA) e LactMed: base de demonstração
+atenolol,Atenolol,evitar,evitar,Restrição de crescimento fetal e acúmulo no leite; preferir outro betabloqueador.,Bula (ANVISA) e LactMed: base de demonstração
+metoprolol,Metoprolol,cautela,compativel,Acompanhar o crescimento fetal; compatível com a lactação.,Bula (ANVISA) e LactMed: base de demonstração
+paracetamol,Paracetamol,compativel,compativel,Analgésico de escolha na gestação e na lactação nas doses habituais.,Bula (ANVISA) e LactMed: base de demonstração
+dipirona,Dipirona,cautela,cautela,"Evitar no 1º trimestre e nas últimas semanas; na lactação, uso eventual.",Bula (ANVISA) e LactMed: base de demonstração
+omeprazol,Omeprazol,compativel,compativel,Sem sinal de risco nas doses habituais.,Bula (ANVISA) e LactMed: base de demonstração

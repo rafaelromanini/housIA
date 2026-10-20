@@ -1,0 +1,71 @@
+{
+  "id": "cen4",
+  "tag": "cenario-4",
+  "titulo": "Cenário 4 — Alta de baixo risco: apendicectomia sem intercorrências",
+  "esperado": "LACE baixo (internação de 1 dia, sem comorbidades, sem idas ao PS) e checklist social favorável. Risco final BAIXO: sem trava, alta pode ser confirmada direto.",
+  "paciente": {
+    "nome": "Lucas Henrique Martins",
+    "sexo": "male",
+    "nascimento": "2002-01-15",
+    "cpf": "509.336.218-41",
+    "telefone": "(11) 99654-0213",
+    "endereco": "Rua Augusta, 1500, apto 81, Consolação, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-1d6h",
+    "alta_prevista": "+3h",
+    "tipo": "urgencia",
+    "motivo": "Apendicite aguda",
+    "setores": [
+      {"id": "cc", "setor": "Clínica Cirúrgica 4A", "leito": "03", "inicio": "-1d6h"}
+    ]
+  },
+  "diagnosticos": [
+    {"cid": "K35.8", "texto": "Apendicite aguda", "principal": true, "inicio": "-1d6h"}
+  ],
+  "alergias": [],
+  "familiares": [
+    {"nome": "Patrícia Martins", "parentesco": "mãe", "codigo": "MTH", "cuidador": true, "telefone": "(11) 99654-0200"}
+  ],
+  "social": {"moradores": 3},
+  "prescricoes": [
+    {"id": "cefazolina", "med": "cefazolina", "dose": "2 g", "via": "IV", "frequencia": "dose única (profilaxia cirúrgica)",
+     "inicio": "-1d3h", "fim": "-1d1h", "administrar": false, "administracoes": ["-1d2h10m"]},
+    {"id": "dipirona", "med": "dipirona", "dose": "1 g", "via": "IV", "horarios": ["00:00", "06:00", "12:00", "18:00"], "inicio": "-1d1h"},
+    {"id": "ondansetrona", "med": "ondansetrona", "dose": "4 mg", "via": "IV", "se_necessario": true, "condicao": "se náusea ou vômito",
+     "inicio": "-1d1h", "administracoes": ["-20h"]}
+  ],
+  "sinais": [
+    {"t": "-1d5h", "pa": [122, 78], "fc": 98, "fr": 18, "temp": 37.9, "spo2": 98, "dor": 7},
+    {"t": "-18h", "pa": [118, 74], "fc": 80, "fr": 16, "temp": 37.0, "spo2": 98, "dor": 4},
+    {"t": "-10h", "pa": [116, 72], "fc": 72, "fr": 14, "temp": 36.6, "spo2": 99, "dor": 2},
+    {"t": "-3h", "pa": [118, 74], "fc": 70, "fr": 14, "temp": 36.5, "spo2": 99, "dor": 1}
+  ],
+  "exames": [
+    {"t": "-1d6h", "leucocitos": 14.8, "pcr": 62},
+    {"t": "-8h", "leucocitos": 9.6, "pcr": 30}
+  ],
+  "balanco": [
+    {"t": "-5h", "diurese": 350, "obs": "diurese espontânea"}
+  ],
+  "escalas": [
+    {"t": "-12h", "morse": 15, "braden": 22}
+  ],
+  "procedimentos": [
+    {"t": "-1d2h", "texto": "Apendicectomia videolaparoscópica", "categoria": "cirurgia"}
+  ],
+  "cirurgias": [
+    {"id": "apendicectomia", "procedimento": "Apendicectomia videolaparoscópica", "sitio": "Apêndice cecal",
+     "t": "-1d3h", "duracao": "1h", "solicitado": "-1d5h", "status": "completed",
+     "cirurgiao": "Dr. Gustavo Prado (Cirurgia Geral)", "especialidade": "Cirurgia geral",
+     "consentimento": {"t": "-1d4h", "texto": "Termo de consentimento livre e esclarecido: apendicectomia videolaparoscópica, com possibilidade de conversão para cirurgia aberta. Riscos de infecção, sangramento e lesão de alças explicados ao paciente e à mãe."}}
+  ],
+  "evolucoes": [
+    {"t": "-1d1h", "tipo": "medica", "autor": "Dr. Gustavo Prado (Cirurgia Geral)",
+     "texto": "Apendicectomia videolaparoscópica sem intercorrências. Apêndice não perfurado. Antibiótico apenas profilático."},
+    {"t": "-6h", "tipo": "medica", "autor": "Dr. Gustavo Prado (Cirurgia Geral)",
+     "texto": "Paciente em bom estado geral, deambulando, aceitando dieta, dor controlada com analgesia simples. Leucócitos normalizados. Programada alta hospitalar hoje com retorno ambulatorial em 7 dias."},
+    {"t": "-4h", "tipo": "enfermagem", "autor": "Enf. Beatriz Rocha (Clínica Cirúrgica 4A)",
+     "texto": "Deambulando sem auxílio, diurese espontânea, ferida operatória limpa e seca. Mãe acompanha e recebeu orientações de cuidados com a ferida."}
+  ]
+}

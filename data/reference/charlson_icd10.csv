@@ -1,0 +1,73 @@
+prefixo_cid10,categoria,grupo,peso
+I21,Infarto agudo do miocárdio,iam,1
+I22,Infarto agudo do miocárdio,iam,1
+I252,Infarto antigo do miocárdio,iam,1
+I50,Insuficiência cardíaca congestiva,icc,1
+I110,Insuficiência cardíaca congestiva,icc,1
+I130,Insuficiência cardíaca congestiva,icc,1
+I132,Insuficiência cardíaca congestiva,icc,1
+I70,Doença vascular periférica,dvp,1
+I71,Doença vascular periférica,dvp,1
+I739,Doença vascular periférica,dvp,1
+G45,Doença cerebrovascular,cerebrovascular,1
+I60,Doença cerebrovascular,cerebrovascular,1
+I61,Doença cerebrovascular,cerebrovascular,1
+I62,Doença cerebrovascular,cerebrovascular,1
+I63,Doença cerebrovascular,cerebrovascular,1
+I64,Doença cerebrovascular,cerebrovascular,1
+I69,Doença cerebrovascular,cerebrovascular,1
+F00,Demência,demencia,1
+F01,Demência,demencia,1
+F03,Demência,demencia,1
+G30,Demência,demencia,1
+J40,Doença pulmonar crônica,dpoc,1
+J41,Doença pulmonar crônica,dpoc,1
+J42,Doença pulmonar crônica,dpoc,1
+J43,Doença pulmonar crônica,dpoc,1
+J44,Doença pulmonar crônica,dpoc,1
+J45,Doença pulmonar crônica,dpoc,1
+J47,Doença pulmonar crônica,dpoc,1
+M05,Doença reumatológica,reumato,1
+M06,Doença reumatológica,reumato,1
+M32,Doença reumatológica,reumato,1
+M33,Doença reumatológica,reumato,1
+M34,Doença reumatológica,reumato,1
+K25,Doença ulcerosa péptica,ulcera,1
+K26,Doença ulcerosa péptica,ulcera,1
+K27,Doença ulcerosa péptica,ulcera,1
+K28,Doença ulcerosa péptica,ulcera,1
+K70,Doença hepática leve,hepatica,1
+K73,Doença hepática leve,hepatica,1
+K74,Doença hepática leve,hepatica,1
+K721,Doença hepática moderada/grave,hepatica,3
+K729,Doença hepática moderada/grave,hepatica,3
+K766,Doença hepática moderada/grave,hepatica,3
+I85,Doença hepática moderada/grave,hepatica,3
+E109,Diabetes sem complicação,diabetes,1
+E119,Diabetes sem complicação,diabetes,1
+E149,Diabetes sem complicação,diabetes,1
+E102,Diabetes com lesão de órgão-alvo,diabetes,2
+E103,Diabetes com lesão de órgão-alvo,diabetes,2
+E104,Diabetes com lesão de órgão-alvo,diabetes,2
+E105,Diabetes com lesão de órgão-alvo,diabetes,2
+E112,Diabetes com lesão de órgão-alvo,diabetes,2
+E113,Diabetes com lesão de órgão-alvo,diabetes,2
+E114,Diabetes com lesão de órgão-alvo,diabetes,2
+E115,Diabetes com lesão de órgão-alvo,diabetes,2
+G81,Hemiplegia,hemiplegia,2
+G82,Hemiplegia,hemiplegia,2
+N18,Doença renal crônica moderada/grave,renal,2
+N19,Doença renal crônica moderada/grave,renal,2
+C18,Neoplasia maligna,cancer,2
+C34,Neoplasia maligna,cancer,2
+C50,Neoplasia maligna,cancer,2
+C61,Neoplasia maligna,cancer,2
+C81,Linfoma,cancer,2
+C90,Mieloma,cancer,2
+C91,Leucemia,cancer,2
+C77,Neoplasia metastática,cancer,6
+C78,Neoplasia metastática,cancer,6
+C79,Neoplasia metastática,cancer,6
+C80,Neoplasia metastática,cancer,6
+B20,HIV/aids,aids,6
+B24,HIV/aids,aids,6

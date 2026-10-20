@@ -1,0 +1,11 @@
+item,tipo,motivo
+insulina_basal,classe,Insulina — medicamento potencialmente perigoso (MPP): risco de hipoglicemia grave; dupla checagem de dose e unidade
+insulina_rapida,classe,Insulina — MPP: risco de hipoglicemia grave; dupla checagem de dose e unidade
+heparina,classe,Anticoagulante parenteral — MPP: risco de sangramento; conferir dose por peso e função renal
+anticoagulante_oral,classe,Anticoagulante oral — MPP: risco de sangramento; conferir indicação e interações
+opioide,classe,Opioide — MPP: risco de depressão respiratória; conferir dose e intervalo
+cloreto_potassio,ingrediente,KCl concentrado — MPP: nunca administrar em bolus; conferir diluição e velocidade
+noradrenalina,ingrediente,Vasopressor — MPP: conferir concentração e vazão em bomba de infusão
+midazolam,ingrediente,Sedativo — MPP: risco de depressão respiratória; monitorar sedação
+amiodarona,ingrediente,Antiarrítmico — MPP: risco de arritmia e interações; conferir dose
+digoxina,ingrediente,Digitálico — MPP: janela terapêutica estreita; conferir dose e potássio

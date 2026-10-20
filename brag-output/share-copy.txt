@@ -1,0 +1,1 @@
+Na troca de plantão, "PA estável" pode esconder uma pressão de 184/102 em ascensão. O HousIA lê o prontuário (FHIR) e confere passagem de plantão, transferência e alta, sempre mostrando a fonte de cada alerta. Estamos abrindo pilotos com hospitais — vamos conversar?

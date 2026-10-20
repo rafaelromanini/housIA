@@ -1,0 +1,162 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Tokens do design system (design-system/housia/MASTER.md + pages/app-clinico.md) */
+:root {
+  --background: #f3fbfc;
+  --foreground: #12404f;
+  --card: #ffffff;
+  --card-foreground: #12404f;
+  --popover: #ffffff;
+  --popover-foreground: #12404f;
+  --primary: #0e7490;
+  --primary-foreground: #ffffff;
+  --secondary: #e0f4f8;
+  --secondary-foreground: #0f3a47;
+  --accent: #047857;
+  --accent-foreground: #ffffff;
+  --muted: #e8f1f6;
+  --muted-foreground: #475569;
+  --border: #cfe0e6;
+  --input: #b8cfd7;
+  --ring: #0891b2;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+
+  --sev-critico: #b91c1c;
+  --sev-critico-bg: #fef2f2;
+  --sev-critico-border: #fca5a5;
+  --sev-atencao: #92400e;
+  --sev-atencao-bg: #fffbeb;
+  --sev-atencao-border: #fcd34d;
+  --sev-info: #1d4ed8;
+  --sev-info-bg: #eff6ff;
+  --sev-info-border: #93c5fd;
+  --sev-ok: #047857;
+  --sev-ok-bg: #ecfdf5;
+  --sev-ok-border: #6ee7b7;
+
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-critico: var(--sev-critico);
+  --color-critico-bg: var(--sev-critico-bg);
+  --color-critico-border: var(--sev-critico-border);
+  --color-atencao: var(--sev-atencao);
+  --color-atencao-bg: var(--sev-atencao-bg);
+  --color-atencao-border: var(--sev-atencao-border);
+  --color-info: var(--sev-info);
+  --color-info-bg: var(--sev-info-bg);
+  --color-info-border: var(--sev-info-border);
+  --color-ok: var(--sev-ok);
+  --color-ok-bg: var(--sev-ok-bg);
+  --color-ok-border: var(--sev-ok-border);
+
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Impressão das orientações de alta: só o bloco #handout vai para o papel */
+@media print {
+  body.printing-handout * {
+    visibility: hidden;
+  }
+  body.printing-handout #handout,
+  body.printing-handout #handout * {
+    visibility: visible;
+  }
+  body.printing-handout #handout {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: none;
+    font-size: 14pt;
+  }
+}
+
+/* Impressão de receita e solicitação de exames (rascunhos assinados): só o documento escolhido vai para o papel */
+.pedido-doc {
+  display: none;
+}
+@media print {
+  body.printing-pedido-receita *,
+  body.printing-pedido-exames * {
+    visibility: hidden;
+  }
+  body.printing-pedido-receita #pedido-receita,
+  body.printing-pedido-receita #pedido-receita *,
+  body.printing-pedido-exames #pedido-exames,
+  body.printing-pedido-exames #pedido-exames * {
+    visibility: visible;
+  }
+  body.printing-pedido-receita #pedido-receita,
+  body.printing-pedido-exames #pedido-exames {
+    display: block;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    padding: 24px;
+    font-size: 13pt;
+    color: #000;
+    background: #fff;
+  }
+}

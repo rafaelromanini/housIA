@@ -1,0 +1,158 @@
+{
+ "patient_id": "cen6",
+ "tipo": "consulta",
+ "especialidade": "clinica_medica",
+ "titulo": "Retorno de diabetes e hipertensão com tontura (paciente e filha)",
+ "falas": [
+  {
+   "t": 0.0,
+   "falante": "medico",
+   "texto": "Bom dia, dona Joana! Que bom ver a senhora. A Fernanda veio junto hoje."
+  },
+  {
+   "t": 4.4,
+   "falante": "paciente",
+   "texto": "Bom dia, doutora. Mais ou menos... eu ando muito tonta."
+  },
+  {
+   "t": 7.9,
+   "falante": "medico",
+   "texto": "Me conta dessa tontura. Desde quando está assim?"
+  },
+  {
+   "t": 10.9,
+   "falante": "paciente",
+   "texto": "Faz umas três semanas. Quando eu levanto da cama ou do sofá, tudo escurece e fico zonza."
+  },
+  {
+   "t": 16.4,
+   "falante": "acompanhante",
+   "texto": "Semana passada ela quase caiu no banheiro, doutora. Eu fiquei muito preocupada."
+  },
+  {
+   "t": 21.3,
+   "falante": "medico",
+   "texto": "Entendi. E além da tontura, a senhora tem sentido mais alguma coisa?"
+  },
+  {
+   "t": 25.6,
+   "falante": "paciente",
+   "texto": "Um cansaço, uma fraqueza... E às vezes, antes do almoço, me dá um suor frio e uma tremedeira."
+  },
+  {
+   "t": 31.4,
+   "falante": "medico",
+   "texto": "E nesses dias a senhora comeu direitinho de manhã?"
+  },
+  {
+   "t": 34.5,
+   "falante": "paciente",
+   "texto": "Às vezes eu tomo o remédio do açúcar cedo e só como mais tarde, porque não tenho fome."
+  },
+  {
+   "t": 39.9,
+   "falante": "medico",
+   "texto": "Hoje na triagem a sua glicemia deu 64, que é baixa. A senhora tomou café hoje?"
+  },
+  {
+   "t": 44.8,
+   "falante": "paciente",
+   "texto": "Não tomei, doutora. Tomei a glibenclamida e vim direto."
+  },
+  {
+   "t": 48.2,
+   "falante": "medico",
+   "texto": "E de dor, como a senhora está?"
+  },
+  {
+   "t": 51.2,
+   "falante": "paciente",
+   "texto": "O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia faz umas duas semanas."
+  },
+  {
+   "t": 59.5,
+   "falante": "medico",
+   "texto": "Entendi. E a urina, a senhora tem levantado à noite?"
+  },
+  {
+   "t": 62.8,
+   "falante": "paciente",
+   "texto": "Levanto umas três vezes à noite pra fazer xixi."
+  },
+  {
+   "t": 65.8,
+   "falante": "paciente",
+   "texto": "Doutora, eu tenho medo de ter que tomar insulina. Minha irmã toma e passa muito mal."
+  },
+  {
+   "t": 71.0,
+   "falante": "medico",
+   "texto": "Eu entendo o medo. Vamos olhar os exames juntas antes de decidir qualquer coisa."
+  },
+  {
+   "t": 76.0,
+   "falante": "acompanhante",
+   "texto": "O que significa essa hemoglobina glicada? E o potássio alto é grave?"
+  },
+  {
+   "t": 80.2,
+   "falante": "medico",
+   "texto": "Já explico. Antes, a senhora tem alguma alergia além da penicilina?"
+  },
+  {
+   "t": 84.4,
+   "falante": "paciente",
+   "texto": "Tenho alergia a camarão. Uma vez a minha boca inchou toda."
+  },
+  {
+   "t": 88.1,
+   "falante": "medico",
+   "texto": "E dor no peito, falta de ar?"
+  },
+  {
+   "t": 91.1,
+   "falante": "paciente",
+   "texto": "Não, dor no peito eu não tenho. Falta de ar também não."
+  },
+  {
+   "t": 94.5,
+   "falante": "paciente",
+   "texto": "Ah, e o oftalmologista quer operar a catarata do olho direito. Posso operar com essa diabetes?"
+  },
+  {
+   "t": 100.4,
+   "falante": "medico",
+   "texto": "Pode, sim, mas a gente precisa deixar a glicemia e a pressão bem controladas antes."
+  },
+  {
+   "t": 105.6,
+   "falante": "medico",
+   "texto": "Hoje a pressão sentada está 118 por 72, e em pé caiu para 98. Isso explica parte da tontura."
+  },
+  {
+   "t": 111.3,
+   "falante": "paciente",
+   "texto": "Será que é o remédio novo da pressão? Comecei aquele diurético na última consulta."
+  },
+  {
+   "t": 116.4,
+   "falante": "medico",
+   "texto": "Pode ser, junto com o açúcar baixo e o anti-inflamatório. Vamos ajustar."
+  },
+  {
+   "t": 120.9,
+   "falante": "paciente",
+   "texto": "Ah, que alívio, doutora. Achei que era coisa pior."
+  },
+  {
+   "t": 124.1,
+   "falante": "acompanhante",
+   "texto": "Eu vou ajudar ela com os horários dos remédios e da comida."
+  },
+  {
+   "t": 127.8,
+   "falante": "paciente",
+   "texto": "Entendi tudo. Vou fazer direitinho."
+  }
+ ]
+}

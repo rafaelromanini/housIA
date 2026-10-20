@@ -1,0 +1,80 @@
+{
+  "id": "cen5",
+  "tag": "cenario-5",
+  "titulo": "Cenário 5 — Interação + alergia: opioide com benzodiazepínico e dipirona em alérgica",
+  "esperado": "Reconciliação PS → Clínica Cirúrgica gera 2 alertas CRÍTICOS determinísticos: interação morfina + diazepam em idosa e dipirona prescrita em paciente alérgica a dipirona. A IA levanta a hipótese de sedação/bradipneia por efeito aditivo opioide + benzodiazepínico.",
+  "paciente": {
+    "nome": "Iracema Lopes Teixeira",
+    "sexo": "female",
+    "nascimento": "1948-08-21",
+    "cpf": "604.218.775-32",
+    "telefone": "(11) 2944-1022",
+    "endereco": "Rua Voluntários da Pátria, 2200, Santana, São Paulo - SP"
+  },
+  "internacao": {
+    "inicio": "-2d",
+    "tipo": "urgencia",
+    "motivo": "Fratura de colo do fêmur esquerdo após queda da própria altura",
+    "setores": [
+      {"id": "ps", "setor": "Pronto-Socorro", "leito": "OBS-04", "inicio": "-2d", "fim": "-20h"},
+      {"id": "cc", "setor": "Clínica Cirúrgica 4A", "leito": "08", "inicio": "-20h"}
+    ]
+  },
+  "diagnosticos": [
+    {"cid": "S72.0", "texto": "Fratura do colo do fêmur", "principal": true, "inicio": "-2d"},
+    {"cid": "I10", "texto": "Hipertensão arterial sistêmica", "inicio": "-5475d", "registro": "-2d"},
+    {"cid": "M81", "texto": "Osteoporose", "inicio": "-1825d", "registro": "-2d"}
+  ],
+  "alergias": [
+    {"principio_ativo": "dipirona", "texto": "Dipirona", "reacao": "Urticária generalizada e angioedema (2019)", "criticidade": "high"}
+  ],
+  "familiares": [
+    {"nome": "Sandra Teixeira", "parentesco": "filha", "codigo": "DAU", "cuidador": true, "telefone": "(11) 98100-7745"}
+  ],
+  "social": {"moradores": 2},
+  "prescricoes": [
+    {"id": "morfina", "med": "morfina", "dose": "2 mg", "via": "IV", "horarios": ["02:00", "06:00", "10:00", "14:00", "18:00", "22:00"],
+     "setores": ["ps", "cc"]},
+    {"id": "paracetamol", "med": "paracetamol", "dose": "750 mg", "via": "VO", "horarios": ["00:00", "06:00", "12:00", "18:00"],
+     "setores": ["ps", "cc"], "fim": "-1h", "status": "stopped", "motivo": "Trocado por dipirona para melhor controle álgico"},
+    {"id": "dipirona", "med": "dipirona", "dose": "1 g", "via": "IV", "horarios": ["00:00", "06:00", "12:00", "18:00"], "setor": "cc",
+     "inicio": "-1h", "administrar": false, "prescritor": "Dr. André Lins", "substitui": "paracetamol"},
+    {"id": "diazepam", "med": "diazepam", "dose": "5 mg", "via": "VO", "horarios": ["22:00"], "setor": "cc",
+     "observacao": "Para insônia", "prescritor": "Dr. André Lins"},
+    {"id": "enoxaparina", "med": "enoxaparina", "dose": "40 mg", "via": "SC", "horarios": ["18:00"], "setores": ["ps", "cc"]},
+    {"id": "losartana", "med": "losartana", "dose": "50 mg", "via": "VO", "horarios": ["08:00"], "setores": ["ps", "cc"]},
+    {"id": "omeprazol", "med": "omeprazol", "dose": "20 mg", "via": "VO", "horarios": ["06:00"], "setores": ["ps", "cc"]}
+  ],
+  "sinais": [
+    {"t": "-1d20h", "pa": [148, 86], "fc": 92, "fr": 18, "temp": 36.6, "spo2": 96, "dor": 8},
+    {"t": "-1d10h", "pa": [140, 82], "fc": 86, "fr": 18, "temp": 36.5, "spo2": 96, "dor": 6},
+    {"t": "-16h", "pa": [136, 80], "fc": 80, "fr": 16, "temp": 36.4, "spo2": 95, "dor": 4},
+    {"t": "-8h", "pa": [130, 76], "fc": 74, "fr": 14, "temp": 36.3, "spo2": 94, "dor": 3},
+    {"t": "-2h", "pa": [124, 72], "fc": 66, "fr": 12, "temp": 36.2, "spo2": 92},
+    {"t": "-40m", "pa": [118, 70], "fc": 62, "fr": 11, "temp": 36.2, "spo2": 91}
+  ],
+  "exames": [
+    {"t": "-1d22h", "hemoglobina": 11.9, "creatinina": 0.9, "potassio": 4.3, "inr": 1.0},
+    {"t": "-14h", "hemoglobina": 9.8, "creatinina": 1.0, "potassio": 4.1}
+  ],
+  "balanco": [
+    {"t": "-6h", "diurese": 300, "obs": "via SVD"}
+  ],
+  "escalas": [
+    {"t": "-18h", "morse": 75, "braden": 13}
+  ],
+  "procedimentos": [
+    {"t": "-1d4h", "texto": "Artroplastia parcial de quadril esquerdo", "categoria": "cirurgia"},
+    {"t": "-1d4h", "texto": "Sondagem vesical de demora", "categoria": "dispositivo"}
+  ],
+  "evolucoes": [
+    {"t": "-1d16h", "tipo": "medica", "autor": "Dra. Lívia Campos (Pronto-Socorro)",
+     "texto": "Idosa com fratura de colo de fêmur E após queda da própria altura. ALERGIA A DIPIRONA (urticária e angioedema em 2019). Analgesia com morfina e paracetamol. Programada artroplastia."},
+    {"t": "-19h", "tipo": "medica", "autor": "Dr. André Lins (Ortopedia)",
+     "texto": "Pós-operatório de artroplastia parcial de quadril E. Dor controlada. Prescrito diazepam 5 mg à noite por insônia. Mantida morfina 4/4h."},
+    {"t": "-1h", "tipo": "medica", "autor": "Dr. André Lins (Ortopedia)",
+     "texto": "Paracetamol trocado por dipirona 1 g 6/6h para melhor controle álgico."},
+    {"t": "-50m", "tipo": "enfermagem", "autor": "Enf. Beatriz Rocha (Clínica Cirúrgica 4A)",
+     "texto": "Dona Iracema está sonolenta, despertando ao chamado. FR 11 irpm, SpO2 91% em ar ambiente. Comunicado plantonista. Filha Sandra acompanha."}
+  ]
+}

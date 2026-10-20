@@ -1,0 +1,7 @@
+id,rastreio,sexo,idade_min,idade_max,intervalo_meses,termos,exceto_cid,orientacao,fonte
+mama,Mamografia,F,50,69,24,lab:mamografia|mamografia|mamografica,C50,Mamografia a cada 2 anos de 50 a 69 anos.,INCA: Diretrizes para a detecção precoce do câncer de mama no Brasil (2015)
+colo_utero,Citopatológico do colo do útero,F,25,64,36,papanicolau|citopatologico|colpocitologia|preventivo,C53,Exame a cada 3 anos após dois resultados normais em anos seguidos.,INCA: Diretrizes brasileiras para o rastreamento do câncer do colo do útero (2016)
+colorretal,Pesquisa de sangue oculto nas fezes ou colonoscopia,,50,75,24,sangue oculto|colonoscopia|retossigmoidoscopia,C18|C19|C20,Rastreamento a cada 2 anos de 50 a 75 anos (demonstração; confirmar a conduta local).,Consenso de demonstração do HousIA (conferir a diretriz vigente)
+pressao,Aferição da pressão arterial,,18,,12,vital:pa,I10|I11|I12|I13|I15,Aferir a pressão ao menos 1 vez por ano em adultos.,Diretriz Brasileira de Hipertensão Arterial (2020)
+diabetes,Glicemia ou hemoglobina glicada,,45,,36,lab:glicose|lab:hba1c,E10|E11|E13|E14,"Rastrear diabetes a cada 3 anos a partir dos 45 anos (antes, se houver fatores de risco).",Diretriz da Sociedade Brasileira de Diabetes (demonstração)
+lipidios,Perfil lipídico,,40,75,60,lab:ldl|lab:colesterol_total|lab:hdl,E78,"Dosar o perfil lipídico a cada 5 anos em adultos de risco médio (antes, se houver fatores de risco).",Atualização da Diretriz Brasileira de Dislipidemias (demonstração)

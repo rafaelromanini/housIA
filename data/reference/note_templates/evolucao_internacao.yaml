@@ -1,0 +1,73 @@
+id: evolucao_internacao
+versao: 1.0.0
+rotulo: Evolução de internação (visita médica)
+titulo: Nota de visita médica
+tipo: visita
+especialidades: []
+automatico: true
+loinc:
+  codigo: 11506-3
+  display: Progress note
+fonte: Evolução diária (nota de progresso) com SOAP
+secoes:
+- key: queixa_principal
+  rotulo: Queixas e intercorrências
+  soap: S
+  obrigatoria: false
+  dica: O que o paciente refere hoje e o que ocorreu nas últimas 24 horas.
+  loinc: 10154-3
+- key: hda
+  rotulo: Evolução
+  soap: S
+  obrigatoria: false
+  dica: Evolução desde a última visita.
+  loinc: 10164-2
+- key: antecedentes
+  rotulo: Antecedentes
+  soap: S
+  obrigatoria: false
+  dica: Doenças prévias, cirurgias e história familiar.
+  loinc: 11348-0
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: sinais_vitais
+  rotulo: Sinais vitais
+  soap: O
+  obrigatoria: false
+  dica: Pressão, frequências, saturação e temperatura do prontuário.
+  loinc: 8716-3
+  padrao: '{{pa}}; {{fc}}; {{fr}}; {{spo2}}; {{temp}}'
+- key: exame_fisico
+  rotulo: Exame físico
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi medido ou verbalizado.
+  loinc: 29545-1
+- key: exames_complementares
+  rotulo: Exames complementares
+  soap: O
+  obrigatoria: false
+  dica: Resultados relevantes, com data.
+  loinc: 30954-2
+- key: avaliacao
+  rotulo: Avaliação e problemas ativos
+  soap: A
+  obrigatoria: true
+  dica: Problemas ativos e hipóteses, com CID-10.
+  loinc: 51848-0
+- key: plano
+  rotulo: Plano e condutas do dia
+  soap: P
+  obrigatoria: true
+  dica: Condutas do dia; o que não foi combinado fica como "a confirmar".
+  loinc: 18776-5

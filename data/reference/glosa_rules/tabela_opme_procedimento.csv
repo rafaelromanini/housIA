@@ -1,0 +1,9 @@
+procedimento,opme,relacao,fonte
+apendicectomia,DEMO-OPME-012|DEMO-OPME-013|DEMO-OPME-014|DEMO-OPME-016|DEMO-OPME-017|DEMO-OPME-018|DEMO-OPME-019|DEMO-OPME-020,incompativel,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio
+colecistectomia,DEMO-OPME-012|DEMO-OPME-013|DEMO-OPME-014|DEMO-OPME-016|DEMO-OPME-017|DEMO-OPME-018|DEMO-OPME-019|DEMO-OPME-020,incompativel,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio
+cesarea,DEMO-OPME-012|DEMO-OPME-013|DEMO-OPME-014|DEMO-OPME-016|DEMO-OPME-017|DEMO-OPME-018|DEMO-OPME-019|DEMO-OPME-020,incompativel,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio
+herniorrafia,DEMO-OPME-012|DEMO-OPME-013|DEMO-OPME-014|DEMO-OPME-018|DEMO-OPME-019|DEMO-OPME-020,incompativel,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio
+artroplastia_joelho,DEMO-OPME-018|DEMO-OPME-019|DEMO-OPME-020,incompativel,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio
+artroplastia_quadril,DEMO-OPME-012|DEMO-OPME-013|DEMO-OPME-020,incompativel,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio
+artroplastia_joelho,DEMO-OPME-012|DEMO-OPME-013|DEMO-OPME-014,esperado,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio
+artroplastia_quadril,DEMO-OPME-018|DEMO-OPME-019,esperado,Curadoria HousIA (demonstração): material incompatível ou esperado para o procedimento; substituir pela tabela de materiais do convênio

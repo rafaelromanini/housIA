@@ -1,0 +1,31 @@
+versao: "1.0.0"
+id: histerectomia
+rotulo: Histerectomia
+especialidade: ginecologia_obstetricia
+detectar: [histerectomia, pan-histerectomia, panhisterectomia]
+sitio: [utero]
+profilaxia: [cefazolina, cefoxitina, ampicilina_sulbactam]
+campos:
+  - campo: via_de_acesso
+    rotulo: Via de acesso
+    sinonimos: [via abdominal, via vaginal, videolaparoscop, laparoscop, laparotomia, robotica]
+    obrigatorio: true
+    granular: true
+    motivo: A via de acesso define o procedimento cobrado e o pós-operatório esperado.
+    fonte: ans_tiss
+  - campo: anexos
+    rotulo: Anexos (ovários e tubas)
+    sinonimos: [anexectomia, ooforectomia, salpingectomia, anexos, ovarios]
+    obrigatorio: true
+    granular: true
+    motivo: Retirar ou preservar os ovários muda o seguimento hormonal e precisa constar.
+    fonte: cfm_1638
+  - campo: ureteres
+    rotulo: Identificação dos ureteres
+    sinonimos: [ureter]
+    obrigatorio: false
+    granular: true
+    motivo: Documenta a prevenção da lesão ureteral, complicação típica da histerectomia.
+    fonte: cfm_1638
+obrigatoriedade:
+  peca: {obrigatorio: true, motivo: "Útero e anexos retirados vão ao anatomopatológico.", fonte: cap_protocolos}

@@ -1,0 +1,84 @@
+{
+  "id": "cen7e",
+  "tag": "cenario-7e",
+  "titulo": "Cenário 7e — Jornada: protocolo de APS vencido",
+  "sem_registro_alergia": true,
+  "esperado": "Paciente ambulatorial com diabetes tipo 2 e hipertensão, última consulta há 200 dias, HbA1c de 250 dias atrás (intervalo de 180) e sem retorno agendado. Aparece pela regra de protocolo de acompanhamento vencido, citando o exame e o protocolo.",
+  "paciente": {
+    "nome": "Benedito Cardoso Nunes",
+    "sexo": "male",
+    "nascimento": "1962-07-15",
+    "cpf": "187.449.620-35",
+    "telefone": "(11) 97213-6604",
+    "endereco": "Rua Teodoro Sampaio, 700, Pinheiros, São Paulo - SP"
+  },
+  "ambulatorio": {
+    "servico": "Ambulatório de Clínica Médica",
+    "sala": "Consultório 2",
+    "profissional": "Dra. Helena Prado",
+    "consultas": [
+      {
+        "id": "c1",
+        "inicio": "-420d",
+        "duracao": "35m",
+        "motivo": "Acompanhamento de diabetes e hipertensão"
+      },
+      {
+        "id": "c2",
+        "inicio": "-200d",
+        "duracao": "30m",
+        "motivo": "Retorno — glicemia e pressão"
+      }
+    ]
+  },
+  "diagnosticos": [
+    {
+      "cid": "E11.9",
+      "texto": "Diabetes mellitus tipo 2",
+      "principal": true,
+      "inicio": "-3650d",
+      "registro": "-420d"
+    },
+    {
+      "cid": "I10",
+      "texto": "Hipertensão arterial sistêmica",
+      "inicio": "-4300d",
+      "registro": "-420d"
+    }
+  ],
+  "alergias": [],
+  "prescricoes": [
+    {
+      "id": "metformina",
+      "med": "metformina",
+      "dose": "850 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00",
+        "20:00"
+      ],
+      "setor": "c1",
+      "inicio": "-1500d"
+    },
+    {
+      "id": "losartana",
+      "med": "losartana",
+      "dose": "50 mg",
+      "via": "VO",
+      "horarios": [
+        "08:00"
+      ],
+      "setor": "c1",
+      "inicio": "-1800d"
+    }
+  ],
+  "exames": [
+    {
+      "t": "-250d",
+      "hba1c": 8.9,
+      "glicose": 171,
+      "creatinina": 1.0,
+      "potassio": 4.4
+    }
+  ]
+}

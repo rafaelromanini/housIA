@@ -1,0 +1,77 @@
+{
+  "id": "cen6",
+  "tag": "cenario-6",
+  "titulo": "Cenário 6 — Consulta com IA: retorno de diabetes e hipertensão com tontura",
+  "esperado": "Durante a consulta (transcrita ao vivo) os Smart Apps mostram: queixas em tags (tontura ao levantar, suor frio e tremor, cansaço, dor no joelho); emoções (medo de insulina, preocupação da filha, alívio no fim); perguntas que ainda faltam (desmaio/queda, glicemia na hora dos sintomas); hipóteses (hipoglicemia por glibenclamida com TFG ~40, hipotensão ortostática/hiponatremia por hidroclorotiazida, piora renal por ibuprofeno + losartana + diurético); exames explicados em linguagem simples; alergia à penicilina e a camarão (relatada, não registrada); checagens para a cirurgia de catarata; ajuste de metformina pela função renal. No fim, nota SOAP com CID-10 sugeridos.",
+  "paciente": {
+    "nome": "Joana Ferreira Lima",
+    "sexo": "female",
+    "nascimento": "1966-03-12",
+    "cpf": "284.615.937-04",
+    "telefone": "(11) 98422-6130",
+    "endereco": "Rua dos Trilhos, 1120, apto 32, Mooca, São Paulo - SP"
+  },
+  "ambulatorio": {
+    "servico": "Ambulatório de Clínica Médica",
+    "sala": "Consultório 3",
+    "profissional": "Dra. Helena Prado",
+    "consultas": [
+      {"id": "c1", "inicio": "-364d1h", "duracao": "35m", "motivo": "Acompanhamento de diabetes e hipertensão"},
+      {"id": "c2", "inicio": "-182d2h", "duracao": "30m", "motivo": "Retorno — glicemia acima da meta"},
+      {"id": "c3", "inicio": "-91d1h", "duracao": "40m", "motivo": "Retorno — pressão alta e inchaço nos tornozelos"},
+      {"id": "hoje", "inicio": "-6m", "status": "arrived", "motivo": "Retorno trimestral: tontura e cansaço"}
+    ]
+  },
+  "diagnosticos": [
+    {"cid": "E11.9", "texto": "Diabetes mellitus tipo 2", "principal": true, "inicio": "-4015d", "registro": "-364d1h"},
+    {"cid": "I10", "texto": "Hipertensão arterial sistêmica", "inicio": "-5110d", "registro": "-364d1h"},
+    {"cid": "N18.3", "texto": "Doença renal crônica estágio 3", "inicio": "-420d", "registro": "-364d1h"},
+    {"cid": "E78.5", "texto": "Dislipidemia", "inicio": "-2920d", "registro": "-364d1h"},
+    {"cid": "E66.9", "texto": "Obesidade", "inicio": "-3650d", "registro": "-364d1h"},
+    {"cid": "M17.1", "texto": "Artrose de joelho (gonartrose)", "inicio": "-730d", "registro": "-182d2h"},
+    {"cid": "H25.9", "texto": "Catarata senil em olho direito", "inicio": "-95d", "registro": "-91d1h"}
+  ],
+  "alergias": [
+    {"classe": "penicilina", "texto": "Penicilinas (amoxicilina)", "reacao": "Urticária e inchaço nos lábios", "criticidade": "high"}
+  ],
+  "familiares": [
+    {"nome": "Fernanda Lima Duarte", "parentesco": "filha", "codigo": "DAU", "descricao": "filha (acompanha nas consultas)", "telefone": "(11) 97730-5521"}
+  ],
+  "social": {"moradores": 2},
+  "prescricoes": [
+    {"id": "metformina", "med": "metformina", "dose": "850 mg", "via": "VO", "horarios": ["08:00", "20:00"], "setor": "c1", "inicio": "-1800d"},
+    {"id": "glibenclamida", "med": "glibenclamida", "dose": "5 mg", "via": "VO", "horarios": ["07:00", "19:00"], "setor": "c2", "inicio": "-182d2h",
+     "observacao": "Associada por HbA1c 8,4%"},
+    {"id": "losartana", "med": "losartana", "dose": "50 mg", "via": "VO", "horarios": ["08:00"], "setor": "c1", "inicio": "-2000d"},
+    {"id": "anlodipino", "med": "anlodipino", "dose": "5 mg", "via": "VO", "horarios": ["08:00"], "setor": "c1", "inicio": "-1500d",
+     "fim": "-91d1h", "status": "stopped", "motivo": "Edema de tornozelos"},
+    {"id": "hidroclorotiazida", "med": "hidroclorotiazida", "dose": "25 mg", "via": "VO", "horarios": ["08:00"], "setor": "c3", "inicio": "-91d1h",
+     "substitui": "anlodipino"},
+    {"id": "sinvastatina", "med": "sinvastatina", "dose": "20 mg", "via": "VO", "horarios": ["20:00"], "setor": "c1", "inicio": "-2900d"}
+  ],
+  "sinais": [
+    {"t": "-364d1h", "pa": [146, 92], "fc": 78},
+    {"t": "-182d2h", "pa": [152, 94], "fc": 80},
+    {"t": "-91d1h", "pa": [158, 96], "fc": 76},
+    {"t": "-5m", "pa": [118, 72], "fc": 88, "glicemia": 64}
+  ],
+  "exames": [
+    {"t": "-370d", "hba1c": 7.4, "glicose": 142, "creatinina": 1.1, "potassio": 4.4, "sodio": 140, "ldl": 128, "colesterol_total": 214, "tsh": 3.4},
+    {"t": "-188d", "hba1c": 8.4, "glicose": 168, "creatinina": 1.3, "potassio": 4.6, "sodio": 139, "ldl": 112, "colesterol_total": 196, "tsh": 3.1},
+    {"t": "-10d", "hba1c": 7.1, "glicose": 118, "creatinina": 1.5, "potassio": 5.3, "sodio": 131, "ldl": 96, "hemoglobina": 11.6}
+  ],
+  "procedimentos": [
+    {"t": "-9500d", "texto": "Cesariana", "categoria": "cirurgia"},
+    {"t": "-3300d", "texto": "Colecistectomia videolaparoscópica", "categoria": "cirurgia"}
+  ],
+  "evolucoes": [
+    {"t": "-364d50m", "tipo": "medica", "autor": "Dra. Helena Prado (Clínica Médica)",
+     "texto": "Acompanhamento de DM2 e HAS. HbA1c 7,4%. PA 146/92. Mantidas metformina 850 mg 2x/dia, losartana 50 mg, anlodipino 5 mg e sinvastatina. Orientada dieta e caminhada."},
+    {"t": "-182d1h40m", "tipo": "medica", "autor": "Dra. Helena Prado (Clínica Médica)",
+     "texto": "Retorno. HbA1c 8,4% (subiu). Associada glibenclamida 5 mg 2x/dia. Creatinina 1,3. Queixa de dor no joelho direito ao subir escadas (artrose)."},
+    {"t": "-91d20m", "tipo": "medica", "autor": "Dra. Helena Prado (Clínica Médica)",
+     "texto": "Retorno. PA 158/96 mesmo com anlodipino, edema importante de tornozelos. Suspenso anlodipino; iniciada hidroclorotiazida 25 mg pela manhã. Mantidas metformina e glibenclamida. Avaliação oftalmológica: catarata em olho direito, cirurgia a programar. Solicitados exames de controle."},
+    {"t": "-4m", "tipo": "enfermagem", "autor": "Enf. Marcos Lima (Triagem)",
+     "texto": "Triagem: PA sentada 118/72; em pé, após 1 minuto, 98/64 com tontura. Glicemia capilar 64 mg/dL: refere que tomou a glibenclamida e não tomou café da manhã. Oferecido suco de laranja. Queixa de tontura há cerca de 3 semanas. Acompanhada da filha."}
+  ]
+}

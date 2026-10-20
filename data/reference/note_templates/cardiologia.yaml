@@ -1,0 +1,101 @@
+id: cardiologia
+versao: 1.0.0
+rotulo: Consulta de cardiologia
+titulo: Nota de consulta cardiológica
+tipo: consulta
+especialidades:
+- cardiologia
+automatico: true
+loinc:
+  codigo: 11488-4
+  display: Consult note
+fonte: Classificação funcional da New York Heart Association (NYHA)
+secoes:
+- key: queixa_principal
+  rotulo: Queixa principal
+  soap: S
+  obrigatoria: true
+  dica: Motivo do atendimento nas palavras do paciente.
+  loinc: 10154-3
+- key: hda
+  rotulo: História da doença atual
+  soap: S
+  obrigatoria: false
+  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
+  loinc: 10164-2
+- key: antecedentes
+  rotulo: Antecedentes
+  soap: S
+  obrigatoria: false
+  dica: Doenças prévias, cirurgias e história familiar.
+  loinc: 11348-0
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: classe_nyha
+  rotulo: Classe funcional (NYHA)
+  soap: S
+  obrigatoria: true
+  dica: Classe I a IV pela limitação aos esforços; o texto abaixo traz o relato para classificar.
+  palavras:
+  - nyha
+  - falta de ar
+  - cansaco
+  - 'cansa '
+  - subir escada
+  - subir ladeira
+  - dispneia
+  - ortopneia
+  - deitado
+  prefixo: 'Relato a classificar: '
+- key: pa_fc
+  rotulo: Pressão arterial e frequência cardíaca
+  soap: O
+  obrigatoria: false
+  dica: Aferições do prontuário.
+  loinc: 8716-3
+  padrao: '{{pa}}; {{fc}}'
+- key: exame_fisico
+  rotulo: Exame físico
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi medido ou verbalizado.
+  loinc: 29545-1
+- key: ecg_eco
+  rotulo: ECG e ecocardiograma
+  soap: O
+  obrigatoria: false
+  dica: Laudos ou achados citados na consulta.
+  palavras:
+  - ecg
+  - eletrocardiograma
+  - ecocardiograma
+  - 'eco '
+  - fracao de ejecao
+- key: exames_complementares
+  rotulo: Exames complementares
+  soap: O
+  obrigatoria: false
+  dica: Resultados relevantes, com data.
+  loinc: 30954-2
+- key: avaliacao
+  rotulo: Avaliação
+  soap: A
+  obrigatoria: true
+  dica: Raciocínio clínico e hipóteses, com CID-10.
+  loinc: 51848-0
+- key: plano
+  rotulo: Plano
+  soap: P
+  obrigatoria: false
+  dica: Condutas combinadas; o que não foi combinado fica como "a confirmar".
+  loinc: 18776-5
