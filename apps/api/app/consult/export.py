@@ -39,9 +39,12 @@ def note_as_text(
     language: str,
     orders: list | None = None,
     interpretacao: str | None = None,
+    selo: str | None = None,
 ) -> str:
     title = (note.get("modelo") or {}).get("titulo") or KIND_TITLE.get(kind, "Nota clínica")
     lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}"]
+    if selo:
+        lines.append(selo)  # ex.: "Profissional verificado: CRM 123456/SP" (conselho conferido pelo admin, #33)
     if interpretacao:
         lines.append(interpretacao)  # ex.: "Consulta com interpretação por IA (es→pt-BR)"
     lines.append("")
@@ -94,6 +97,16 @@ def note_as_text(
         lines += [f"- {order_line(o)}" for o in orders]
     lines += ["", "Documento gerado com apoio de IA (HousIA) e revisado pelo profissional responsável."]
     return "\n".join(lines)
+
+
+def selo_profissional(user) -> str | None:
+    """Selo "verificado" só com o conselho conferido pelo administrador; sem isso, o número sai como informado."""
+    if not (user.conselho and user.conselho_numero and user.uf):
+        return None
+    registro = f"{user.conselho} {user.conselho_numero}/{user.uf}"
+    if user.conselho_verificado:
+        return f"Profissional verificado: {registro}"
+    return f"Registro informado, ainda não verificado: {registro}"
 
 
 def order_line(o) -> str:

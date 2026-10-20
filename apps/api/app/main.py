@@ -13,7 +13,11 @@ from app.auth.router import seed_demo_users
 from app.config import get_settings
 from app.consult import privacidade
 from app.consult.router import router as consult_router
-from app.db import crypto, rekey
+from app.db import (
+    crypto,
+    rekey,
+    tenancy,  # noqa: F401  (registra o filtro por organização na sessão)
+)
 from app.db import session as db_session
 from app.db.session import Base
 from app.discharge.router import router as discharge_router
@@ -23,6 +27,8 @@ from app.gestao.router import router as gestao_router
 from app.handoff.router import router as handoff_router
 from app.journey.router import router as journey_router
 from app.medrec.router import router as medrec_router
+from app.orgs.public import router as public_router
+from app.orgs.router import router as orgs_router
 from app.patients.router import router as patients_router
 from app.prontidao import exigir_producao_segura
 
@@ -105,6 +111,8 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router)
     app.include_router(consult_router)
     app.include_router(journey_router)
+    app.include_router(orgs_router)
+    app.include_router(public_router)
     return app
 
 

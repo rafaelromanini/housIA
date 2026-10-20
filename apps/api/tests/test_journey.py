@@ -494,7 +494,7 @@ def test_alembic_chain_has_single_head_with_journey_tables(tmp_path, monkeypatch
     cfg = Config(str(root / "alembic.ini"))
     cfg.set_main_option("script_location", str(root / "app/db/migrations"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["c201"]  # #21 encadeada sobre d402 (#31)
+    assert script.get_heads() == ["e331"]  # #33 encadeada sobre c201 (#21), que veio sobre d402 (#31)
     assert {"d201", "d402"} <= {r.revision for r in script.walk_revisions()}
     url = f"sqlite:///{tmp_path / 'm.db'}"
     from app.config import get_settings
@@ -502,7 +502,7 @@ def test_alembic_chain_has_single_head_with_journey_tables(tmp_path, monkeypatch
     monkeypatch.setattr(get_settings(), "database_url", url)
     command.upgrade(cfg, "head")
     tables = inspect(create_engine(url)).get_table_names()
-    assert {"journey_contacts", "journey_tasks", "consultations"} <= set(tables)
+    assert {"journey_contacts", "journey_tasks", "consultations", "organizations", "auth_tokens"} <= set(tables)
 
 
 # ======================= entradas adversariais (verificação independente) =======================

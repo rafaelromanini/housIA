@@ -46,6 +46,7 @@ from app.consult.export import (
     document_reference,
     note_as_text,
     procedure_resource,
+    selo_profissional,
     transaction_bundle,
 )
 from app.consult.export import urn as export_urn
@@ -1844,7 +1845,15 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     note = reidentify(_nota(c), record)  # o prontuário recebe os nomes, não os tokens enviados à IA
     interp = _interpretacao(c)
     text = note_as_text(
-        c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c), interpretacao=interp
+        c.kind,
+        record.name,
+        author,
+        _local(now),
+        note,
+        c.patient_language,
+        _signed_orders(c),
+        interpretacao=interp,
+        selo=selo_profissional(user),
     )
     doc = document_reference(
         interpretacao=interp,

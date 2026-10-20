@@ -1,6 +1,17 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    TypeDecorator,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,6 +51,23 @@ def utcnow() -> datetime:
     return clock.now()
 
 
+class Organization(Base):
+    """Organização (tenant): consultório ou hospital. Todo dado clínico do HousIA pertence a uma (#33)."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nome: Mapped[str] = mapped_column(String(160))
+    tipo: Mapped[str] = mapped_column(String(20), default="hospital")  # consultorio | hospital
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class Tenant:
+    """Mistura das tabelas com dono: a sessão filtra por `organization_id` e preenche ao gravar (app/db/tenancy.py)."""
+
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -49,9 +77,32 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(20))  # medico | enfermagem | gestor
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+    conselho: Mapped[str | None] = mapped_column(String(10), nullable=True)  # CRM | COREN | ...
+    conselho_numero: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    uf: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    email_verificado: Mapped[bool] = mapped_column(Boolean, default=False)
+    conselho_verificado: Mapped[bool] = mapped_column(Boolean, default=False)  # conferido manualmente pelo admin
 
 
-class HandoffReport(Base):
+class AuthToken(Base):
+    """Token de uso único por e-mail: verificação de cadastro, recuperação de senha e convite de equipe."""
+
+    __tablename__ = "auth_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(10), index=True)  # verify | reset | invite
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # sha256 do token enviado
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)  # convite: e-mail do convidado
+    role: Mapped[str | None] = mapped_column(String(20), nullable=True)  # convite: papel escolhido
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class HandoffReport(Tenant, Base):
     __tablename__ = "handoff_reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -69,7 +120,7 @@ class HandoffReport(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
-class Alert(Base):
+class Alert(Tenant, Base):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -85,7 +136,7 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
-class DischargeAssessment(Base):
+class DischargeAssessment(Tenant, Base):
     __tablename__ = "discharge_assessments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -103,7 +154,7 @@ class DischargeAssessment(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
-class DischargeOverride(Base):
+class DischargeOverride(Tenant, Base):
     __tablename__ = "discharge_overrides"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -113,7 +164,7 @@ class DischargeOverride(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
-class MedrecRun(Base):
+class MedrecRun(Tenant, Base):
     __tablename__ = "medrec_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -125,7 +176,7 @@ class MedrecRun(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
-class AuditLog(Base):
+class AuditLog(Tenant, Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -137,7 +188,7 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
 
 
-class AIFeedback(Base):
+class AIFeedback(Tenant, Base):
     """Avaliação "útil / não útil" de uma saída da IA (medida de qualidade para o piloto)."""
 
     __tablename__ = "ai_feedback"
@@ -153,7 +204,7 @@ class AIFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
-class DischargeDocument(Base):
+class DischargeDocument(Tenant, Base):
     """Sumário de alta (SOAP) e orientações ao paciente/cuidador gerados para uma avaliação de alta."""
 
     __tablename__ = "discharge_documents"
@@ -169,7 +220,7 @@ class DischargeDocument(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
-class Consultation(Base):
+class Consultation(Tenant, Base):
     """Consulta assistida por IA: transcrição, Smart Apps, nota revisada e envio ao prontuário.
 
     Só texto: o áudio nunca é gravado. A transcrição fica no banco do HousIA (não vai para o audit_log).
@@ -200,7 +251,7 @@ class Consultation(Base):
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
-class JourneyContact(Base):
+class JourneyContact(Tenant, Base):
     """Contato pós-alta feito pela equipe (ligação, visita ou retorno de mensagem): roteiro respondido e desfecho.
 
     O HousIA não envia SMS/WhatsApp: registra o que a equipe fez. O texto livre e as respostas ficam aqui; o
@@ -224,7 +275,7 @@ class JourneyContact(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
 
 
-class JourneyTask(Base):
+class JourneyTask(Tenant, Base):
     """Tarefa de acompanhamento criada a partir de um item da lista da jornada (espelhada como FHIR Task)."""
 
     __tablename__ = "journey_tasks"
@@ -246,7 +297,7 @@ class JourneyTask(Base):
     closing_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class ImpactBaseline(Base):
+class ImpactBaseline(Tenant, Base):
     """Linha de base por setor ("tempo médio de documentação antes do HousIA"), informada pela gestão.
 
     Histórico só de acréscimo: vale a linha mais recente de cada setor; as anteriores ficam para auditoria.
