@@ -2,8 +2,7 @@
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-const TOKEN_KEY = "housia.token";
-const USER_KEY = "housia.user";
+const CSRF_COOKIE = "housia_csrf";
 
 export type Role = "medico" | "enfermagem" | "gestor";
 export type Severity = "info" | "atencao" | "critico";
@@ -105,53 +104,33 @@ export class ApiError extends Error {
   }
 }
 
-export function getToken(): string | null {
-  try {
-    return window.localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+/** Token CSRF (double submit): o cookie de sessão é httpOnly e o JS nunca o lê; só este cookie é legível. */
+export function csrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const hit = document.cookie.split("; ").find((c) => c.startsWith(`${CSRF_COOKIE}=`));
+  return hit ? decodeURIComponent(hit.slice(CSRF_COOKIE.length + 1)) : null;
 }
 
-export function getStoredUser(): User | null {
+/** Encerra a sessão: o servidor apaga os cookies. */
+export async function endSession(): Promise<void> {
   try {
-    const raw = window.localStorage.getItem(USER_KEY);
-    return raw ? (JSON.parse(raw) as User) : null;
+    await fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" });
   } catch {
-    return null;
-  }
-}
-
-export function storeSession(token: string, user: User) {
-  try {
-    window.localStorage.setItem(TOKEN_KEY, token);
-    window.localStorage.setItem(USER_KEY, JSON.stringify(user));
-  } catch {
-    /* armazenamento indisponível: sessão só em memória */
-  }
-}
-
-export function clearSession() {
-  try {
-    window.localStorage.removeItem(TOKEN_KEY);
-    window.localStorage.removeItem(USER_KEY);
-  } catch {
-    /* noop */
+    /* sem rede: o cookie expira sozinho */
   }
 }
 
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const csrf = csrfToken();
+  if (csrf && !["GET", "HEAD", "OPTIONS"].includes((init.method ?? "GET").toUpperCase())) headers.set("X-CSRF-Token", csrf);
   let body = init.body;
   if (init.json !== undefined) {
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers, body });
-  if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/login")) {
-    clearSession();
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers, body, credentials: "include" });
+  if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/")) {
     window.location.href = "/login";
   }
   const text = await res.text();
@@ -509,12 +488,9 @@ export interface GestaoSummary {
   aviso: string;
 }
 
-/** Baixa um arquivo da API (com o token) e o entrega ao navegador. */
+/** Baixa um arquivo da API (com o cookie de sessão) e o entrega ao navegador. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
-  const headers = new Headers();
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${API_URL}${path}`, { headers });
+  const res = await fetch(`${API_URL}${path}`, { credentials: "include" });
   if (!res.ok) throw new ApiError(res.status, "Não foi possível exportar.");
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
@@ -1396,6 +1372,21 @@ export interface PrivacyPanel {
   exclusao: string;
 }
 
+export interface AmbienteItem {
+  id: string;
+  titulo: string;
+  estado: "ok" | "atencao" | "info";
+  texto: string;
+}
+export interface Ambiente {
+  env: "development" | "production";
+  producao: boolean;
+  llm_mode: "real" | "mock";
+  llm: { provedor: string | null; modelo: string | null; regiao: string | null };
+  fhir_mode: string;
+  checklist: AmbienteItem[];
+}
+
 export interface ConsultConfig {
   aviso_consentimento: Record<string, string>;
   finalidades: { value: keyof ConsentPurposes; label: string }[];
@@ -1404,6 +1395,7 @@ export interface ConsultConfig {
   /** false (ALLOW_BROWSER_STT): o áudio não vai ao fabricante do navegador e o modo Microfone some */
   stt_navegador: boolean;
   privacidade: PrivacyPanel;
+  ambiente: Ambiente;
   envio_prontuario: boolean;
   idiomas: { value: string; label: string; web_speech: string; whisper: string }[];
   especialidades: { value: string; label: string; foco: string; cirurgica: boolean }[];

@@ -24,6 +24,7 @@ from app.handoff.router import router as handoff_router
 from app.journey.router import router as journey_router
 from app.medrec.router import router as medrec_router
 from app.patients.router import router as patients_router
+from app.prontidao import exigir_producao_segura
 
 logger = logging.getLogger("housia")
 
@@ -31,6 +32,7 @@ logger = logging.getLogger("housia")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    exigir_producao_segura(settings)
     # Em produção o schema vem do Alembic (`alembic upgrade head` no entrypoint);
     # create_all só cobre o modo local/SQLite e é idempotente.
     if settings.database_url.startswith("sqlite"):
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    exigir_producao_segura(settings)
     app = FastAPI(
         title="HousIA API",
         version="0.1.0",
@@ -88,6 +91,7 @@ def create_app() -> FastAPI:
             "fhir": fhir_ok,
             "fhir_mode": settings.fhir_mode,
             "llm_mode": settings.llm_mode,
+            "env": settings.env,
         }
 
     app.include_router(auth_router)

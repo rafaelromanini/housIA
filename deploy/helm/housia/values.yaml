@@ -1,0 +1,45 @@
+# Valores padrão do chart. Tudo que é segredo é obrigatório e NÃO tem padrão (o chart recusa renderizar sem eles).
+# Espelha o docker-compose.prod.yml: só o Ingress é exposto; HAPI e Postgres são ClusterIP.
+
+domain: ""                  # obrigatório: nome do site (ex.: housia.hospital.example)
+
+images:
+  api: housia-api:0.1.0     # construa com apps/api/Dockerfile e publique no registro do hospital
+  web: housia-web:0.1.0     # construa com apps/web/Dockerfile (--build-arg NEXT_PUBLIC_API_URL=https://<domain>/api)
+  fhir: hapiproject/hapi:v8.12.0-1
+  postgres: postgres:16-alpine
+
+secrets:
+  jwtSecret: ""             # obrigatório, mínimo 32 caracteres
+  postgresPassword: ""      # obrigatório
+  anthropicApiKey: ""       # só com llm.mode=real
+  existingSecret: ""        # alternativa: nome de um Secret existente com as chaves jwt-secret, postgres-password e anthropic-api-key
+
+llm:
+  mode: real                # real | mock
+  allowMock: false          # mock em produção só com aceite explícito
+  model: claude-opus-5-5
+  region: ""                # exibida na tela Ambiente
+
+ehrWriteback: false
+
+fhir:
+  # Em produção aponte para o FHIR do hospital e use fhir.internal=false para não subir o HAPI do chart.
+  internal: true
+  baseUrl: ""               # usado quando fhir.internal=false
+
+ingress:
+  enabled: true
+  className: ""
+  tlsSecretName: housia-tls # Secret TLS do hospital ou emitido pelo cert-manager (annotations abaixo)
+  annotations: {}
+
+postgres:
+  storage: 10Gi
+  storageClassName: ""
+
+resources:
+  api: {}
+  web: {}
+  fhir: {}
+  postgres: {}

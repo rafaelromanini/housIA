@@ -1,0 +1,6 @@
+apiVersion: v2
+name: housia
+description: HousIA (API, web, HAPI FHIR e Postgres) derivado do docker-compose.prod.yml
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

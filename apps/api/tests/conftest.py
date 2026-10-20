@@ -63,6 +63,7 @@ def login(client: TestClient, role: str = "medico") -> dict:
     email = {"medico": "medico@housia.dev", "enfermagem": "enfermeira@housia.dev", "gestor": "gestor@housia.dev"}[role]
     r = client.post("/auth/login", json={"email": email, "password": "housia123"})
     assert r.status_code == 200, r.text
+    client.cookies.clear()  # os testes autenticam por Bearer; o cookie de sessão tem testes próprios (test_prontidao)
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
