@@ -96,26 +96,28 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 
 ## O que falta, na ordem
 
-Feito e verificado nesta sessão (tudo no branch, head 900b5df): Onda 1 inteira (#7+#8, #10), Onda 2 frente B (#20,
-#36+#37, migração d101) e frente A #2+#13, #3 (migração d201), #14+#15, #16 (prompt consult_note 1.5.0). e2e: 9/9
-verdes depois do #10; ainda não rodados depois de #2+#13, #3, #14+#15, #16 (specs editadas).
+Feito e verificado (head 2a9f4bd): #22 (tradução, verificado com esforço alto e juntado), e2e 12/12 depois de
+#2+#13, #3, #14+#15, #16 (spec atualizada; corrigidos transcrição duplicada em note-review.tsx e formulário de início
+antes da checagem de consulta em andamento em consult-page.tsx), #31 (privacidade: AES-GCM em repouso, expurgo,
+exclusão pelo titular, rekey; migrações d401 e d402; verificado com esforço alto). O pytest completo sobre 2a9f4bd
+(após o merge do #31) não teve o resumo capturado: rode-o primeiro. e2e ainda não rodados depois do #22 e do #31.
 
-1. **#22 (tradução):** implementado mas NÃO verificado nem juntado. Está em `docs/paridade-lya/wip/`:
-   `22-implementacao.patch` (commit 4251908, base f039757; aplicar com `git am`) e `22-verificacao-parcial.patch`
-   (correções em andamento do verificador: engine, fidelidade, idiomas, text, allergy_cross.csv e
-   test_consult_traducao_adversarial.py; aplicar com `git apply`). Rodar a verificação cética (esforço alto), juntar
-   com o head (conflitos esperados em service.py, router.py, live-consult.tsx) e apagar a pasta wip.
-2. **Subir a stack, recarregar o seed (esperar o seed do `up` terminar antes do `run --rm seed`) e rodar os e2e.**
-3. **Onda 3.** Frente A: #21 (Smart Apps como plug-ins; não começado), #27, #28, #17, #18, #29. Frente B: #31, #32,
-   #33, #34, #35. Prefixos de migração livres: c2 (A) e d4 (B).
-4. **Onda 4:** #11, #12, depois P1 (#38 a #54) e P2 (#55 a #57).
-5. **Pitch:** refazer o vídeo (#0) com a Consulta com IA como foco: transcrição ao vivo, pergunta sugerida saindo da
+1. **Confirmar pytest em 2a9f4bd e rodar os e2e** (stack: `scripts/sandbox-stack.sh up -d --build`).
+2. **#21 (Smart Apps como plug-ins, frente A, migração c2):** implementação parcial NÃO verificada em
+   `docs/paridade-lya/wip/21-implementacao-parcial.patch` (diff sobre 60780b6, 41 arquivos; aplicar com
+   `git apply --3way`). Terminar, verificar (esforço médio) e juntar.
+3. **#32 (frente B):** implementação parcial NÃO verificada em `docs/paridade-lya/wip/32-implementacao-parcial.patch`
+   (diff sobre 9fc3504 = conteúdo de 2a9f4bd na frente B; migrações d403+). Terminar, verificar e juntar. Apagar a pasta
+   wip no fim.
+4. **Resto da Onda 3.** Frente A: #27, #28, #17, #18, #29 (c2). Frente B: #33, #34, #35 (d4).
+5. **Onda 4:** #11, #12, depois P1 (#38 a #54) e P2 (#55 a #57).
+6. **Pitch:** refazer o vídeo (#0) com a Consulta com IA como foco: transcrição ao vivo, pergunta sugerida saindo da
    lista, alerta crítico com chip "fala N", revisão com atestação, nota indo ao FHIR, ponte com passagem e alta.
    Scripts em `brag-output/scripts/` (`capture-consult.mjs`). Atualizar também `brag-output/share-copy.txt`,
    `login-form.tsx`, a `description` em `app/layout.tsx` e o topo do README.
-6. **Se sobrar tempo:** polir o front.
+7. **Se sobrar tempo:** polir o front.
 
-Pendências conhecidas (não bloqueiam): ligação Charlson/LACE com a alta (#7); "tem alergia a dipirona?" devolve a lista
+Pendências conhecidas (não bloqueiam): AAD do AES-GCM não amarra linha/coluna (#31); sem DATA_ENCRYPTION_KEY os dados ficam em JSON puro (#31); ligação Charlson/LACE com a alta (#7); "tem alergia a dipirona?" devolve a lista
 inteira (#20); a pausa não bloqueia insights/copiloto e a revogação não apaga análise já guardada (#13, decidir);
 reenvio após falha parcial do FHIR pode duplicar DocumentReference (#14); "Sem registro…" no início conta como seção
 vazia (#16); validador do resumo do gestor não confere número × indicador (#37); avisos de consentimento em 9 idiomas
