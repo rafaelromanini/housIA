@@ -1064,6 +1064,8 @@ class Engine:
         known = {norm(a.alergeno) for a in out}
         for s in self.patient_segments:
             for clause in self.norm[s.n].split("."):
+                # "alergia a penicilina, não" (vírgula posta pela transcrição) é o mesmo que "alergia a penicilina não"
+                clause = re.sub(r",\s*nao\s*$", " nao", clause.strip())
                 # "não tenho alergia a dipirona", "alergia a dipirona não", "tem alergia a algum remédio" (pergunta)
                 if keyword_status(clause, ("alergi", "allergi"), skip_questions=True) != "presente":
                     continue

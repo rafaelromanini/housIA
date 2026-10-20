@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.consult import ai as consult_ai
 from app.consult import fidelidade, idiomas
 from tests.test_consult import start
 from tests.test_consult_traducao import falas, tag
@@ -47,6 +48,11 @@ def test_negation_and_portuguese_no(client, auth, texto, idioma, status):
         ("Mi madre es alérgica a la penicilina.", "es", False),  # alergia de parente não é do paciente
         ("My mother is allergic to penicillin.", "en", False),
         ("Ela sente dor, e eu tenho alergia a dipirona.", "es", True),  # português sob chip errado
+        # a transcrição põe vírgula antes do "não" solto: continua sendo negativa (es, en e pt)
+        ("Alergia a la penicilina, no.", "es", False),
+        ("Allergy to penicillin, no.", "en", False),
+        ("Alergia a penicilina, não.", "pt-BR", False),
+        ("Alergia a la penicilina, sí, me da urticaria.", "es", True),
     ],
 )
 def test_allergy_said_in_another_language_reaches_the_allergy_rule(client, auth, texto, idioma, esperado):
@@ -97,3 +103,50 @@ def test_fidelity_adversarial(original, traducao, diverge):
 def test_portuguese_markers_disable_the_negation_swap():
     assert idiomas.texto_para_regras("Sinto dor no peito", "es") == "Sinto dor no peito"
     assert "nao" in idiomas.texto_para_regras("No me duele el pecho", "es")
+
+
+@pytest.mark.parametrize(
+    ("original", "de", "traducao", "para", "diverge"),
+    [
+        # a negação trocada inverte a alergia ou o sintoma sem mudar número nem remédio
+        ("No soy alérgica a la penicilina", "es", "Sou alérgica à penicilina", "pt-BR", True),
+        ("No soy alérgica a la penicilina", "es", "Não sou alérgica à penicilina", "pt-BR", False),
+        ("Sí, me duele", "es", "Não, dói", "pt-BR", True),
+        ("I don't have allergies", "en", "Tenho alergias", "pt-BR", True),
+        ("I don’t have allergies", "en", "Não tenho alergias", "pt-BR", False),  # apóstrofo tipográfico
+        ("O paciente não tem alergia", "pt-BR", "El paciente tiene alergia", "es", True),  # fala do médico, pt → es
+        ("Sin alergias conocidas", "es", "Sem alergias conhecidas", "pt-BR", False),
+        # "no" é "em o" em português: não é negação
+        ("Dói no peito", "pt-BR", "Me duele en el pecho", "es", False),
+        ("Me duele en el pecho", "es", "Dói no peito", "pt-BR", False),
+        ("Aucune allergie", "fr", "Sem alergia", "pt-BR", False),  # idioma sem lista de negações: não confere
+        # metade de uma dose e AAS (nome curto)
+        ("Tomo media pastilla de 50 mg", "es", "Tomo uma pastilha de 50 mg", "pt-BR", True),
+        ("Tomo media pastilla de 50 mg", "es", "Tomo meio comprimido de 50 mg", "pt-BR", False),
+        ("Dolor en medio del pecho", "es", "Dor no meio do peito", "pt-BR", False),
+        ("Tomo aspirina", "es", "Tomo AAS", "pt-BR", False),
+        ("I take 500 mg at 8 am", "en", "Tomo 500 mg às 8h", "pt-BR", False),
+    ],
+)
+def test_fidelity_negation_half_doses_and_short_names(original, de, traducao, para, diverge):
+    got = fidelidade.divergencias(original, traducao, de, para)
+    assert bool(got) == diverge, got
+
+
+def test_translation_that_flips_negation_raises_alert_and_rules_keep_the_original(client, auth, monkeypatch):
+    """Ponta a ponta: a tradução inverte "não sou alérgica"; há alerta e a alergia não é inventada pela tradução."""
+    h = auth("medico")
+    cid = start(client, h, "cen8")["id"]
+    falas(
+        client, h, cid, [{"falante": "paciente", "texto": "No soy alérgica a la penicilina.", "t": 1, "idioma": "es"}]
+    )
+    monkeypatch.setattr(
+        consult_ai,
+        "run_translation",
+        lambda segments, targets, pseudo: {n: "Sou alérgica à penicilina." for n in targets},
+    )
+    out = client.post(f"/consultations/{cid}/translate", json={}, headers=h)
+    assert out.status_code == 200, out.text
+    ins = out.json()["insights"]
+    assert [a for a in ins["alertas"] if a["categoria"] == "traducao" and "negação" in a["texto"]]
+    assert not [a for a in ins["alergias"] if a["fonte"] == "relatado"]

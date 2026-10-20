@@ -1231,7 +1231,9 @@ def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int]
             s.traducao = done[s.n]
             # números, doses e medicamentos conferidos por regra entre a fala e a tradução (não depende do LLM)
             s.traducao_divergente = (
-                [] if idiomas.placeholder(s.traducao) else fidelidade.divergencias(s.texto, s.traducao)
+                []
+                if idiomas.placeholder(s.traducao)
+                else fidelidade.divergencias(s.texto, s.traducao, s.idioma, targets[s.n])
             )
     c.segments_json = [s.model_dump() for s in segments]
     # com a tradução, as regras passam a ler a fala estrangeira pela tradução (Fala/N preservada)

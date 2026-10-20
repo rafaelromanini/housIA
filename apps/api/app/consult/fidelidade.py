@@ -10,7 +10,7 @@ from functools import lru_cache
 from app.consult.text import norm
 from app.reference import drugs
 
-UNIDADES = r"mg|mcg|ug|g|kg|ml|l|ui|u|meq|mmol|mmhg|bpm|%|graus|c|x"
+UNIDADES = r"mg|mcg|ug|g|kg|ml|l|ui|u|meq|mmol|mmhg|bpm|%|graus|c|x|h"
 NUMERO = re.compile(rf"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*({UNIDADES})?(?![a-z0-9])", re.IGNORECASE)
 
 
@@ -28,6 +28,16 @@ _EXTENSO_RE = re.compile(r"(?<!\w)(" + "|".join(_EXTENSO) + r")(?!\w)")
 _DOS = re.compile(r"(?<!\w)dos(?= (dias|horas|semanas|meses|anos|veces|pastillas|comprimidos|tabletas|gotas|dosis))")
 
 
+# "media pastilla", "meio comprimido", "half a tablet", "1/2 comprimido": metade de uma dose é 0,5 (só diante de palavra
+# de dose: "en medio del pecho" / "no meio do peito" não é metade)
+_DOSE = (
+    r"(?:pastillas?|tabletas?|comprimidos?|pastilhas?|pilulas?|pills?|tablets?|capsulas?|dosis|doses?"
+    r"|ampollas?|ampolas?)"
+)
+_METADE = re.compile(rf"(?<!\w)(?:media|medio|meia|meio|half(?: an?| of an?)?|1/2) (?={_DOSE}(?!\w))")
+_QUARTO = re.compile(rf"(?<!\w)(?:1/4|un cuarto de|um quarto de|a quarter of an?|quarter) (?={_DOSE}(?!\w))")
+
+
 def _valor(txt: str) -> str:
     # "1.000 mg" (pt/es) e "1,000 mg" (en) são mil, não um: separador de milhar = 1 a 3 dígitos (sem zero à frente) + 3
     if re.fullmatch(r"[1-9]\d{0,2}[.,]\d{3}", txt):
@@ -35,19 +45,21 @@ def _valor(txt: str) -> str:
     v = txt.replace(",", ".")
     if "." in v:
         v = v.rstrip("0").rstrip(".")
-    return v.lstrip("0") or "0"
+    v = v.lstrip("0") or "0"
+    return "0" + v if v.startswith(".") else v
 
 
 def numeros(texto: str) -> set[tuple[str, str]]:
     """Pares (valor, unidade) da fala; unidade vazia quando o número vem solto."""
-    t = _EXTENSO_RE.sub(lambda m: _EXTENSO[m.group(1)], _DOS.sub("2", norm(texto)))
+    t = _QUARTO.sub("0.25 ", _METADE.sub("0.5 ", norm(texto)))
+    t = _EXTENSO_RE.sub(lambda m: _EXTENSO[m.group(1)], _DOS.sub("2", t))
     return {(_valor(m.group(1)), (m.group(2) or "").lower()) for m in NUMERO.finditer(t)}
 
 
 # nomes em inglês (ou grafias do espanhol) que não são o radical do nome em português do drugs.csv
 _ALIAS = {
     "warfarin": "varfarina", "warfarina": "varfarina", "acetaminophen": "paracetamol", "acetaminofen": "paracetamol",
-    "aspirin": "aas", "dipyrone": "dipirona", "metamizol": "dipirona", "morphine": "morfina",
+    "aspirin": "aas", "aas": "aas", "dipyrone": "dipirona", "metamizol": "dipirona", "morphine": "morfina",
     "simvastatin": "sinvastatina", "levothyroxine": "levotiroxina", "dexamethasone": "dexametasona",
     "amoxicillin": "amoxicilina", "ampicillin": "ampicilina", "furosemide": "furosemida",
     "spironolactone": "espironolactona", "hydrochlorothiazide": "hidroclorotiazida", "atorvastatin": "atorvastatina",
@@ -89,8 +101,26 @@ def periodos(texto: str) -> set[str]:
     return {k for k, rx in _PERIODOS_RE.items() if rx.search(t)}
 
 
-def divergencias(original: str, traducao: str) -> list[str]:
-    """Descrições das diferenças entre a fala e a tradução (lista vazia: a tradução é fiel nesses pontos)."""
+# negação: "No soy alérgica" → "Sou alérgica" inverte a alergia sem mudar número nem remédio.
+# Só pt, es e en têm lista (em português "no" é "em o", por isso fica fora dela); outro idioma não é conferido.
+_NEGACAO = {
+    "pt": r"nao|nunca|jamais|sem|nenhum|nenhuma|nem|nada|tampouco",
+    "es": r"no|nunca|jamas|sin|ningun|ninguno|ninguna|ni|nada|tampoco",
+    "en": r"no|not|never|without|none|nor|neither|nothing",
+}
+_NEGACAO_RE = {k: re.compile(rf"(?<!\w)(?:{v})(?!\w)|n't(?!\w)") for k, v in _NEGACAO.items()}
+
+
+def tem_negacao(texto: str, idioma: str) -> bool | None:
+    """True/False se a fala nega algo; None quando o idioma não tem lista de negações."""
+    rx = _NEGACAO_RE.get(idioma.split("-")[0].lower())
+    return None if rx is None else bool(rx.search(norm(texto.replace("’", "'"))))
+
+
+def divergencias(original: str, traducao: str, de: str | None = None, para: str | None = None) -> list[str]:
+    """Descrições das diferenças entre a fala e a tradução (lista vazia: a tradução é fiel nesses pontos).
+
+    `de` e `para` são os idiomas da fala e da tradução; sem eles (ou fora de pt/es/en) a negação não é conferida."""
     out: list[str] = []
     a, b = numeros(original), numeros(traducao)
     va, vb = {v for v, _ in a}, {v for v, _ in b}
@@ -106,6 +136,13 @@ def divergencias(original: str, traducao: str) -> list[str]:
     da, db = medicamentos(original), medicamentos(traducao)
     if da != db:
         out.append("medicamentos diferentes entre original e tradução: " + ", ".join(sorted(da ^ db)))
+    if de and para:
+        na, nb = tem_negacao(original, de), tem_negacao(traducao, para)
+        if na is not None and nb is not None and na != nb:
+            out.append(
+                "negação diferente: "
+                + ("o original nega e a tradução afirma" if na else "o original afirma e a tradução nega")
+            )
     pa, pb = periodos(original), periodos(traducao)
     if pa != pb:
         out.append("período ou frequência diferente (dia, semana, mês, hora, noite): " + ", ".join(sorted(pa ^ pb)))
