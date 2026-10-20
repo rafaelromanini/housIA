@@ -95,7 +95,7 @@ def test_get_note_templates_lista_e_marca_o_sugerido(client, auth):
 def test_consulta_de_pediatria_gera_peso_vacinas_e_dnpm(client, auth):
     h = auth("medico")
     nota = finish(client, h, pid="cen4b", especialidade="pediatria")["nota"]
-    assert nota["modelo"]["id"] == "pediatria" and nota["modelo"]["versao"] == "1.0.0"
+    assert nota["modelo"]["id"] == "pediatria" and nota["modelo"]["versao"] == "1.1.0"  # +seção de hidratação (#27)
     assert {"peso", "vacinas", "dnpm"} <= set(keys(nota))
     got = {s["key"]: s for s in nota["secoes"]}
     assert {"peso", "vacinas", "dnpm"} <= set(got)
