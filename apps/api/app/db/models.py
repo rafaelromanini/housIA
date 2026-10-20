@@ -188,11 +188,11 @@ class Consultation(Base):
     insights_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
     ai_meta_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
     insight_actions_json: Mapped[dict | None] = mapped_column(
-        JsonType, nullable=True
+        EncryptedJson(), nullable=True
     )  # decisões sobre cada insight (#3)
     note_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
     note_meta_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
-    extra_json: Mapped[dict] = mapped_column(JsonType, default=dict)
+    extra_json: Mapped[dict] = mapped_column(EncryptedJson(), default=dict)  # inclui cópias da nota e o copiloto
     fhir_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

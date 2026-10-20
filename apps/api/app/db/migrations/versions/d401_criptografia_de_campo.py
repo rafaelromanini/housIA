@@ -56,7 +56,9 @@ def _rewrite(transform) -> None:
 
 def upgrade() -> None:
     _convert(sa.Text(), "TEXT USING {col}::text")
-    if crypto.enabled():  # sem chave os dados seguem em JSON e são cifrados no próximo `alembic upgrade` com chave
+    if (
+        crypto.enabled()
+    ):  # sem chave os dados seguem em JSON; `python -m app.db.rekey` (e o startup da API) cifram depois
         _rewrite(lambda raw: None if crypto.is_encrypted(raw) else crypto.encrypt(json.loads(raw)))
 
 

@@ -63,13 +63,46 @@ def _cited(node, found: set[int]) -> None:
             _cited(v, found)
 
 
-def _scrub_quotes(node):
-    """Zera os trechos literais de fala que as ideias guardam (`trecho`)."""
+REDACTED = "[trecho expurgado]"
+_QUOTED = re.compile(r"“([^”]*)”")
+MIN_LITERAL = 12  # texto de fala menor que isso ("sim", "não sei") não é procurado solto, só entre aspas
+# extra_json guarda cópias da nota (a nota fica); o resto pode ter citações e perguntas sobre a conversa
+KEEP_IN_EXTRA = {"nota_original", "versoes_nota"}
+
+
+def _redact(s: str, texts: list[str]) -> str:
+    """Tira as citações literais de fala: “...” que abre uma fala (o motor corta e põe …) e a fala inteira."""
+
+    def quoted(m: re.Match) -> str:
+        inner = m.group(1).rstrip("…").strip()
+        return f"“{REDACTED}”" if inner and any(t.startswith(inner) for t in texts) else m.group(0)
+
+    s = _QUOTED.sub(quoted, s)
+    for t in texts:
+        if len(t) >= MIN_LITERAL and t in s:
+            s = s.replace(t, REDACTED)
+    return s
+
+
+def _scrub_quotes(node, texts: list[str]):
+    """Zera `trecho` e as citações de fala que as ideias, o resumo e os metadados guardam, em qualquer nível."""
+    if isinstance(node, str):
+        return _redact(node, texts)
     if isinstance(node, dict):
-        return {k: ("" if k == "trecho" and isinstance(v, str) else _scrub_quotes(v)) for k, v in node.items()}
+        return {k: ("" if k == "trecho" and isinstance(v, str) else _scrub_quotes(v, texts)) for k, v in node.items()}
     if isinstance(node, list):
-        return [_scrub_quotes(v) for v in node]
+        return [_scrub_quotes(v, texts) for v in node]
     return node
+
+
+def _scrub_extra(extra: dict, texts: list[str]) -> dict:
+    out = {k: (v if k in KEEP_IN_EXTRA else _scrub_quotes(v, texts)) for k, v in extra.items()}
+    cop = out.get("copiloto")
+    if isinstance(cop, dict):  # a pergunta é texto livre sobre a conversa; as respostas já passaram pelo scrub
+        out["copiloto"] = cop | {
+            "mensagens": [m | {"pergunta": ""} if isinstance(m, dict) else m for m in cop.get("mensagens", [])]
+        }
+    return out
 
 
 def _reference_date(c: Consultation):
@@ -84,6 +117,10 @@ def purge_consultation(db: Session, c: Consultation, days: int) -> None:
     _cited(c.note_json, cited)
     hashes: dict[str, str] = {}
     segments = []
+    texts: list[str] = []
+    for s in c.segments_json or []:
+        texts += [t.strip() for t in (s.get("texto"), s.get("texto_original"), s.get("traducao")) if t and t.strip()]
+    texts = sorted(set(texts), key=len, reverse=True)
     for s in c.segments_json or []:
         n = s.get("n")
         if n in cited and s.get("texto"):
@@ -99,11 +136,18 @@ def purge_consultation(db: Session, c: Consultation, days: int) -> None:
             }
         )
     c.segments_json = segments
-    c.insights_json = _scrub_quotes(c.insights_json) if c.insights_json else c.insights_json
+    c.insights_json = _scrub_quotes(c.insights_json, texts) if c.insights_json else c.insights_json
+    if c.note_meta_json:  # "fora" lista falas inteiras; o rascunho da IA espelha a nota, que fica
+        c.note_meta_json = {
+            k: v if k == "rascunho_ia" else _scrub_quotes(v, texts) for k, v in c.note_meta_json.items()
+        }
     meta = dict(c.ai_meta_json or {})
     meta.pop("saida", None)
-    c.ai_meta_json = meta or None
-    c.extra_json = (c.extra_json or {}) | {"expurgada_em": clock.now().isoformat(), "falas_hash": hashes}
+    c.ai_meta_json = _scrub_quotes(meta, texts) or None
+    c.extra_json = _scrub_extra(c.extra_json or {}, texts) | {
+        "expurgada_em": clock.now().isoformat(),
+        "falas_hash": hashes,
+    }
     log_action(
         db,
         None,
@@ -128,16 +172,21 @@ def run(db: Session) -> int:
         return 0
     now = clock.now()
     done = 0
-    for c in db.scalars(select(Consultation).where(Consultation.status.in_(["finalizada", "enviada"]))):
-        days = limits.get(c.kind)
-        ref = _reference_date(c)
-        if days is None or ref is None or (c.extra_json or {}).get("expurgada_em"):
-            continue
-        if now - ref >= timedelta(days=days):
-            purge_consultation(db, c, days)
-            done += 1
-    if done:
-        db.commit()
+    ids = list(db.scalars(select(Consultation.id).where(Consultation.status.in_(["finalizada", "enviada"]))))
+    for cid in ids:  # uma linha por vez: a que não decifra (chave errada, dado adulterado) não trava as outras
+        try:
+            c = db.get(Consultation, cid)
+            days = limits.get(c.kind)
+            ref = _reference_date(c)
+            if days is None or ref is None or (c.extra_json or {}).get("expurgada_em"):
+                continue
+            if now - ref >= timedelta(days=days):
+                purge_consultation(db, c, days)
+                db.commit()
+                done += 1
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            logger.error("Consulta %s não pôde ser expurgada (chave ausente/errada ou dado adulterado).", cid)
     return done
 
 
@@ -195,6 +244,8 @@ def panel(kind: str | None = None) -> dict:
         )
     else:
         ia = "Modo demonstração: só regras locais, nenhum texto sai do servidor."
+    if s.log_prompts:
+        ia += " LOG_PROMPTS ligado: o texto enviado à IA (pseudonimizado) vai ao log; o expurgo não o alcança."
     cripto = (
         f"Texto da consulta cifrado no banco (AES-GCM, chave {crypto.current_key_id()})."
         if crypto.enabled()

@@ -277,7 +277,7 @@ export function LiveConsult({
   // atalhos: Alt+1 profissional, Alt+2 paciente, Alt+3 acompanhante, Alt+0 detectar automaticamente;
   // no centro cirúrgico também Alt+4 anestesista, Alt+5 circulante e Alt+6 instrumentador
   useEffect(() => {
-    if (surgical) return;
+    if (surgical || !browserStt) return; // sem STT do navegador (ALLOW_BROWSER_STT=false) o atalho de voz não liga o microfone
     const down = (e: KeyboardEvent) => {
       if (e.altKey && (e.code === "KeyQ" || e.key.toLowerCase() === "q") && !e.repeat) {
         e.preventDefault();
@@ -293,7 +293,7 @@ export function LiveConsult({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [surgical, pttStart, pttStop]);
+  }, [surgical, browserStt, pttStart, pttStop]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

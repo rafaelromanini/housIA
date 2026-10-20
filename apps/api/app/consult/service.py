@@ -1140,8 +1140,15 @@ def _order_resources(c: Consultation, author: str, when: datetime) -> list[dict]
 
 
 # ---------- IA (ciclos) ----------
+def _require_not_purged(c: Consultation) -> None:
+    """Depois do expurgo (#31), reanalisar rodaria o motor em falas vazias e apagaria os insights que ficam."""
+    if (c.extra_json or {}).get("expurgada_em"):
+        raise HTTPException(409, "Transcrição expurgada pelo prazo de retenção: não há texto para analisar.")
+
+
 def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = False) -> dict:
     c = _get(db, cid)
+    _require_not_purged(c)
     _require_ai(c, "a análise por IA externa")
     record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)
@@ -1229,6 +1236,7 @@ def translate_targets(c: Consultation, segments: list[Segment], ns: list[int] | 
 
 def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int] | None) -> dict:
     c = _get(db, cid)
+    _require_not_purged(c)
     _require_ai(c, "a tradução por IA externa", "traducao")
     record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)

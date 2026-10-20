@@ -37,9 +37,15 @@ def keys() -> list[tuple[str, bytes]]:
     """Chaves configuradas, a de cifrar primeiro."""
     out: list[tuple[str, bytes]] = []
     for i, part in enumerate(p.strip() for p in get_settings().data_encryption_key.split(",") if p.strip()):
-        kid, _, secret = part.partition(":")
-        if not secret:  # só o segredo, sem id
+        kid, sep, secret = part.partition(":")
+        if not sep:  # só o segredo, sem id
             kid, secret = f"k{i + 1}", part
+        if not kid.strip() or not secret.strip():  # "k1:" ou ":x" viraria uma chave adivinhável por SHA-256
+            raise ValueError(
+                f"DATA_ENCRYPTION_KEY inválida na posição {i + 1}: use id:segredo com os dois preenchidos."
+            )
+        if any(kid == k for k, _ in out):
+            raise ValueError(f"DATA_ENCRYPTION_KEY repete o id '{kid}': cada chave precisa de um id único.")
         out.append((kid, _key_bytes(secret)))
     return out
 
