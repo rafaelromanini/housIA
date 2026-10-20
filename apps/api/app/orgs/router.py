@@ -97,8 +97,12 @@ def convidar(
         raise HTTPException(422, "E-mail inválido")
     if body.papel not in ROLES:
         raise HTTPException(422, f"Papel inválido: use {', '.join(ROLES)}")
-    if db.scalar(select(User.id).where(User.email == email)) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com este e-mail")
+    resposta = {"detail": "Convite enviado", "email": email, "papel": body.papel}
+    existente = db.scalar(select(User).where(User.email == email))
+    if existente is not None:
+        if existente.organization_id == mine.id:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Esta pessoa já faz parte da equipe")
+        return resposta  # conta de outra organização: não revelamos que existe nem enviamos convite
     raw = tokens.issue(db, "invite", organization_id=mine.id, email=email, role=body.papel)
     base = get_settings().app_base_url.rstrip("/")
     send_email(
@@ -108,7 +112,7 @@ def convidar(
         f"Crie sua conta pelo link (vale por 7 dias):\n{base}/convite?token={raw}\n",
     )
     log_action(db, user, "org.convite", "organization", mine.id, {"papel": body.papel})
-    return {"detail": "Convite enviado", "email": email, "papel": body.papel}
+    return resposta
 
 
 @router.get("/orgs/{org_id}/invites")

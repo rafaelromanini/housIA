@@ -40,6 +40,10 @@ def _stamp_org(session: Session, _ctx, _instances) -> None:
     org_id = session.info.get(ORG_KEY)
     if org_id is None:
         return
-    for obj in session.new:
-        if isinstance(obj, Tenant) and obj.organization_id is None:
+    for obj in (*session.new, *session.dirty):
+        if not isinstance(obj, Tenant):
+            continue
+        if obj.organization_id is None:
             obj.organization_id = org_id
+        elif obj.organization_id != org_id:  # nenhum caminho legítimo grava ou move registro para outra organização
+            raise PermissionError("organization_id de outra organização")

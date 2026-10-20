@@ -109,10 +109,13 @@ def test_cadastro_recusa_dados_invalidos(client, extra, codigo):
     assert cadastrar(client, **extra).status_code == codigo
 
 
-def test_cadastro_com_email_repetido_e_409(client):
+def test_cadastro_com_email_repetido_nao_cria_outra_conta_nem_revela_a_existente(client):
+    """Antes respondia 409 (enumeração de e-mail); agora a resposta é a mesma e o dono do e-mail recebe um aviso."""
     assert cadastrar(client).status_code == 201
-    assert cadastrar(client).status_code == 409
-    assert cadastrar(client, "MEDICO@housia.dev").status_code == 409  # usuário de demonstração
+    assert cadastrar(client).status_code == 201
+    assert cadastrar(client, "MEDICO@housia.dev").status_code == 201  # usuário de demonstração
+    with db_session.SessionLocal() as db:
+        assert len(db.scalars(select(User).where(User.email == "dra.bia@clinica.test")).all()) == 1
 
 
 # ---------------------------------------------------------------- isolamento
@@ -228,9 +231,17 @@ def test_convite_valida_papel_e_organizacao(client, auth):
         client.post(f"/orgs/{oid}/invites", json={"email": "a@b.test", "papel": "medico"}, headers=demo).status_code
         == 404
     )
-    assert (
+    antes = len(mailer.OUTBOX)
+    assert (  # e-mail com conta em outra organização: resposta igual à de um convite novo, sem enviar nada
         client.post(
             f"/orgs/{oid}/invites", json={"email": "medico@housia.dev", "papel": "medico"}, headers=hg
+        ).status_code
+        == 201
+    )
+    assert len(mailer.OUTBOX) == antes
+    assert (  # já na própria equipe: 409
+        client.post(
+            f"/orgs/{oid}/invites", json={"email": "gestora@hospital.test", "papel": "medico"}, headers=hg
         ).status_code
         == 409
     )

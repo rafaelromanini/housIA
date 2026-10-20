@@ -116,7 +116,7 @@ def to_user_out(user: User, db: Session | None = None) -> UserOut:
 
 
 def default_org(db: Session) -> Organization:
-    org = db.scalar(select(Organization).where(Organization.nome == DEMO_ORG_NAME))
+    org = db.scalar(select(Organization).where(Organization.nome == DEMO_ORG_NAME).order_by(Organization.id))
     if org is None:
         org = Organization(nome=DEMO_ORG_NAME, tipo="hospital")
         db.add(org)
@@ -180,9 +180,23 @@ def register(body: RegisterIn, db: Session = Depends(get_db)) -> dict:
     _validar_senha(body.senha)
     consultorio = body.organizacao_tipo == "consultorio"
     _validar_conselho(body.conselho, body.conselho_numero, body.uf, obrigatorio=consultorio)
-    if db.scalar(select(User.id).where(User.email == email)) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com este e-mail")
-    org = Organization(nome=body.organizacao_nome.strip(), tipo=body.organizacao_tipo)
+    nome_org = body.organizacao_nome.strip()
+    if nome_org.casefold() == DEMO_ORG_NAME.casefold():  # a organização padrão é a da plataforma (administração)
+        raise HTTPException(422, "Nome de organização reservado")
+    resposta = {"detail": "Cadastro criado. Enviamos um link de confirmação para o seu e-mail."}
+    existente = db.scalar(select(User).where(User.email == email))
+    if existente is not None:
+        # mesma resposta de um cadastro novo (não revela quem tem conta); o dono do e-mail recebe o aviso
+        send_email(
+            existente.email,
+            "Você já tem uma conta no HousIA",
+            f"Olá, {existente.name}.\n\nAlguém tentou criar um cadastro com este e-mail, mas ele já tem conta. "
+            'Se foi você, entre normalmente ou use "Esqueci a senha" '
+            f"({get_settings().app_base_url.rstrip('/')}/esqueci). "
+            "Se não foi, ignore esta mensagem.",
+        )
+        return resposta
+    org = Organization(nome=nome_org, tipo=body.organizacao_tipo)
     db.add(org)
     db.flush()
     user = User(
@@ -200,7 +214,7 @@ def register(body: RegisterIn, db: Session = Depends(get_db)) -> dict:
     db.commit()
     log_action(db, user, "auth.register", "user", user.id, {"organizacao": org.id, "tipo": org.tipo})
     _mandar_verificacao(db, user)
-    return {"detail": "Cadastro criado. Enviamos um link de confirmação para o seu e-mail.", "organizacao_id": org.id}
+    return resposta
 
 
 @router.post("/verify")
@@ -220,6 +234,7 @@ def forgot(body: ForgotIn, db: Session = Depends(get_db)) -> dict:
     """Resposta idêntica exista ou não a conta (não revela quem tem cadastro)."""
     user = db.scalar(select(User).where(User.email == body.email.strip().lower()))
     if user is not None:
+        tokens.burn_open(db, "reset", user.id)  # só o link mais recente vale
         raw = tokens.issue(db, "reset", user_id=user.id)
         send_email(
             user.email,
@@ -238,6 +253,7 @@ def reset(body: ResetIn, db: Session = Depends(get_db)) -> dict:
     if user is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Link inválido, já usado ou expirado")
     user.password_hash = hash_password(body.senha)
+    tokens.burn_open(db, "reset", user.id)  # os demais links de redefinição pendentes morrem junto
     user.email_verificado = True  # quem recebeu o link no e-mail provou que é dono dele
     db.commit()
     log_action(db, user, "auth.reset", "user", user.id)

@@ -43,6 +43,8 @@ def get_current_user(
     user = db.get(User, int(payload["sub"]))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário não encontrado")
+    if user.organization_id is None:  # falha fechada: sessão sem organização não filtra nada
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Usuário sem organização")
     set_org(db, user.organization_id)  # daqui em diante a sessão só enxerga os dados da organização (#33)
     return user
 

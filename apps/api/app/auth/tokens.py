@@ -25,6 +25,14 @@ def issue(db: Session, kind: str, **fields) -> str:
     return raw
 
 
+def burn_open(db: Session, kind: str, user_id: int) -> None:
+    """Queima os tokens ainda abertos do usuário (o commit fica com quem chamou)."""
+    for tok in db.scalars(
+        select(AuthToken).where(AuthToken.kind == kind, AuthToken.user_id == user_id, AuthToken.used_at.is_(None))
+    ):
+        tok.used_at = clock.now()
+
+
 def peek(db: Session, kind: str, raw: str) -> AuthToken:
     """Valida sem queimar (tela de aceite do convite). Qualquer falha responde o mesmo 400."""
     tok = db.scalar(select(AuthToken).where(AuthToken.token_hash == _hash(raw), AuthToken.kind == kind))
