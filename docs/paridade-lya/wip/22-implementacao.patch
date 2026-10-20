@@ -1,0 +1,2201 @@
+From 425190889d8fe48e1c97b3c29a385bfb7560c5fb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 17 Oct 2026 17:24:49 +0000
+Subject: [PATCH] =?UTF-8?q?consulta=20com=20IA:=20tradu=C3=A7=C3=A3o=20no?=
+ =?UTF-8?q?=20n=C3=ADvel=20da=20Lya,=2095+=20idiomas,=20regras=20sobre=20a?=
+ =?UTF-8?q?=20tradu=C3=A7=C3=A3o=20e=20checagem=20de=20fidelidade=20(#22)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- idiomas em data/reference/languages.csv (100 códigos BCP-47 com Web Speech e Whisper), validados no schema; /consult/config.idiomas
+- idioma padrão vem de Patient.communication (pré-seleção na tela e na API); idioma por fala editável (chip e PATCH)
+- motor lê a tradução mantendo a Fala/N; sem tradução lê es/en pelos sinônimos dos CSVs (sintomas, emoções, adesão)
+- fidelidade determinística (números, unidades, doses e medicamentos): alerta "Tradução divergente"
+- nota e DocumentReference registram "Consulta com interpretação por IA (es→pt-BR)"
+- roteiro cen_hispanica (cenário cen8) com traduções pré-gravadas para o modo mock; voz automática e rota de legenda
+- orientações da alta aceitam os mesmos idiomas (pt-BR no mock)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EjZBimQEcvfvitbQZryj6F
+---
+ apps/api/app/consult/ai.py                    |  34 +-
+ apps/api/app/consult/engine.py                |  41 +-
+ apps/api/app/consult/export.py                |  13 +-
+ apps/api/app/consult/fidelidade.py            |  75 ++++
+ apps/api/app/consult/idiomas.py               | 101 +++++
+ apps/api/app/consult/knowledge.py             |  19 +
+ apps/api/app/consult/router.py                |  12 +-
+ apps/api/app/consult/schemas.py               |  29 +-
+ apps/api/app/consult/service.py               |  93 ++++-
+ apps/api/app/consult/text.py                  |   5 +-
+ apps/api/app/discharge/documents.py           |   8 +-
+ apps/api/app/discharge/service.py             |   3 +-
+ apps/api/app/seed/builder.py                  |   4 +
+ apps/api/tests/test_consult_traducao.py       | 378 ++++++++++++++++++
+ .../pacientes/[id]/consulta/legenda/page.tsx  |   7 +
+ .../web/components/consult/caption-screen.tsx | 109 +++++
+ apps/web/components/consult/capture.ts        |   2 +-
+ apps/web/components/consult/consult-page.tsx  |  22 +-
+ apps/web/components/consult/live-consult.tsx  |  50 ++-
+ apps/web/components/consult/transcript.tsx    |  40 +-
+ .../discharge/discharge-documents.tsx         |  12 +-
+ apps/web/e2e/consulta.spec.ts                 |  24 ++
+ apps/web/lib/api.ts                           |   9 +-
+ data/consultations/cen_hispanica.json         | 106 +++++
+ data/reference/consult_emotions.csv           |  16 +-
+ data/reference/consult_symptoms.csv           |  54 +--
+ data/reference/languages.csv                  | 101 +++++
+ .../cenario8_consulta_hispanica.json          |  48 +++
+ docs/decisions/0009-consulta-com-ia.md        |  12 +
+ 29 files changed, 1311 insertions(+), 116 deletions(-)
+ create mode 100644 apps/api/app/consult/fidelidade.py
+ create mode 100644 apps/api/app/consult/idiomas.py
+ create mode 100644 apps/api/tests/test_consult_traducao.py
+ create mode 100644 apps/web/app/pacientes/[id]/consulta/legenda/page.tsx
+ create mode 100644 apps/web/components/consult/caption-screen.tsx
+ create mode 100644 data/consultations/cen_hispanica.json
+ create mode 100644 data/reference/languages.csv
+ create mode 100644 data/scenarios/cenario8_consulta_hispanica.json
+
+diff --git a/apps/api/app/consult/ai.py b/apps/api/app/consult/ai.py
+index cbb6422..83c54e4 100644
+--- a/apps/api/app/consult/ai.py
++++ b/apps/api/app/consult/ai.py
+@@ -13,7 +13,7 @@ from typing import Literal
+ 
+ from pydantic import BaseModel
+ 
+-from app.consult import acoes, cronologia, notas
++from app.consult import acoes, cronologia, idiomas, notas
+ from app.consult.cid import screen
+ from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
+ from app.consult.knowledge import (
+@@ -22,12 +22,12 @@ from app.consult.knowledge import (
+     allergy_defs,
+     anamnesis_question_ids,
+     emotions,
++    recorded_translations,
+     semiology,
+     semiology_questions,
+ )
+ from app.consult.orders import parse_posology
+ from app.consult.schemas import (
+-    LANGUAGE_LABELS,
+     AllergyInfo,
+     Anamnese,
+     CampoEspecialidade,
+@@ -867,7 +867,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
+     if any(m.tipo == "suspender" for m in plan):
+         tips.append("Alguns remédios podem ser trocados ou suspensos: siga a receita nova que a equipe vai entregar.")
+     if language != "pt-BR":
+-        tips.insert(0, f"[Tradução para {LANGUAGE_LABELS.get(language, language)} disponível com o LLM real.]")
++        tips.insert(0, f"[Tradução para {idiomas.rotulo(language)} disponível com o LLM real.]")
+     no_record = "Sem registro na consulta."
+ 
+     def section(items: list[tuple[str, list[str]]], fallback: str = no_record) -> dict:
+@@ -976,7 +976,7 @@ def run_note(
+     variables = {
+         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
+         "especialidade": SPECIALTIES.get(engine.specialty, engine.specialty),
+-        "idioma": LANGUAGE_LABELS.get(language, language),
++        "idioma": idiomas.rotulo(language),
+         "prontuario": pseudo.apply(chart_payload(engine)),
+         "achados": pseudo.apply(
+             {
+@@ -1051,7 +1051,8 @@ def run_translation(segments: list[Segment], targets: dict[int, str], pseudo: Ps
+         {
+             "n": s.n,
+             "de": s.idioma,
+-            "para": LANGUAGE_LABELS.get(targets[s.n], targets[s.n]),
++            "para": idiomas.rotulo(targets[s.n]),
++            "codigo_para": targets[s.n],
+             "texto": pseudo.text(s.texto),
+         }
+         for s in segments
+@@ -1059,15 +1060,26 @@ def run_translation(segments: list[Segment], targets: dict[int, str], pseudo: Ps
+     ]
+     if not items:
+         return {}
++
++    def mock(_v: dict) -> dict:
++        # sem LLM: as traduções pré-gravadas dos roteiros (data/consultations) valem para a mesma fala e destino;
++        # fala sem gravação recebe o aviso do mock (as regras ignoram esse texto e leem o original)
++        # as gravações passam pela mesma pseudonimização da fala (nomes viram [PACIENTE]/[FAMILIAR])
++        recorded = {(norm(pseudo.text(t)), dest): pseudo.text(tr) for _, t, dest, tr in recorded_translations()}
++        out = []
++        for i in items:
++            found = recorded.get((norm(i["texto"]), i["codigo_para"]))
++            if found:
++                out.append({"n": i["n"], "traducao": found})
++            else:
++                out.append({"n": i["n"], "traducao": f"[{i['para']}{idiomas.MARCA_MOCK}] {i['texto']}"})
++        return {"traducoes": out}
++
+     result = generate_structured(
+         "consult_translate",
+-        {"falas": json.dumps(items, ensure_ascii=False)},
++        {"falas": json.dumps([{k: v for k, v in i.items() if k != "codigo_para"} for i in items], ensure_ascii=False)},
+         TranslationOutput,
+-        mock=lambda _v: {
+-            "traducoes": [
+-                {"n": i["n"], "traducao": f"[{i['para']} — tradução com LLM real] {i['texto']}"} for i in items
+-            ]
+-        },
++        mock=mock,
+         effort="low",
+     )
+     return {t.n: t.traducao for t in result.output.traducoes if t.n in targets}
+diff --git a/apps/api/app/consult/engine.py b/apps/api/app/consult/engine.py
+index 3899ad9..cc87888 100644
+--- a/apps/api/app/consult/engine.py
++++ b/apps/api/app/consult/engine.py
+@@ -10,7 +10,7 @@ from __future__ import annotations
+ import re
+ from datetime import datetime
+ 
+-from app.consult import cronologia, extract, knowledge, orders, reminders, semiology, summary
++from app.consult import cronologia, extract, idiomas, knowledge, orders, reminders, semiology, summary
+ from app.consult.chart import ChartView, fmt_date
+ from app.consult.cid import screen
+ from app.consult.schemas import (
+@@ -142,8 +142,17 @@ FORGET_WORDS = (
+     "esquecendo o remedio",
+     "pulo o remedio",
+     "tomo quando lembro",
++    # espanhol e inglês (fala ainda sem tradução)
++    "se me olvida",
++    "se me olvido",
++    "me olvido de tomar",
++    "olvide tomar",
++    "i forget to take",
++    "i forgot to take",
++    "i keep forgetting",
++    "i skip my pills",
+ )  # sinais de dificuldade de adesão
+-STOP_WORDS = ("parei de tomar", "deixei de tomar")
++STOP_WORDS = ("parei de tomar", "deixei de tomar", "deje de tomar", "i stopped taking", "i quit taking")
+ CONTEXT_WORDS = ("moro ", "sozinh", "fumo", "cigarro", "bebo", "bebida", "alcool", "caminhada", "trabalho", "aposentad")
+ PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
+ RELATIVE_ALLERGY = re.compile(
+@@ -243,7 +252,7 @@ class Engine:
+         self.chart = ChartView(record, events, ctx, now)
+         self.r = record
+         self.all_segments = segments  # inclui os marcos de privacidade (#13), que numeram mas não são fala
+-        segments = [s for s in segments if s.origem != "marco"]
++        segments = [self._for_rules(s) for s in segments if s.origem != "marco"]
+         self.segments = segments
+         self.specialty = specialty
+         self.kind = kind
+@@ -256,6 +265,31 @@ class Engine:
+         self._extraction: extract.Extraction | None = None
+         self.rcri: Rcri | None = None
+ 
++    @staticmethod
++    def _for_rules(s: Segment) -> Segment:
++        """Fala estrangeira: as regras leem a tradução (mantendo a Fala/N); sem tradução, ou com tradução divergente
++        (doses ou medicamentos trocados), leem o original pelos sinônimos de es/en dos CSVs."""
++        if (idiomas.resolver(s.idioma) or s.idioma) == idiomas.PADRAO:
++            return s
++        if s.traducao and not s.traducao_divergente and not idiomas.placeholder(s.traducao):
++            return s.model_copy(update={"texto": s.traducao})
++        return s.model_copy(update={"texto": idiomas.texto_para_regras(s.texto, s.idioma)})
++
++    def translation_alerts(self) -> list[Highlight]:
++        """ "Tradução divergente": números, doses ou medicamentos que não batem entre a fala e a tradução."""
++        return [
++            Highlight(
++                texto=f"Tradução divergente na fala {s.n} ({idiomas.rotulo(s.idioma)}): "
++                + "; ".join(s.traducao_divergente)
++                + ". Confira a fala original.",
++                severidade="atencao",
++                refs=[fala_ref(s.n)],
++                categoria="traducao",
++            )
++            for s in self.all_segments
++            if s.traducao_divergente
++        ]
++
+     # ---------- utilidades ----------
+     def said(self, words: tuple[str, ...], speakers: tuple[str, ...] | None = None) -> list[Segment]:
+         return [
+@@ -1274,6 +1308,7 @@ class Engine:
+         )
+         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
+         alerts = self.alerts(meds_safety)
++        alerts = sorted([*self.translation_alerts(), *alerts], key=lambda h: SEVERITY[h.severidade])
+         return Insights(
+             tipo=self.kind,
+             especialidade=self.specialty,
+diff --git a/apps/api/app/consult/export.py b/apps/api/app/consult/export.py
+index 1d2884a..f4db96d 100644
+--- a/apps/api/app/consult/export.py
++++ b/apps/api/app/consult/export.py
+@@ -6,7 +6,7 @@ import base64
+ import uuid
+ from datetime import datetime
+ 
+-from app.consult.schemas import LANGUAGE_LABELS
++from app.consult import idiomas
+ from app.fhir_client import codes
+ 
+ BUNDLE_NS = uuid.UUID("5b3f0c4e-9a1d-4c1e-8a57-2f0d7c0b6a11")
+@@ -38,9 +38,13 @@ def note_as_text(
+     note: dict,
+     language: str,
+     orders: list | None = None,
++    interpretacao: str | None = None,
+ ) -> str:
+     title = KIND_TITLE.get(kind, "Nota clínica")
+-    lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}", ""]
++    lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}"]
++    if interpretacao:
++        lines.append(interpretacao)  # ex.: "Consulta com interpretação por IA (es→pt-BR)"
++    lines.append("")
+     if kind == "cirurgia":
+         report = note.get("relatorio_cirurgico", note)
+         for f in report.get("campos", []):
+@@ -80,7 +84,7 @@ def note_as_text(
+             lines += ["", "Pendências:"]
+             lines += [f"- {p['texto']}" for p in note["pendencias"]]
+         if note.get("orientacoes_paciente"):
+-            lines += ["", f"Orientações ao paciente ({LANGUAGE_LABELS.get(language, language)}):"]
++            lines += ["", f"Orientações ao paciente ({idiomas.rotulo(language)}):"]
+             lines += [f"- {o}" for o in note["orientacoes_paciente"]]
+     if orders:
+         lines += ["", "Pedidos e prescrições assinados (rascunhos, ainda sem emissão):"]
+@@ -111,6 +115,7 @@ def document_reference(
+     when: datetime,
+     text: str,
+     consultation_id: int,
++    interpretacao: str | None = None,
+     approved: bool = True,
+ ) -> dict:
+     """DocumentReference da nota. `docStatus` é "preliminary" até a aprovação (revisão + atestação), depois "final"."""
+@@ -125,7 +130,7 @@ def document_reference(
+         "subject": {"reference": f"Patient/{patient_id}", "display": patient_name},
+         "date": when.isoformat(),
+         "author": [{"display": author}],
+-        "description": label,
++        "description": f"{label} — {interpretacao}" if interpretacao else label,
+         "content": [
+             {
+                 "attachment": {
+diff --git a/apps/api/app/consult/fidelidade.py b/apps/api/app/consult/fidelidade.py
+new file mode 100644
+index 0000000..fe0dbf1
+--- /dev/null
++++ b/apps/api/app/consult/fidelidade.py
+@@ -0,0 +1,75 @@
++"""Fidelidade da tradução: números, unidades, doses e medicamentos têm de sobreviver à tradução.
++
++Checagem determinística (sem LLM) entre a fala original e a tradução. Divergência vira alerta "tradução divergente":
++trocar "500 mg" por "50 mg" ou perder um medicamento muda a conduta, então o profissional confere a fala original.
++"""
++
++import re
++from functools import lru_cache
++
++from app.consult.text import norm
++from app.reference import drugs
++
++UNIDADES = r"mg|mcg|ug|g|kg|ml|l|ui|u|meq|mmol|mmhg|bpm|%|graus|c|x"
++NUMERO = re.compile(rf"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*({UNIDADES})?(?![a-z0-9])", re.IGNORECASE)
++
++
++# números por extenso (pt, es, en) viram dígito para a comparação; "um/uno/one" ficam de fora (também são artigo)
++_EXTENSO = {
++    "dois": "2", "duas": "2", "two": "2", "tres": "3", "three": "3", "quatro": "4", "cuatro": "4", "four": "4",
++    "cinco": "5", "five": "5", "seis": "6", "six": "6", "sete": "7", "siete": "7", "seven": "7", "oito": "8",
++    "ocho": "8", "eight": "8", "nove": "9", "nueve": "9", "nine": "9", "dez": "10", "diez": "10", "ten": "10",
++}  # fmt: skip
++_EXTENSO_RE = re.compile(r"(?<!\w)(" + "|".join(_EXTENSO) + r")(?!\w)")
++# "dos" é o 2 do espanhol, mas em português é "de os": só conta diante de unidade de tempo ou de dose
++_DOS = re.compile(r"(?<!\w)dos(?= (dias|horas|semanas|meses|anos|veces|pastillas|comprimidos|tabletas|gotas|dosis))")
++
++
++def _valor(txt: str) -> str:
++    v = txt.replace(",", ".")
++    if "." in v:
++        v = v.rstrip("0").rstrip(".")
++    return v.lstrip("0") or "0"
++
++
++def numeros(texto: str) -> set[tuple[str, str]]:
++    """Pares (valor, unidade) da fala; unidade vazia quando o número vem solto."""
++    t = _EXTENSO_RE.sub(lambda m: _EXTENSO[m.group(1)], _DOS.sub("2", norm(texto)))
++    return {(_valor(m.group(1)), (m.group(2) or "").lower()) for m in NUMERO.finditer(t)}
++
++
++@lru_cache
++def _radicais() -> tuple[tuple[str, str], ...]:
++    """(radical, princípio ativo): 'losartan' acha 'losartana' (pt) e 'losartán' (es); 'metformin' acha o inglês."""
++    out = []
++    for ing, d in drugs().items():
++        for name in {norm(d.name.partition("+")[0]), norm(ing.partition("+")[0])}:
++            stem = name.rstrip("aeo")
++            if len(stem) >= 6:
++                out.append((stem, ing))
++    return tuple(out)
++
++
++def medicamentos(texto: str) -> set[str]:
++    t = norm(texto)
++    return {ing for stem, ing in _radicais() if re.search(rf"(?<!\w){re.escape(stem)}", t)}
++
++
++def divergencias(original: str, traducao: str) -> list[str]:
++    """Descrições das diferenças entre a fala e a tradução (lista vazia: a tradução é fiel nesses pontos)."""
++    out: list[str] = []
++    a, b = numeros(original), numeros(traducao)
++    va, vb = {v for v, _ in a}, {v for v, _ in b}
++    if va - vb:
++        out.append("números do original ausentes na tradução: " + ", ".join(sorted(va - vb)))
++    if vb - va:
++        out.append("números na tradução que não estão no original: " + ", ".join(sorted(vb - va)))
++    # mesmo valor com unidade diferente ("500 mg" → "500 mcg"); a unidade omitida na tradução não conta
++    ua = {v: u for v, u in a if u}
++    for v, u in b:
++        if u and v in ua and ua[v] != u:
++            out.append(f"unidade trocada em {v}: {ua[v]} → {u}")
++    da, db = medicamentos(original), medicamentos(traducao)
++    if da != db:
++        out.append("medicamentos diferentes entre original e tradução: " + ", ".join(sorted(da ^ db)))
++    return out
+diff --git a/apps/api/app/consult/idiomas.py b/apps/api/app/consult/idiomas.py
+new file mode 100644
+index 0000000..be2b252
+--- /dev/null
++++ b/apps/api/app/consult/idiomas.py
+@@ -0,0 +1,101 @@
++"""Idiomas da consulta (data/reference/languages.csv): BCP-47 com rótulo e os códigos da Web Speech e do Whisper.
++
++O idioma deixa de ser uma lista fixa no código: entra qualquer código do CSV (≥ 95 idiomas). Também resolve o idioma
++preferido do paciente (Patient.communication) e prepara a fala estrangeira para as regras quando ainda não há tradução.
++"""
++
++import re
++from dataclasses import dataclass
++from functools import lru_cache
++
++from app.reference import _read_csv
++from app.timeline.record import normalize
++
++PADRAO = "pt-BR"
++MARCA_MOCK = " — tradução com LLM real"  # aviso que o modo mock põe numa fala sem tradução pré-gravada
++
++
++def placeholder(traducao: str | None) -> bool:
++    return bool(traducao) and MARCA_MOCK in traducao
++
++
++@dataclass(frozen=True)
++class Idioma:
++    codigo: str
++    rotulo: str
++    web_speech: str  # reconhecimento e voz do navegador ("" quando o navegador não cobre)
++    whisper: str  # código do Whisper para a transcrição no servidor ("" quando não cobre)
++
++
++@lru_cache
++def todos() -> dict[str, Idioma]:
++    return {
++        r["codigo"]: Idioma(r["codigo"], r["rotulo"], r.get("web_speech", ""), r.get("whisper", ""))
++        for r in _read_csv("languages.csv")
++    }
++
++
++def resolver(codigo: str | None) -> str | None:
++    """Código canônico do CSV para `pt`, `PT-br`, `es-MX`, `zh_CN`…; None se o idioma não existe."""
++    if not codigo:
++        return None
++    raw = codigo.strip().replace("_", "-")
++    known = todos()
++    by_lower = {k.lower(): k for k in known}
++    if raw.lower() in by_lower:
++        return by_lower[raw.lower()]
++    base = raw.split("-")[0].lower()
++    if base == "pt":
++        return PADRAO
++    return by_lower.get(base)
++
++
++def validar(codigo: str) -> str:
++    """Validador do schema: devolve o código canônico ou recusa o idioma desconhecido."""
++    found = resolver(codigo)
++    if found is None:
++        raise ValueError(f"Idioma desconhecido: {codigo!r} (use um código de data/reference/languages.csv)")
++    return found
++
++
++def rotulo(codigo: str) -> str:
++    found = todos().get(resolver(codigo) or codigo)
++    return found.rotulo if found else codigo
++
++
++def opcoes() -> list[dict]:
++    return [
++        {"value": i.codigo, "label": i.rotulo, "web_speech": i.web_speech or i.codigo, "whisper": i.whisper}
++        for i in todos().values()
++    ]
++
++
++def do_paciente(patient: dict) -> tuple[str | None, str]:
++    """Idioma preferido em Patient.communication (preferred=true, senão o primeiro) e o rótulo da fonte."""
++    comms = patient.get("communication") or []
++    ordered = sorted(comms, key=lambda c: not c.get("preferred"))
++    for comm in ordered:
++        for coding in (comm.get("language") or {}).get("coding", []):
++            found = resolver(coding.get("code"))
++            if found:
++                return found, "Patient.communication"
++    return None, ""
++
++
++# ---------- fala estrangeira ainda sem tradução ----------
++# As regras são em português. Enquanto a tradução não chega, espanhol e inglês são lidos pelos sinônimos dos CSVs;
++# a negação deles é levada ao "não" que o motor entende ("no me duele" → "nao me duele"). Em português "no" é
++# "em o" ("dor no peito"), por isso a troca só vale para falas que NÃO estão em português.
++_NEGA = {
++    "es": re.compile(r"(?<!\w)(no|nunca|jamas|sin|ningun[oa]?|ni)(?!\w)"),
++    "en": re.compile(r"(?<!\w)(no|not|never|without|none|nor|neither)(?!\w)|n't(?!\w)"),
++}
++
++
++def texto_para_regras(texto: str, idioma: str) -> str:
++    """Texto que o motor lê numa fala estrangeira sem tradução; em pt-BR (ou outro idioma) devolve o texto como está."""
++    base = (resolver(idioma) or idioma).split("-")[0]
++    pattern = _NEGA.get(base)
++    if pattern is None:
++        return texto
++    return pattern.sub(" nao ", normalize(texto))
+diff --git a/apps/api/app/consult/knowledge.py b/apps/api/app/consult/knowledge.py
+index 2fe28b9..6712d26 100644
+--- a/apps/api/app/consult/knowledge.py
++++ b/apps/api/app/consult/knowledge.py
+@@ -543,6 +543,25 @@ def demo_scripts() -> dict[str, dict]:
+     return out
+ 
+ 
++@lru_cache
++def recorded_translations() -> tuple[tuple[str, str, str, str], ...]:
++    """Traduções pré-gravadas dos roteiros (fala `traducao` + `idioma`), que o modo mock usa no lugar do LLM.
++
++    Linhas (fala, idioma de destino, tradução). Fala em outro idioma traduz para pt-BR; fala em pt-BR do
++    profissional traduz para o `idioma_paciente` do roteiro. Ficam no texto original: quem usa pseudonimiza.
++    """
++    out: list[tuple[str, str, str, str]] = []
++    for script in demo_scripts().values():
++        patient_lang = script.get("idioma_paciente", "pt-BR")
++        for f in script["falas"]:
++            if f.get("traducao"):
++                src = f.get("idioma", "pt-BR")
++                out.append(
++                    (script["patient_id"], f["texto"], "pt-BR" if src != "pt-BR" else patient_lang, f["traducao"])
++                )
++    return tuple(out)
++
++
+ @lru_cache
+ def regression_corpus() -> dict:
+     """Corpus de regressão das regras (data/consultations/regressao_falas.json)."""
+diff --git a/apps/api/app/consult/router.py b/apps/api/app/consult/router.py
+index 35f94d1..1474b24 100644
+--- a/apps/api/app/consult/router.py
++++ b/apps/api/app/consult/router.py
+@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
+ 
+ from app.auth.deps import get_current_user, require_roles
+ from app.config import get_settings
+-from app.consult import antiglosa, cid, consentimento, knowledge, opme, service, stt
++from app.consult import antiglosa, cid, consentimento, idiomas, knowledge, opme, service, stt
+ from app.consult import ask as copilot
+-from app.consult.schemas import LANGUAGE_LABELS, ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
++from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
+ from app.consult.templates import surgical_specialties
+ from app.db.models import User
+ from app.db.session import get_db
+@@ -28,7 +28,7 @@ def config(_: User = Depends(get_current_user)) -> dict:
+         "llm_mode": s.llm_mode,
+         "stt_servidor": stt.enabled(),
+         "envio_prontuario": s.ehr_writeback,
+-        "idiomas": [{"value": k, "label": v} for k, v in LANGUAGE_LABELS.items()],
++        "idiomas": idiomas.opcoes(),
+         "aviso_consentimento": consentimento.NOTICES,
+         "finalidades": [{"value": k, "label": v} for k, v in consentimento.PURPOSES.items()],
+         "especialidades": [
+@@ -95,6 +95,12 @@ def companions(patient_id: str, fhir: FhirSource = Depends(get_fhir), _: User =
+     return service.companions(fhir, patient_id)
+ 
+ 
++@router.get("/patients/{patient_id}/consult/idioma")
++def patient_language(patient_id: str, fhir: FhirSource = Depends(get_fhir), _: User = Depends(clinician)) -> dict:
++    """Idioma preferido em Patient.communication, para a tela pré-selecionar o idioma do paciente."""
++    return service.idioma_paciente(fhir, patient_id)
++
++
+ @router.post("/patients/{patient_id}/consultations")
+ def create_consultation(
+     patient_id: str,
+diff --git a/apps/api/app/consult/schemas.py b/apps/api/app/consult/schemas.py
+index c9316c7..c9f1f59 100644
+--- a/apps/api/app/consult/schemas.py
++++ b/apps/api/app/consult/schemas.py
+@@ -5,9 +5,11 @@ com `origem="regra"` vêm da camada determinística; `origem="ia"` vêm do LLM (
+ conferidos pelo profissional.
+ """
+ 
+-from typing import Literal
++from typing import Annotated, Literal
+ 
+-from pydantic import BaseModel, Field
++from pydantic import AfterValidator, BaseModel, Field
++
++from app.consult import idiomas
+ 
+ # falas gravadas antes da equipe cirúrgica (só médico/paciente/acompanhante) continuam válidas
+ Speaker = Literal["medico", "paciente", "acompanhante", "anestesista", "circulante", "instrumentador", "desconhecido"]
+@@ -18,19 +20,8 @@ Priority = Literal["alta", "media", "baixa"]
+ ConsultKind = Literal["consulta", "visita", "cirurgia"]
+ CaptureSource = Literal["microfone", "servidor", "digitado", "demo", "marco"]  # marco: pausa/retomada/revogação
+ Marker = Literal["pausa", "retomada", "revogado"]
+-Language = Literal["pt-BR", "es", "en", "fr", "it", "de", "zh", "ar", "ht"]
+-
+-LANGUAGE_LABELS: dict[str, str] = {
+-    "pt-BR": "Português",
+-    "es": "Español",
+-    "en": "English",
+-    "fr": "Français",
+-    "it": "Italiano",
+-    "de": "Deutsch",
+-    "zh": "中文",
+-    "ar": "العربية",
+-    "ht": "Kreyòl ayisyen",
+-}
++# qualquer código de data/reference/languages.csv (≥ 95 idiomas, BCP-47); "pt", "es-MX"… são normalizados
++Language = Annotated[str, AfterValidator(idiomas.validar)]
+ 
+ 
+ def fala_ref(n: int) -> str:
+@@ -46,6 +37,9 @@ class Segment(BaseModel):
+     texto: str
+     idioma: str = "pt-BR"
+     traducao: str | None = None
++    traducao_divergente: list[str] = Field(
++        default_factory=list, description="diferenças de números, doses e medicamentos entre a fala e a tradução"
++    )
+     origem: CaptureSource = "digitado"
+     relevancia: Literal["clinica", "social", "administrativa"] | None = None  # None: ainda não classificada
+     relevancia_origem: Literal["regra", "ia"] = "regra"
+@@ -62,13 +56,14 @@ class SegmentEdit(BaseModel):
+ 
+     texto: str | None = Field(None, min_length=1, max_length=2000)
+     falante: Speaker | None = None
++    idioma: Language | None = None  # idioma em que a fala foi dita (chip de cada fala)
+ 
+ 
+ class SegmentIn(BaseModel):
+     falante: Speaker = "desconhecido"
+     texto: str = Field(..., min_length=1, max_length=2000)
+     t: float | None = None
+-    idioma: str | None = None
++    idioma: Annotated[str, AfterValidator(idiomas.validar)] | None = None
+     origem: CaptureSource = "digitado"
+ 
+ 
+@@ -101,7 +96,7 @@ class Consentimento(BaseModel):
+ class ConsultCreate(BaseModel):
+     tipo: ConsultKind = "consulta"
+     especialidade: str = "clinica_medica"
+-    idioma_paciente: Language = "pt-BR"
++    idioma_paciente: Language | None = None  # sem idioma: vale o Patient.communication (ou pt-BR)
+     consentimento: Consentimento  # obrigatório: sem registro de consentimento (ou recusa) não há consulta
+ 
+ 
+diff --git a/apps/api/app/consult/service.py b/apps/api/app/consult/service.py
+index 79f6d88..70c4cdc 100644
+--- a/apps/api/app/consult/service.py
++++ b/apps/api/app/consult/service.py
+@@ -21,8 +21,10 @@ from app.consult import (
+     ai,
+     antiglosa,
+     consentimento,
++    fidelidade,
+     gs1,
+     hipoteses,
++    idiomas,
+     knowledge,
+     notas,
+     opme,
+@@ -258,6 +260,13 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
+ 
+ 
+ # ---------- criar / listar ----------
++def idioma_paciente(fhir: FhirSource, patient_id: str) -> dict:
++    """Idioma preferido do paciente (Patient.communication) para pré-selecionar na abertura da consulta."""
++    record, _, _ = _chart(fhir, patient_id)
++    code, fonte = idiomas.do_paciente(record.patient)
++    return {"idioma": code or idiomas.PADRAO, "rotulo": idiomas.rotulo(code or idiomas.PADRAO), "fonte": fonte}
++
++
+ def companions(fhir: FhirSource, patient_id: str) -> list[dict]:
+     record, _, _ = _chart(fhir, patient_id)
+     out_: list[dict] = []
+@@ -325,7 +334,7 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
+         encounter_id=encounter_id,
+         kind=body.tipo,
+         specialty=body.especialidade,
+-        patient_language=body.idioma_paciente,
++        patient_language=body.idioma_paciente or idiomas.do_paciente(record.patient)[0] or idiomas.PADRAO,
+         status="em_andamento",
+         segments_json=[],
+         extra_json=extra,
+@@ -506,8 +515,8 @@ def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, bo
+     c = _get(db, cid)
+     if c.status == "enviada":
+         raise HTTPException(409, "Nota já enviada ao prontuário: a transcrição não pode mais ser editada.")
+-    if body.texto is None and body.falante is None:
+-        raise HTTPException(422, "Informe o texto e/ou o falante da fala.")
++    if body.texto is None and body.falante is None and body.idioma is None:
++        raise HTTPException(422, "Informe o texto, o falante e/ou o idioma da fala.")
+     segments = _segments(c)
+     idx = next((i for i, s in enumerate(segments) if s.n == n), None)
+     if idx is None:
+@@ -523,12 +532,18 @@ def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, bo
+         if text != seg.texto:
+             seg.texto_original = seg.texto_original if seg.texto_original is not None else seg.texto
+             seg.texto, seg.traducao = text, None  # a tradução antiga não vale para o texto novo
++            seg.traducao_divergente = []
+             changed.append("texto")
+     if body.falante is not None and body.falante != seg.falante:
+         seg.falante_original = seg.falante_original or seg.falante
+         seg.falante, seg.falante_auto = body.falante, False
+-        seg.idioma = c.patient_language if body.falante in PATIENT_SIDE else "pt-BR"
++        if body.idioma is None:
++            seg.idioma = c.patient_language if body.falante in PATIENT_SIDE else "pt-BR"
++            seg.traducao, seg.traducao_divergente = None, []
+         changed.append("falante")
++    if body.idioma is not None and body.idioma != seg.idioma:
++        seg.idioma, seg.traducao, seg.traducao_divergente = body.idioma, None, []  # a tradução é de outro idioma
++        changed.append("idioma")
+     if not changed:
+         return out(c)
+     previous = next((s for s in reversed(segments[:idx]) if s.origem != "marco"), None)
+@@ -1185,18 +1200,28 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
+     return out(c)
+ 
+ 
++def translate_targets(c: Consultation, segments: list[Segment], ns: list[int] | None) -> dict[int, str]:
++    """Destino de cada fala ainda sem tradução: fala estrangeira vai para pt-BR; a do profissional (pt-BR) vai para o
++    idioma do paciente. Cada fala traz o próprio idioma (acompanhante pode falar outro idioma que o paciente)."""
++    targets: dict[int, str] = {}
++    for s in segments:
++        if s.origem == "marco" or s.traducao or (ns is not None and s.n not in ns):
++            continue
++        if s.idioma != idiomas.PADRAO:
++            targets[s.n] = idiomas.PADRAO
++        elif c.patient_language != idiomas.PADRAO and s.falante not in PATIENT_SIDE:
++            targets[s.n] = c.patient_language
++    return targets
++
++
+ def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int] | None) -> dict:
+     c = _get(db, cid)
+     _require_ai(c, "a tradução por IA externa", "traducao")
+-    if c.patient_language == "pt-BR":
+-        return {"traducoes": {}}
+-    record, _, _ = _chart(fhir, c.patient_id)
++    record, events, ctx = _chart(fhir, c.patient_id)
+     segments = _segments(c)
+-    targets = {
+-        s.n: ("pt-BR" if s.falante in PATIENT_SIDE else c.patient_language)
+-        for s in segments
+-        if (ns is None or s.n in ns) and not s.traducao and s.origem != "marco"
+-    }
++    targets = translate_targets(c, segments, ns)
++    if not targets:
++        return {"traducoes": {}, "insights": c.insights_json}
+     try:
+         done = ai.run_translation(segments, targets, _pseudo(record))
+     except LLMError as exc:
+@@ -1204,9 +1229,30 @@ def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int]
+     for s in segments:
+         if s.n in done:
+             s.traducao = done[s.n]
++            # números, doses e medicamentos conferidos por regra entre a fala e a tradução (não depende do LLM)
++            s.traducao_divergente = (
++                [] if idiomas.placeholder(s.traducao) else fidelidade.divergencias(s.texto, s.traducao)
++            )
+     c.segments_json = [s.model_dump() for s in segments]
+-    log_action(db, user, "consulta.traducao", "consultation", c.id, {"falas": len(done), "idioma": c.patient_language})
+-    return {"traducoes": {str(k): v for k, v in done.items()}}
++    # com a tradução, as regras passam a ler a fala estrangeira pela tradução (Fala/N preservada)
++    ins = _refresh_insights(c, record, events, ctx, segments)
++    log_action(
++        db,
++        user,
++        "consulta.traducao",
++        "consultation",
++        c.id,
++        {
++            "falas": len(done),
++            "idioma": c.patient_language,
++            "divergentes": sum(1 for s in segments if s.n in done and s.traducao_divergente),
++        },
++    )
++    return {
++        "traducoes": {str(k): v for k, v in done.items()},
++        "divergentes": {str(s.n): s.traducao_divergente for s in segments if s.n in done and s.traducao_divergente},
++        "insights": ins.model_dump(mode="json"),
++    }
+ 
+ 
+ # ---------- nota, revisão e envio ----------
+@@ -1673,6 +1719,19 @@ def _gate_clinical_export(c: Consultation) -> None:
+         )
+ 
+ 
++def _interpretacao(c: Consultation) -> str | None:
++    """Linha "Consulta com interpretação por IA (es→pt-BR)": só com tradução de fato, um par por idioma de origem."""
++    pairs: list[str] = []
++    for s in _segments(c):
++        if not s.traducao or idiomas.placeholder(s.traducao):
++            continue
++        src, dst = (s.idioma, idiomas.PADRAO) if s.idioma != idiomas.PADRAO else (idiomas.PADRAO, c.patient_language)
++        pair = f"{src}→{dst}"
++        if pair not in pairs:
++            pairs.append(pair)
++    return f"Consulta com interpretação por IA ({', '.join(sorted(pairs))})" if pairs else None
++
++
+ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:
+     _require_review(c)
+     record = load_record(fhir, c.patient_id)
+@@ -1680,8 +1739,12 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
+     role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
+     author = f"{user.name} ({role})"
+     note = reidentify(c.note_json, record)  # o prontuário recebe os nomes, não os tokens enviados à IA
+-    text = note_as_text(c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c))
++    interp = _interpretacao(c)
++    text = note_as_text(
++        c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c), interpretacao=interp
++    )
+     doc = document_reference(
++        interpretacao=interp,
+         kind=c.kind,
+         patient_id=c.patient_id,
+         patient_name=record.name,
+diff --git a/apps/api/app/consult/text.py b/apps/api/app/consult/text.py
+index b38578e..8a7dcda 100644
+--- a/apps/api/app/consult/text.py
++++ b/apps/api/app/consult/text.py
+@@ -28,7 +28,10 @@ LIGHT_WORDS = set(
+         "sentindo sentido estou to tou ta estava estive ando andei anda fico fiquei sou foi era e apresento "
+         "apresentei notei percebi vai vou vamos precisa precisar preciso precisou quer quero pode posso deve "
+         "crise crises sintoma sintomas sinal problema problemas episodio queixa vez vezes ser ter ficar fazer "
+-        "ha necessario necessaria necessidade indicacao"
++        "ha necessario necessaria necessidade indicacao "
++        # espanhol e inglês (fala estrangeira sem tradução): auxiliares e artigos que não interrompem a negação
++        "me te se el la los las en mi mis he has tengo tienes tiene tenido tuve tenia siento sentido estoy "
++        "i have had having do does did feel felt any my the an got am im ive"
+     ).split()
+ )
+ # "não vai ter que operar": o "que" de "ter que" não interrompe o alcance; "nada de dor no peito" é negativa
+diff --git a/apps/api/app/discharge/documents.py b/apps/api/app/discharge/documents.py
+index 6b050cf..2446ee5 100644
+--- a/apps/api/app/discharge/documents.py
++++ b/apps/api/app/discharge/documents.py
+@@ -4,14 +4,16 @@ Inspirado na estruturação SOAP e na tradução de ferramentas de consulta (doc
+ transição hospital → casa. Toda linha cita a fonte; o HousIA não escreve no prontuário.
+ """
+ 
+-from typing import Literal
++from typing import Annotated
+ 
+-from pydantic import BaseModel
++from pydantic import AfterValidator, BaseModel
+ 
++from app.consult import idiomas
+ from app.timeline.events import ClinicalEvent
+ from app.timeline.record import MedInfo, PatientRecord
+ 
+-Language = Literal["pt-BR", "es", "en"]
++# os mesmos idiomas da consulta (data/reference/languages.csv); no modo mock o texto continua em pt-BR
++Language = Annotated[str, AfterValidator(idiomas.validar)]
+ HOME_ROUTES = {"vo", "sc", "inalatória", "inalatoria", "sl", "tópica", "topica"}
+ 
+ 
+diff --git a/apps/api/app/discharge/service.py b/apps/api/app/discharge/service.py
+index 96e269b..8244775 100644
+--- a/apps/api/app/discharge/service.py
++++ b/apps/api/app/discharge/service.py
+@@ -11,6 +11,7 @@ from app import clock
+ from app.alerts.service import upsert_alert
+ from app.audit.service import log_action
+ from app.config import get_settings
++from app.consult import idiomas
+ from app.db.models import Alert, DischargeAssessment, DischargeDocument, DischargeOverride, User
+ from app.discharge.documents import DischargeDocsOutput, home_meds, mock_documents
+ from app.discharge.scoring import SocialChecklist, final_risk, lace, lace_band, social_band, social_score
+@@ -365,7 +366,7 @@ def generate_documents(db: Session, fhir: FhirSource, user: User, patient_id: st
+             if assessment
+             else "sem avaliação de alta registrada",
+         }
+-    ) | {"idioma": language}
++    ) | {"idioma": f"{idiomas.rotulo(language)} ({language})"}
+     result = generate_structured(
+         "discharge_docs",
+         variables,
+diff --git a/apps/api/app/seed/builder.py b/apps/api/app/seed/builder.py
+index 44720dd..0f67604 100644
+--- a/apps/api/app/seed/builder.py
++++ b/apps/api/app/seed/builder.py
+@@ -227,6 +227,10 @@ class ScenarioBuilder:
+             "telecom": [{"system": "phone", "value": p["telefone"]}] if p.get("telefone") else [],
+             "address": [{"text": p["endereco"]}] if p.get("endereco") else [],
+         }
++        if p.get("idioma"):  # idioma preferido (BCP-47), lido pela consulta com IA para pré-selecionar a tradução
++            resource["communication"] = [
++                {"language": {"coding": [{"system": "urn:ietf:bcp:47", "code": p["idioma"]}]}, "preferred": True}
++            ]
+         self.out.append(resource)
+ 
+     def _encounters(self) -> None:
+diff --git a/apps/api/tests/test_consult_traducao.py b/apps/api/tests/test_consult_traducao.py
+new file mode 100644
+index 0000000..d5d5f53
+--- /dev/null
++++ b/apps/api/tests/test_consult_traducao.py
+@@ -0,0 +1,378 @@
++"""Tradução no nível da Lya (#22): 95+ idiomas, idioma do FHIR, regras sobre a tradução e fidelidade."""
++
++import pytest
++
++from app.consult import ai as consult_ai
++from app.consult import fidelidade, idiomas
++from app.consult import service as consult_service
++from app.consult.knowledge import demo_scripts
++from app.discharge.documents import Language as DischargeLanguage
++from tests.conftest import CONSENT
++from tests.test_consult import approve, start
++
++HISPANICA = demo_scripts()["cen_hispanica"]
++
++
++@pytest.fixture(autouse=True)
++def _fresh_chart_cache():
++    consult_service.clear_chart_cache()
++    yield
++    consult_service.clear_chart_cache()
++
++
++def falas(client, h, cid, itens):
++    payload = {"segmentos": [{"origem": "demo", **i} for i in itens]}
++    res = client.post(f"/consultations/{cid}/segments", json=payload, headers=h)
++    assert res.status_code == 200, res.text
++    return res.json()
++
++
++def play_script(client, h, cid):
++    res = falas(
++        client,
++        h,
++        cid,
++        [
++            {"falante": f["falante"], "texto": f["texto"], "t": f["t"], "idioma": f["idioma"]}
++            for f in HISPANICA["falas"]
++        ],
++    )
++    return res["insights"]
++
++
++def tag(ins, rotulo):
++    return next((t for t in ins["queixas"] if t["rotulo"] == rotulo), None)
++
++
++# ---------- (1) idiomas ----------
++def test_config_lists_at_least_95_languages_with_speech_codes(client, auth):
++    cfg = client.get("/consult/config", headers=auth("medico")).json()
++    langs = cfg["idiomas"]
++    assert len(langs) >= 95
++    codes = {i["value"] for i in langs}
++    assert {"pt-BR", "es", "en", "fr", "it", "de", "zh", "ar", "ht"} <= codes  # os 9 de antes continuam
++    assert len(codes) == len(langs)  # sem repetição
++    es = next(i for i in langs if i["value"] == "es")
++    assert es["label"] == "Español" and es["web_speech"] == "es-ES" and es["whisper"] == "es"
++    assert all(i["label"] for i in langs)
++
++
++def test_language_is_validated_against_the_csv(client, auth):
++    h = auth("medico")
++    bad = client.post(
++        "/patients/cen6/consultations",
++        json={"tipo": "consulta", "idioma_paciente": "klingon", "consentimento": CONSENT},
++        headers=h,
++    )
++    assert bad.status_code == 422
++    ok = start(client, h, idioma_paciente="sw")  # suaíli: antes não existia
++    assert ok["idioma_paciente"] == "sw"
++    regional = start(client, h, idioma_paciente="es-MX")  # regional cai no idioma-base
++    assert regional["idioma_paciente"] == "es"
++
++
++def test_discharge_documents_accept_the_same_languages():
++    assert DischargeLanguage.__metadata__[0].func("ru") == "ru"
++    with pytest.raises(ValueError):
++        DischargeLanguage.__metadata__[0].func("zzz")
++
++
++def test_discharge_documents_fall_back_to_ptbr_in_mock(client, auth):
++    h = auth("medico")
++    res = client.post("/patients/cen3/discharge-documents", json={"idioma": "ru"}, headers=h)
++    assert res.status_code == 200, res.text
++    body = res.json()
++    assert body["idioma"] == "ru" and body["meta"]["traducao_disponivel"] is False
++    assert body["orientacoes"]["titulo"]  # conteúdo em pt-BR no mock
++
++
++# ---------- (2) idioma vindo do FHIR ----------
++def test_patient_communication_preselects_the_language(client, auth):
++    h = auth("medico")
++    got = client.get("/patients/cen8/consult/idioma", headers=h).json()
++    assert got == {"idioma": "es", "rotulo": "Español", "fonte": "Patient.communication"}
++    assert client.get("/patients/cen6/consult/idioma", headers=h).json()["idioma"] == "pt-BR"
++    # sem idioma no corpo, a consulta nasce em espanhol
++    res = client.post("/patients/cen8/consultations", json={"tipo": "consulta", "consentimento": CONSENT}, headers=h)
++    assert res.status_code == 200, res.text
++    assert res.json()["idioma_paciente"] == "es"
++    # idioma explícito do profissional vale mais que o do cadastro
++    assert start(client, h, "cen8", idioma_paciente="en")["idioma_paciente"] == "en"
++
++
++def test_patient_communication_prefers_the_preferred_entry():
++    patient = {
++        "communication": [
++            {"language": {"coding": [{"code": "pt"}]}},
++            {"language": {"coding": [{"system": "urn:ietf:bcp:47", "code": "ht"}]}, "preferred": True},
++        ]
++    }
++    assert idiomas.do_paciente(patient) == ("ht", "Patient.communication")
++    assert idiomas.do_paciente({}) == (None, "")
++
++
++# ---------- (4) regras sobre a tradução ----------
++def test_rules_read_spanish_before_any_translation(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    res = falas(client, h, cid, [{"falante": "paciente", "texto": "me duele el pecho desde ayer", "t": 1}])
++    t = tag(res["insights"], "Dor no peito")
++    assert t and t["status"] == "presente" and t["refs"] == ["Fala/1"]
++    assert res["novos"][0]["idioma"] == "es"
++
++
++def test_translated_utterance_feeds_the_engine_keeping_fala_n(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    falas(
++        client,
++        h,
++        cid,
++        [
++            {"falante": "medico", "texto": "Bom dia! Como a senhora está?", "t": 0},
++            {"falante": "paciente", "texto": "Buenos días, doctora. Me duele el pecho desde ayer.", "t": 3},
++        ],
++    )
++    out = client.post(f"/consultations/{cid}/translate", json={}, headers=h)
++    assert out.status_code == 200, out.text
++    seg = client.get(f"/consultations/{cid}", headers=h).json()["segmentos"]
++    assert seg[1]["traducao"] == "Bom dia, doutora. Estou com dor no peito desde ontem."  # gravada no roteiro
++    assert seg[1]["traducao_divergente"] == []
++    t = tag(out.json()["insights"], "Dor no peito")
++    assert t and t["status"] == "presente" and t["refs"] == ["Fala/2"]
++    # o resumo e o alerta de "Relata: dor no peito" citam a mesma fala
++    assert any(
++        "dor no peito" in a["texto"].lower() and a["refs"] == ["Fala/2"]
++        for a in out.json()["insights"]["resumo"]["destaques"]
++    )
++
++
++@pytest.mark.parametrize(
++    ("texto", "status"),
++    [
++        ("No me duele el pecho, doctora.", "negado"),
++        ("Nunca he tenido dolor de pecho.", "negado"),
++        ("Sin dolor de pecho desde que empecé el tratamiento.", "negado"),
++        ("I have chest pain since yesterday", "presente"),
++        ("I do not have chest pain", "negado"),
++        ("Never had chest pain.", "negado"),
++        ("Tengo dolor en el pecho cuando camino.", "presente"),
++    ],
++)
++def test_foreign_negation_does_not_create_false_positives(client, auth, texto, status):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    idioma = "en" if texto.split()[0] in ("I", "Never") else "es"
++    ins = falas(client, h, cid, [{"falante": "paciente", "texto": texto, "t": 1, "idioma": idioma}])["insights"]
++    queixa = [t for t in ins["queixas"] if t["rotulo"] == "Dor no peito"]
++    assert queixa and queixa[0]["status"] == status
++    if status == "negado":
++        assert not any(a["texto"] == "Relata: dor no peito" for a in ins["resumo"]["destaques"])
++
++
++def test_portuguese_keeps_working_with_the_words_no_and_sem(client, auth):
++    """ "no" é "em o" em português: a troca de negação só vale para fala estrangeira."""
++    h = auth("medico")
++    cid = start(client, h, "cen6")["id"]
++    ins = falas(client, h, cid, [{"falante": "paciente", "texto": "Sinto uma dor no peito.", "t": 1}])["insights"]
++    assert tag(ins, "Dor no peito")["status"] == "presente"
++
++
++def test_spanish_synonyms_for_symptoms_emotions_and_adherence(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    ins = falas(
++        client,
++        h,
++        cid,
++        [
++            {"falante": "paciente", "texto": "Estoy mareada y tengo mucho cansancio.", "t": 1},
++            {"falante": "paciente", "texto": "Tengo miedo, doctora.", "t": 5},
++            {"falante": "paciente", "texto": "A veces se me olvida tomar la pastilla de la presión.", "t": 9},
++            {"falante": "paciente", "texto": "I feel dizzy and I have a bad headache", "t": 13, "idioma": "en"},
++        ],
++    )["insights"]
++    labels = {t["rotulo"] for t in ins["queixas"] if t["status"] == "presente"}
++    assert {"Tontura", "Cansaço", "Dor de cabeça"} <= labels
++    assert any(e["emocao"] == "ansiedade" and "Fala/2" in e["refs"] for e in ins["emocoes"])
++    assert any("Fala/3" in r for r in consult_ai_refs(ins, "adesao"))
++
++
++def consult_ai_refs(ins, _kind):
++    """Refs de qualquer item de adesão (alerta de medicamento ou pergunta/lembrete) citando a fala."""
++    found = []
++    for k in ("sugestoes_medicamentos", "alertas", "lembretes", "medicamentos"):
++        for item in ins.get(k, []):
++            found.append(item.get("refs", []))
++    return [r for refs in found for r in refs]
++
++
++# ---------- (3) idioma por participante ----------
++def test_speaker_language_chip_is_editable_per_utterance(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    res = falas(
++        client,
++        h,
++        cid,
++        [
++            {"falante": "paciente", "texto": "Me duele el pecho.", "t": 1},
++            {"falante": "acompanhante", "texto": "She has had chest pain since yesterday.", "t": 4, "idioma": "en"},
++        ],
++    )
++    assert [s["idioma"] for s in res["novos"]] == ["es", "en"]
++    client.post(f"/consultations/{cid}/translate", json={}, headers=h)
++    # o chip da fala 2 muda para francês: a tradução antiga some e a fala pode ser traduzida de novo
++    patched = client.patch(f"/consultations/{cid}/segments/2", json={"idioma": "fr"}, headers=h)
++    assert patched.status_code == 200, patched.text
++    seg = patched.json()["segmentos"][1]
++    assert seg["idioma"] == "fr" and seg["traducao"] is None
++    assert client.patch(f"/consultations/{cid}/segments/2", json={"idioma": "zzz"}, headers=h).status_code == 422
++
++
++def test_doctor_utterances_are_translated_to_the_patient_language(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    falas(
++        client,
++        h,
++        cid,
++        [
++            {
++                "falante": "medico",
++                "texto": "Bom dia, dona Carmen! Que bom ver a senhora. O Luis veio junto hoje.",
++                "t": 0,
++            }
++        ],
++    )
++    out = client.post(f"/consultations/{cid}/translate", json={}, headers=h).json()
++    assert out["traducoes"]["1"].startswith("¡Buenos días, doña [PACIENTE]!")
++
++
++# ---------- (6) fidelidade ----------
++def test_fidelity_detects_changed_numbers_units_and_drugs():
++    assert fidelidade.divergencias("Tomo metformina de 500 mg", "Tomo metformina de 500 mg") == []
++    assert fidelidade.divergencias("Tomo losartán de 50 mg", "Tomo losartana de 50 mg") == []  # es → pt: mesmo remédio
++    assert fidelidade.divergencias("Hace dos días", "Há 2 dias") == []  # por extenso = dígito
++    assert fidelidade.divergencias("Tomo 38,5 grados", "Tomo 38.5 graus") == []
++    assert any("500" in d for d in fidelidade.divergencias("Tomo metformina de 500 mg", "Tomo metformina de 50 mg"))
++    assert any("unidade" in d for d in fidelidade.divergencias("Tomo 500 mg", "Tomo 500 mcg"))
++    assert any("medicamentos" in d for d in fidelidade.divergencias("Tomo ibuprofeno", "Tomo dipirona"))
++    assert any("medicamentos" in d for d in fidelidade.divergencias("Tomo ibuprofeno y losartán", "Tomo ibuprofeno"))
++    assert fidelidade.divergencias("Me duele la cabeza", "Dói a cabeça") == []
++
++
++def test_wrong_dose_in_translation_raises_translation_alert(client, auth, monkeypatch):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    falas(client, h, cid, [{"falante": "paciente", "texto": "Tomo metformina de 500 mg con la cena.", "t": 1}])
++
++    def troca_dose(segments, targets, pseudo):
++        return {n: "Tomo metformina de 50 mg no jantar." for n in targets}
++
++    monkeypatch.setattr(consult_ai, "run_translation", troca_dose)
++    out = client.post(f"/consultations/{cid}/translate", json={}, headers=h)
++    assert out.status_code == 200, out.text
++    seg = client.get(f"/consultations/{cid}", headers=h).json()["segmentos"][0]
++    assert seg["traducao_divergente"] and "500" in seg["traducao_divergente"][0]
++    alert = next(a for a in out.json()["insights"]["alertas"] if a["categoria"] == "traducao")
++    assert "Tradução divergente" in alert["texto"] and alert["refs"] == ["Fala/1"] and alert["severidade"] == "atencao"
++
++
++def test_faithful_translation_has_no_translation_alert(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    play_script(client, h, cid)
++    out = client.post(f"/consultations/{cid}/translate", json={}, headers=h).json()
++    assert not [a for a in out["insights"]["alertas"] if a["categoria"] == "traducao"]
++
++
++# ---------- (10) roteiro cen_hispanica no modo mock ----------
++def test_cen_hispanica_translations_in_mock_mode(client, auth):
++    h = auth("medico")
++    assert any(s["id"] == "cen_hispanica" for s in client.get("/consult/demo-scripts", headers=h).json())
++    cid = start(client, h, "cen8")["id"]
++    assert client.get(f"/consultations/{cid}", headers=h).json()["idioma_paciente"] == "es"
++    ins = play_script(client, h, cid)
++    assert tag(ins, "Dor no peito")["refs"]
++    out = client.post(f"/consultations/{cid}/translate", json={}, headers=h)
++    assert out.status_code == 200, out.text
++    segs = client.get(f"/consultations/{cid}", headers=h).json()["segmentos"]
++    # a tradução trafega pseudonimizada (como com o LLM real): os nomes viram [PACIENTE]/[FAMILIAR]
++    esperado = {
++        f["texto"]: f["traducao"].replace("Carmen", "[PACIENTE]").replace("Luis", "[FAMILIAR]")
++        for f in HISPANICA["falas"]
++        if f.get("traducao")
++    }
++    assert len(esperado) >= 12
++    for s in segs:
++        if s["texto"] in esperado:
++            assert s["traducao"] == esperado[s["texto"]], s  # a gravada, não o aviso do mock
++            assert s["traducao_divergente"] == []
++    final = out.json()["insights"]
++    assert tag(final, "Dor no peito")["status"] == "presente"
++    assert any(e["emocao"] == "ansiedade" for e in final["emocoes"])  # "Tengo miedo" lido pela tradução
++    assert final["queixas"] and all(t["refs"] for t in final["queixas"])
++
++
++def test_unrecorded_utterance_gets_the_mock_notice_and_original_is_read(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    falas(client, h, cid, [{"falante": "paciente", "texto": "Tengo una tos seca desde hace tres días.", "t": 1}])
++    out = client.post(f"/consultations/{cid}/translate", json={}, headers=h).json()
++    assert "tradução com LLM real" in out["traducoes"]["1"]
++    assert tag(out["insights"], "Tosse")["status"] == "presente"  # o aviso do mock não vira texto clínico
++
++
++# ---------- consentimento ----------
++def test_translation_respects_consent_flags(client, auth):
++    h = auth("medico")
++    consent = CONSENT | {"finalidades": CONSENT["finalidades"] | {"traducao": False}}
++    res = client.post("/patients/cen8/consultations", json={"tipo": "consulta", "consentimento": consent}, headers=h)
++    cid = res.json()["id"]
++    falas(client, h, cid, [{"falante": "paciente", "texto": "Me duele el pecho desde ayer.", "t": 1}])
++    assert client.post(f"/consultations/{cid}/translate", json={}, headers=h).status_code == 403
++    # sem tradução por IA externa, as regras ainda leem o espanhol pelos sinônimos
++    ins = client.get(f"/consultations/{cid}", headers=h).json()["insights"]
++    assert tag(ins, "Dor no peito")["status"] == "presente"
++    no_ai = CONSENT | {"finalidades": CONSENT["finalidades"] | {"ia_externa": False, "traducao": False}}
++    cid2 = client.post(
++        "/patients/cen8/consultations", json={"tipo": "consulta", "consentimento": no_ai}, headers=h
++    ).json()["id"]
++    assert client.post(f"/consultations/{cid2}/translate", json={}, headers=h).status_code == 403
++
++
++# ---------- (9) nota e DocumentReference ----------
++def test_exported_note_records_ai_interpretation(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen8")["id"]
++    play_script(client, h, cid)
++    client.post(f"/consultations/{cid}/translate", json={}, headers=h)
++    client.post(f"/consultations/{cid}/finish", headers=h)
++    approve(client, h, cid)
++    res = client.get(f"/consultations/{cid}/export", headers=h)
++    if res.status_code == 409:  # pendência crítica aberta: o envio pede justificativa
++        sent = client.post(f"/consultations/{cid}/send", json={"justificativa": "Teste da interpretação"}, headers=h)
++        assert sent.status_code == 200, sent.text
++        res = client.get(f"/consultations/{cid}/export", headers=h)
++    assert res.status_code == 200, res.text
++    body = res.json()
++    assert "Consulta com interpretação por IA (es→pt-BR, pt-BR→es)" in body["texto"]
++    assert "interpretação por IA (es→pt-BR" in body["recurso"]["description"]
++
++
++def test_note_without_translation_has_no_interpretation_line(client, auth):
++    h = auth("medico")
++    cid = start(client, h, "cen6")["id"]
++    falas(client, h, cid, [{"falante": "paciente", "texto": "Estou tonta quando levanto.", "t": 1}])
++    client.post(f"/consultations/{cid}/finish", headers=h)
++    approve(client, h, cid)
++    res = client.get(f"/consultations/{cid}/export", headers=h)
++    if res.status_code == 409:
++        sent = client.post(
++            f"/consultations/{cid}/send", json={"justificativa": "Risco discutido com a paciente"}, headers=h
++        )
++        assert sent.status_code == 200, sent.text
++        res = client.get(f"/consultations/{cid}/export", headers=h)
++    assert res.status_code == 200, res.text
++    assert "interpretação por IA" not in res.json()["texto"]
+diff --git a/apps/web/app/pacientes/[id]/consulta/legenda/page.tsx b/apps/web/app/pacientes/[id]/consulta/legenda/page.tsx
+new file mode 100644
+index 0000000..8db01d5
+--- /dev/null
++++ b/apps/web/app/pacientes/[id]/consulta/legenda/page.tsx
+@@ -0,0 +1,7 @@
++import { CaptionScreen } from "@/components/consult/caption-screen";
++
++export const metadata = { title: "Legenda da consulta" };
++
++export default function LegendaPage() {
++  return <CaptionScreen />;
++}
+diff --git a/apps/web/components/consult/caption-screen.tsx b/apps/web/components/consult/caption-screen.tsx
+new file mode 100644
+index 0000000..15761b2
+--- /dev/null
++++ b/apps/web/components/consult/caption-screen.tsx
+@@ -0,0 +1,109 @@
++"use client";
++
++import { useEffect, useState } from "react";
++import { Languages, Volume2 } from "lucide-react";
++
++import { reidentify } from "@/components/ai/ai-badge";
++import { usePatient } from "@/components/patient/patient-context";
++import { Alert } from "@/components/ui/alert";
++import { Button } from "@/components/ui/button";
++import { api, type ConsultConfig, type Consultation } from "@/lib/api";
++import { useAuth } from "@/lib/auth";
++import { useApi } from "@/lib/use-api";
++
++type Summary = { id: number; status: Consultation["status"] };
++const MOCK_MARK = "tradução com LLM real";
++
++/**
++ * Legenda grande no idioma do paciente (rota /pacientes/[id]/consulta/legenda): abre numa segunda tela ou no tablet
++ * voltado ao paciente e mostra as últimas falas do profissional já traduzidas, atualizando a cada 2 segundos.
++ */
++export function CaptionScreen() {
++  const { patient } = usePatient();
++  const { user } = useAuth();
++  const allowed = user?.role === "medico" || user?.role === "enfermagem";
++  const config = useApi<ConsultConfig>(allowed ? "/consult/config" : null);
++  const [consultation, setConsultation] = useState<Consultation | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  useEffect(() => {
++    if (!allowed) return;
++    let alive = true;
++    let id: number | null = null;
++    async function tick() {
++      try {
++        if (id === null) {
++          const list = await api<Summary[]>(`/patients/${patient.id}/consultations`);
++          id = list.find((c) => c.status === "em_andamento")?.id ?? null;
++        }
++        if (id !== null) {
++          const c = await api<Consultation>(`/consultations/${id}`);
++          if (alive) setConsultation(c);
++          if (c.status !== "em_andamento") id = null;
++        } else if (alive) {
++          setConsultation(null);
++        }
++        if (alive) setError(null);
++      } catch (e) {
++        if (alive) setError(e instanceof Error ? e.message : "Erro ao carregar a legenda");
++      }
++    }
++    void tick();
++    const timer = window.setInterval(() => void tick(), 2000);
++    return () => {
++      alive = false;
++      window.clearInterval(timer);
++    };
++  }, [allowed, patient.id]);
++
++  if (!allowed) return <Alert variant="atencao">A legenda é exibida para médicos e enfermagem.</Alert>;
++
++  const lang = consultation?.idioma_paciente ?? "pt-BR";
++  const speechLang = config.data?.idiomas.find((i) => i.value === lang)?.web_speech ?? lang;
++  const label = config.data?.idiomas.find((i) => i.value === lang)?.label ?? lang;
++  // falas do profissional com tradução real (o aviso do modo demonstração não é legenda)
++  const lines = (consultation?.segmentos ?? [])
++    .filter((s) => s.falante === "medico" && s.traducao && !s.traducao.includes(MOCK_MARK))
++    .slice(-3);
++  const last = lines[lines.length - 1];
++
++  function speak(text: string) {
++    const u = new SpeechSynthesisUtterance(reidentify(text, patient.nome));
++    u.lang = speechLang;
++    window.speechSynthesis.cancel();
++    window.speechSynthesis.speak(u);
++  }
++
++  return (
++    <section aria-labelledby="legenda-titulo" className="space-y-4" data-testid="legenda">
++      <header className="flex flex-wrap items-center gap-3">
++        <Languages aria-hidden className="size-6 text-primary" />
++        <h2 id="legenda-titulo" className="text-xl font-bold">
++          Legenda da consulta {consultation ? `— ${label}` : ""}
++        </h2>
++        {last && (
++          <Button variant="outline" size="sm" onClick={() => speak(last.traducao!)} aria-label="Ouvir a última fala">
++            <Volume2 aria-hidden /> Ouvir
++          </Button>
++        )}
++      </header>
++      {error && <Alert variant="atencao">{error}</Alert>}
++      {!consultation && !error && (
++        <p className="text-lg text-muted-foreground">Nenhuma consulta em andamento para este paciente.</p>
++      )}
++      {consultation && lines.length === 0 && (
++        <p className="text-lg text-muted-foreground">Aguardando a fala do profissional…</p>
++      )}
++      <div lang={speechLang} dir="auto" aria-live="polite" className="space-y-4" data-testid="legenda-falas">
++        {lines.map((s, i) => (
++          <p
++            key={s.n}
++            className={i === lines.length - 1 ? "text-4xl font-bold leading-tight md:text-5xl" : "text-2xl leading-snug text-muted-foreground"}
++          >
++            {reidentify(s.traducao!, patient.nome)}
++          </p>
++        ))}
++      </div>
++    </section>
++  );
++}
+diff --git a/apps/web/components/consult/capture.ts b/apps/web/components/consult/capture.ts
+index 29845fe..5988f49 100644
+--- a/apps/web/components/consult/capture.ts
++++ b/apps/web/components/consult/capture.ts
+@@ -282,7 +282,7 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
+ export function useDemoPlayer(
+   script: DemoScript | null,
+   startAt: number,
+-  onLine: (line: { falante: Speaker; texto: string; t: number }) => void,
++  onLine: (line: { falante: Speaker; texto: string; t: number; idioma?: string }) => void,
+ ) {
+   const [playing, setPlaying] = useState(false);
+   const [index, setIndex] = useState(startAt);
+diff --git a/apps/web/components/consult/consult-page.tsx b/apps/web/components/consult/consult-page.tsx
+index 4c5dac3..21013eb 100644
+--- a/apps/web/components/consult/consult-page.tsx
++++ b/apps/web/components/consult/consult-page.tsx
+@@ -7,7 +7,7 @@ import { LiveConsult } from "@/components/consult/live-consult";
+ import { NoteReview } from "@/components/consult/note-review";
+ import { SmartAppsPanel } from "@/components/consult/smart-apps";
+ import { SurgicalPanel } from "@/components/consult/surgical-panel";
+-import { Transcript, VOICE_LANG, type SegmentPatch } from "@/components/consult/transcript";
++import { Transcript, type SegmentPatch } from "@/components/consult/transcript";
+ import { usePatient } from "@/components/patient/patient-context";
+ import { Alert } from "@/components/ui/alert";
+ import { Badge } from "@/components/ui/badge";
+@@ -43,6 +43,12 @@ export function ConsultPage() {
+   const [tipo, setTipo] = useState<ConsultKind>(patient.internado ? "visita" : "consulta");
+   const [especialidade, setEspecialidade] = useState(user?.role === "enfermagem" ? "enfermagem" : "clinica_medica");
+   const [idioma, setIdioma] = useState("pt-BR");
++  // idioma preferido do paciente no cadastro (Patient.communication): pré-seleciona a tradução, o médico pode trocar
++  const preferred = useApi<{ idioma: string; rotulo: string; fonte: string }>(allowed ? `/patients/${patient.id}/consult/idioma` : null);
++  const [langTouched, setLangTouched] = useState(false);
++  useEffect(() => {
++    if (preferred.data && !langTouched) setIdioma(preferred.data.idioma);
++  }, [preferred.data, langTouched]);
+   // consentimento (etapa obrigatória antes de Iniciar): quem consentiu, finalidades e recusa
+   const companions = useApi<{ id: string; nome: string; parentesco: string }[]>(allowed ? `/patients/${patient.id}/consult/acompanhantes` : null);
+   const [quem, setQuem] = useState<"paciente" | "acompanhante" | "responsavel">("paciente");
+@@ -114,7 +120,7 @@ export function ConsultPage() {
+   const notice = config.data?.aviso_consentimento?.[patientLang] ?? config.data?.aviso_consentimento?.["pt-BR"] ?? "";
+   function readAloud() {
+     const u = new SpeechSynthesisUtterance(notice);
+-    u.lang = VOICE_LANG[patientLang] ?? patientLang;
++    u.lang = config.data?.idiomas.find((i) => i.value === patientLang)?.web_speech ?? patientLang;
+     window.speechSynthesis.cancel();
+     window.speechSynthesis.speak(u);
+   }
+@@ -261,7 +267,12 @@ export function ConsultPage() {
+             </div>
+             <div className="space-y-1.5">
+               <Label htmlFor="idioma">Idioma do paciente</Label>
+-              <NativeSelect id="idioma" value={idioma} onChange={(e) => setIdioma(e.target.value)} disabled={tipo === "cirurgia"}>
++              <NativeSelect id="idioma" value={idioma} onChange={(e) => {
++                  setLangTouched(true);
++                  setIdioma(e.target.value);
++                }}
++                disabled={tipo === "cirurgia"}
++              >
+                 {config.data.idiomas.map((i) => (
+                   <option key={i.value} value={i.value}>
+                     {i.label}
+@@ -275,6 +286,11 @@ export function ConsultPage() {
+             {surgicalMode &&
+               " O modelo do relatório segue o procedimento ditado ou agendado (ex.: artroplastia de joelho, cesariana); a especialidade vale quando nenhum dos dois é reconhecido."}
+           </p>
++          {preferred.data?.fonte && preferred.data.idioma !== "pt-BR" && (
++            <p className="text-sm text-muted-foreground" data-testid="idioma-cadastro">
++              Idioma sugerido pelo cadastro do paciente ({preferred.data.fonte}): {preferred.data.rotulo}.
++            </p>
++          )}
+           {idioma !== "pt-BR" && (
+             <p className="text-sm text-muted-foreground">
+               Tradução simultânea: as falas do paciente aparecem traduzidas para você e as suas, no idioma do paciente (com áudio).
+diff --git a/apps/web/components/consult/live-consult.tsx b/apps/web/components/consult/live-consult.tsx
+index 95e42db..7f1604e 100644
+--- a/apps/web/components/consult/live-consult.tsx
++++ b/apps/web/components/consult/live-consult.tsx
+@@ -24,6 +24,7 @@ import { CopilotPanel } from "@/components/consult/copilot-panel";
+ import { SmartAppsPanel } from "@/components/consult/smart-apps";
+ import { SurgicalPanel } from "@/components/consult/surgical-panel";
+ import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS, type SegmentPatch } from "@/components/consult/transcript";
++import { reidentify } from "@/components/ai/ai-badge";
+ import { usePatient } from "@/components/patient/patient-context";
+ import { Alert } from "@/components/ui/alert";
+ import { Badge } from "@/components/ui/badge";
+@@ -47,10 +48,9 @@ import { useApi } from "@/lib/use-api";
+ import { cn } from "@/lib/utils";
+ 
+ type Mode = "microfone" | "servidor" | "digitar" | "demo";
+-type SegmentIn = { falante: Speaker; texto: string; t?: number; origem: Segment["origem"] };
++type SegmentIn = { falante: Speaker; texto: string; t?: number; origem: Segment["origem"]; idioma?: string };
+ 
+ const AI_EVERY_MS = 12000;
+-const RECOGNITION_LANG: Record<string, string> = { "pt-BR": "pt-BR", es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT", de: "de-DE", zh: "zh-CN", ar: "ar-SA", ht: "fr-HT" };
+ const KIND_LABEL = { consulta: "Consulta", visita: "Visita à beira do leito", cirurgia: "Ditado cirúrgico" };
+ const CONSULT_SPEAKERS: Speaker[] = ["medico", "paciente", "acompanhante", "desconhecido"];
+ // modo cirúrgico: a equipe de sala também dita (Alt+4 anestesista, Alt+5 circulante, Alt+6 instrumentador)
+@@ -96,6 +96,9 @@ export function LiveConsult({
+   const [error, setError] = useState<string | null>(null);
+   const [aiRunning, setAiRunning] = useState(false);
+   const [autoAI, setAutoAI] = useState(true);
++  const [autoVoice, setAutoVoice] = useState(true);
++  const autoVoiceRef = useRef(true);
++  autoVoiceRef.current = autoVoice;
+   const [finishing, setFinishing] = useState(false);
+   const [elapsed, setElapsed] = useState(0);
+   const queue = useRef<Promise<void>>(Promise.resolve());
+@@ -128,17 +131,40 @@ export function LiveConsult({
+   const translate = useCallback(
+     async (ns: number[]) => {
+       const allowed = cRef.current.consentimento ? cRef.current.consentimento.permite.traducao : true;
+-      if (cRef.current.idioma_paciente === "pt-BR" || ns.length === 0 || !allowed) return;
++      const foreign = cRef.current.segmentos.some((s) => ns.includes(s.n) && s.idioma !== "pt-BR");
++      if ((cRef.current.idioma_paciente === "pt-BR" && !foreign) || ns.length === 0 || !allowed) return;
+       try {
+-        const out = await api<{ traducoes: Record<string, string> }>(`/consultations/${c.id}/translate`, { method: "POST", json: { ns } });
++        const out = await api<{ traducoes: Record<string, string>; divergentes: Record<string, string[]>; insights: ConsultInsights | null }>(
++          `/consultations/${c.id}/translate`,
++          { method: "POST", json: { ns } },
++        );
+         setConsultation((prev) =>
+-          prev ? { ...prev, segmentos: prev.segmentos.map((s) => (out.traducoes[s.n] ? { ...s, traducao: out.traducoes[s.n] } : s)) } : prev,
++          prev
++            ? {
++                ...prev,
++                segmentos: prev.segmentos.map((s) =>
++                  out.traducoes[s.n] ? { ...s, traducao: out.traducoes[s.n], traducao_divergente: out.divergentes?.[s.n] ?? [] } : s,
++                ),
++                insights: newerInsights(prev.insights, out.insights),
++              }
++            : prev,
+         );
++        // voz automática: a fala do profissional traduzida é lida em voz alta no idioma do paciente (desligável)
++        if (autoVoiceRef.current && typeof window !== "undefined" && "speechSynthesis" in window) {
++          const voice = config.idiomas.find((i) => i.value === cRef.current.idioma_paciente)?.web_speech ?? cRef.current.idioma_paciente;
++          cRef.current.segmentos
++            .filter((s) => ns.includes(s.n) && s.falante === "medico" && out.traducoes[s.n] && !out.traducoes[s.n].includes("tradução com LLM real"))
++            .forEach((s) => {
++              const u = new SpeechSynthesisUtterance(reidentify(out.traducoes[s.n], patient.nome));
++              u.lang = voice;
++              window.speechSynthesis.speak(u);
++            });
++        }
+       } catch (e) {
+         setError(e instanceof Error ? e.message : "Erro na tradução");
+       }
+     },
+-    [c.id, setConsultation],
++    [c.id, setConsultation, config.idiomas, patient.nome],
+   );
+ 
+   // envia em ordem (fila), mesmo com falas chegando rápido
+@@ -197,7 +223,7 @@ export function LiveConsult({
+ 
+   // ---------- captura ----------
+   const patientSide = speaker === "paciente" || speaker === "acompanhante";
+-  const lang = patientSide ? (RECOGNITION_LANG[c.idioma_paciente] ?? "pt-BR") : "pt-BR";
++  const lang = patientSide ? (config.idiomas.find((i) => i.value === c.idioma_paciente)?.web_speech ?? c.idioma_paciente) : "pt-BR";
+   const mic = useSpeechCapture(lang, (texto) => send([{ falante: speaker, texto, origem: "microfone" }]));
+   const recorder = useServerRecorder((blob) => {
+     queue.current = queue.current.then(async () => {
+@@ -216,7 +242,7 @@ export function LiveConsult({
+   });
+   const script = useApi<DemoScript>(c.roteiro_demo && mode === "demo" ? `/consult/demo-scripts/${c.roteiro_demo}` : null);
+   const demoStart = c.segmentos.filter((s) => s.origem === "demo").length;
+-  const demo = useDemoPlayer(script.data, demoStart, (line) => send([{ falante: line.falante, texto: line.texto, t: line.t, origem: "demo" }]));
++  const demo = useDemoPlayer(script.data, demoStart, (line) => send([{ falante: line.falante, texto: line.texto, t: line.t, origem: "demo", idioma: line.idioma }]));
+ 
+   // Alt+Q (segurar): pergunta por voz ao copiloto. Pausa a transcrição enquanto fala e nada vira Fala/N
+   const resumeMic = useRef(false);
+@@ -380,8 +406,9 @@ export function LiveConsult({
+       setConsultation((prev) =>
+         prev ? { ...prev, segmentos: updated.segmentos, insights: updated.insights ?? prev.insights, ia: updated.ia ?? prev.ia } : prev,
+       );
++      void translate([n]); // texto ou idioma novo: a tradução antiga foi descartada pelo servidor
+     },
+-    [c.id, setConsultation],
++    [c.id, setConsultation, translate],
+   );
+ 
+   // pausa de privacidade, retomada e revogação do consentimento: viram marcos na transcrição
+@@ -466,6 +493,11 @@ export function LiveConsult({
+                 <input type="checkbox" checked={autoAI} onChange={(e) => setAutoAI(e.target.checked)} className="size-4" /> IA automática
+               </label>
+             )}
++            {c.idioma_paciente !== "pt-BR" && (
++              <label className="inline-flex min-h-9 items-center gap-1.5 text-xs">
++                <input type="checkbox" checked={autoVoice} onChange={(e) => setAutoVoice(e.target.checked)} className="size-4" /> Voz automática ao paciente
++              </label>
++            )}
+             {consent && consentState === "ativo" && (
+               <Button variant="outline" size="sm" onClick={() => void marker("pausa")}>
+                 <Pause aria-hidden /> Pausa de privacidade
+diff --git a/apps/web/components/consult/transcript.tsx b/apps/web/components/consult/transcript.tsx
+index 02e7b61..82c4ba2 100644
+--- a/apps/web/components/consult/transcript.tsx
++++ b/apps/web/components/consult/transcript.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import { useEffect, useRef, useState } from "react";
+-import { Languages, Pause, Pencil, Play, ShieldOff, Volume2 } from "lucide-react";
++import { AlertTriangle, Languages, Pause, Pencil, Play, ShieldOff, Volume2 } from "lucide-react";
+ 
+ import { Checkbox } from "@/components/ui/checkbox";
+ import { Label } from "@/components/ui/label";
+@@ -11,7 +11,8 @@ import { usePatient } from "@/components/patient/patient-context";
+ import { Button } from "@/components/ui/button";
+ import { NativeSelect } from "@/components/ui/native-select";
+ import { Textarea } from "@/components/ui/textarea";
+-import type { Segment, Speaker } from "@/lib/api";
++import type { ConsultConfig, Segment, Speaker } from "@/lib/api";
++import { useApi } from "@/lib/use-api";
+ import { cn } from "@/lib/utils";
+ 
+ export const SPEAKER_STYLE: Record<Speaker, string> = {
+@@ -41,6 +42,7 @@ export function speakerLabel(s: Speaker, proLabel: string) {
+ 
+ export const clock = (t: number) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+ 
++// voz do navegador por idioma; fora dessa lista vale o próprio código BCP-47 (a lista completa vem de /consult/config)
+ export const VOICE_LANG: Record<string, string> = { "pt-BR": "pt-BR", es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT", de: "de-DE", zh: "zh-CN", ar: "ar-SA", ht: "fr-HT" };
+ 
+ /** Transcrição ao vivo: falas com quem falou, tempo, tradução e destaque quando um Smart App cita a fala. */
+@@ -50,7 +52,7 @@ const MARKER_META = {
+   revogado: { label: "Consentimento revogado", Icon: ShieldOff },
+ } as const;
+ 
+-export type SegmentPatch = { texto?: string; falante?: Speaker };
++export type SegmentPatch = { texto?: string; falante?: Speaker; idioma?: string };
+ 
+ /** Transcrição: falas com quem falou, tempo, tradução, marcos de privacidade e, se `onEdit` vier, correção da fala. */
+ export function Transcript({
+@@ -73,6 +75,7 @@ export function Transcript({
+   const [editing, setEditing] = useState<number | null>(null);
+   const [draft, setDraft] = useState("");
+   const [draftSpeaker, setDraftSpeaker] = useState<Speaker>("medico");
++  const [draftLang, setDraftLang] = useState("pt-BR");
+   const [saving, setSaving] = useState(false);
+   const [editError, setEditError] = useState<string | null>(null);
+   const speakerOptions = speakers ?? (["medico", "paciente", "acompanhante"] as Speaker[]);
+@@ -81,6 +84,7 @@ export function Transcript({
+     const patch: SegmentPatch = {};
+     if (draft.trim() && draft.trim() !== s.texto) patch.texto = draft.trim();
+     if (draftSpeaker !== s.falante) patch.falante = draftSpeaker;
++    if (draftLang !== s.idioma) patch.idioma = draftLang;
+     if (Object.keys(patch).length === 0) {
+       setEditing(null);
+       return;
+@@ -192,6 +196,11 @@ export function Transcript({
+               <span className="tabular-nums text-muted-foreground">
+                 {clock(s.t)} · fala {s.n}
+               </span>
++              {(s.idioma !== "pt-BR" || patientLanguage !== "pt-BR") && s.origem !== "marco" && (
++                <span className="rounded border px-1.5 uppercase text-muted-foreground" title="Idioma em que a fala foi dita" data-testid={`idioma-fala-${s.n}`}>
++                  {s.idioma}
++                </span>
++              )}
+               {s.editado_em && (
+                 <span
+                   className="rounded border border-info-border bg-info-bg px-1.5 text-info"
+@@ -210,6 +219,7 @@ export function Transcript({
+                     setEditing(s.n);
+                     setDraft(s.texto);
+                     setDraftSpeaker(s.falante);
++                    setDraftLang(s.idioma);
+                     setEditError(null);
+                   }}
+                 >
+@@ -242,6 +252,7 @@ export function Transcript({
+                       </option>
+                     ))}
+                   </NativeSelect>
++                  <LanguageField id={`idioma-fala-edit-${s.n}`} value={draftLang} onChange={setDraftLang} />
+                   <Button size="sm" onClick={() => void save(s)} disabled={saving || !draft.trim()}>
+                     Salvar correção
+                   </Button>
+@@ -254,6 +265,12 @@ export function Transcript({
+             ) : (
+               <p className="leading-snug">{s.texto}</p>
+             )}
++            {s.traducao_divergente && s.traducao_divergente.length > 0 && (
++              <p className="mt-1 flex items-start gap-1.5 rounded border border-atencao-border bg-atencao-bg p-1.5 text-sm text-atencao" role="alert" data-testid={`traducao-divergente-${s.n}`}>
++                <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
++                <span>Tradução divergente: {s.traducao_divergente.join("; ")}. Confira a fala original.</span>
++              </p>
++            )}
+             {s.traducao && (
+               <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
+                 <Languages aria-hidden className="mt-0.5 size-4 shrink-0" />
+@@ -286,3 +303,20 @@ export function Transcript({
+     </div>
+   );
+ }
++
++/** Idioma de uma fala (chip editável): lista completa vinda da configuração (≥ 95 idiomas). */
++function LanguageField({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
++  const config = useApi<ConsultConfig>("/consult/config");
++  return (
++    <>
++      <Label htmlFor={id}>Idioma da fala</Label>
++      <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-10 w-48">
++        {(config.data?.idiomas ?? [{ value, label: value }]).map((i) => (
++          <option key={i.value} value={i.value}>
++            {i.label}
++          </option>
++        ))}
++      </NativeSelect>
++    </>
++  );
++}
+diff --git a/apps/web/components/discharge/discharge-documents.tsx b/apps/web/components/discharge/discharge-documents.tsx
+index 43ff887..c3a824d 100644
+--- a/apps/web/components/discharge/discharge-documents.tsx
++++ b/apps/web/components/discharge/discharge-documents.tsx
+@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Label } from "@/components/ui/label";
+ import { NativeSelect } from "@/components/ui/native-select";
+-import { api, type DischargeDocuments, type DocSection, type ImplantCard } from "@/lib/api";
++import { api, type ConsultConfig, type DischargeDocuments, type DocSection, type ImplantCard } from "@/lib/api";
++import { useApi } from "@/lib/use-api";
+ import { fmtDateTime } from "@/lib/format";
+ import { cn } from "@/lib/utils";
+ 
+@@ -80,6 +81,9 @@ const HANDOUT_LABELS = {
+ export function DischargeDocumentsCard() {
+   const { patient } = usePatient();
+   const [lang, setLang] = useState<DischargeDocuments["idioma"]>("pt-BR");
++  // mesma lista de idiomas da consulta (≥ 95); quem não pode ler a configuração fica com os três de sempre
++  const config = useApi<ConsultConfig>("/consult/config");
++  const langOptions = config.data?.idiomas ?? LANGS;
+   const [doc, setDoc] = useState<DischargeDocuments | null>(null);
+   const [tab, setTab] = useState<"soap" | "orientacoes">("orientacoes");
+   const [busy, setBusy] = useState(false);
+@@ -106,7 +110,7 @@ export function DischargeDocumentsCard() {
+ 
+   const name = patient.nome;
+   const r = (t: string) => reidentify(t, name);
+-  const L = HANDOUT_LABELS[doc?.meta.traducao_disponivel ? doc.idioma : "pt-BR"];
++  const L = HANDOUT_LABELS[(doc?.meta.traducao_disponivel ? doc.idioma : "pt-BR") as keyof typeof HANDOUT_LABELS] ?? HANDOUT_LABELS["pt-BR"];
+   const implants = doc?.cartao_implante ?? [];
+   const implantLine = (i: ImplantCard) =>
+     [
+@@ -156,8 +160,8 @@ export function DischargeDocumentsCard() {
+         <div className="flex flex-wrap items-end gap-2">
+           <div className="space-y-1.5">
+             <Label htmlFor="idioma">Idioma das orientações</Label>
+-            <NativeSelect id="idioma" value={lang} onChange={(e) => setLang(e.target.value as DischargeDocuments["idioma"])}>
+-              {LANGS.map((l) => (
++            <NativeSelect id="idioma" value={lang} onChange={(e) => setLang(e.target.value)}>
++              {langOptions.map((l) => (
+                 <option key={l.value} value={l.value}>
+                   {l.label}
+                 </option>
+diff --git a/apps/web/e2e/consulta.spec.ts b/apps/web/e2e/consulta.spec.ts
+index 0278803..2c89c21 100644
+--- a/apps/web/e2e/consulta.spec.ts
++++ b/apps/web/e2e/consulta.spec.ts
+@@ -200,3 +200,27 @@ test("transcrição editável: 'fala N' da nota rola até a fala e a edição pe
+   await page.getByRole("button", { name: /Nota para revisar/ }).first().click();
+   await expect(page.locator(`#fala-${n}`)).toContainText("Texto corrigido pelo profissional.");
+ });
++
++test("tradução (#22): idioma vindo do cadastro, traduções do roteiro cen_hispanica no modo mock e legenda grande", async ({ page }) => {
++  await login(page, "medico");
++  await openFresh(page, "cen8");
++  // Patient.communication = es pré-seleciona o espanhol, e há mais de 95 idiomas na lista
++  await expect(page.getByLabel("Idioma do paciente")).toHaveValue("es");
++  await expect(page.getByTestId("idioma-cadastro")).toContainText("Español");
++  expect(await page.getByLabel("Idioma do paciente").locator("option").count()).toBeGreaterThanOrEqual(95);
++  await startWithConsent(page);
++  await simulate(page);
++
++  // as falas em espanhol mostram a tradução pré-gravada (nenhum aviso de "tradução com LLM real")
++  const transcript = page.getByLabel("Transcrição da conversa");
++  await expect(transcript).toContainText("Me duele el pecho desde ayer");
++  await expect(transcript).toContainText("Estou com dor no peito desde ontem.");
++  await expect(transcript).toContainText("Cuénteme de ese dolor en el pecho");
++  await expect(transcript).not.toContainText("tradução com LLM real");
++  await expect(page.getByTestId("idioma-fala-2")).toHaveText("es");
++
++  // legenda grande no idioma do paciente
++  await page.goto("/pacientes/cen8/consulta/legenda");
++  await expect(page.getByTestId("legenda")).toContainText("Legenda da consulta");
++  await expect(page.getByTestId("legenda-falas")).toContainText("Vamos a investigar con calma");
++});
+diff --git a/apps/web/lib/api.ts b/apps/web/lib/api.ts
+index 637f5e3..685895e 100644
+--- a/apps/web/lib/api.ts
++++ b/apps/web/lib/api.ts
+@@ -553,7 +553,7 @@ export interface DocSection {
+ export interface DischargeDocuments {
+   id: number;
+   patient_id: string;
+-  idioma: "pt-BR" | "es" | "en";
++  idioma: string;
+   created_at: string;
+   model: string;
+   prompt_version: string;
+@@ -599,6 +599,8 @@ export interface Segment {
+   texto: string;
+   idioma: string;
+   traducao: string | null;
++  /** diferenças de números, doses e medicamentos entre a fala e a tradução (checagem determinística) */
++  traducao_divergente?: string[];
+   origem: "microfone" | "servidor" | "digitado" | "demo" | "marco";
+   /** edição pelo profissional (#2): o original fica guardado; editado_em acende o selo "editada" */
+   texto_original?: string | null;
+@@ -1304,7 +1306,7 @@ export interface ConsultConfig {
+   llm_mode: "real" | "mock";
+   stt_servidor: boolean;
+   envio_prontuario: boolean;
+-  idiomas: { value: string; label: string }[];
++  idiomas: { value: string; label: string; web_speech: string; whisper: string }[];
+   especialidades: { value: string; label: string; foco: string; cirurgica: boolean }[];
+ }
+ export interface Appointment {
+@@ -1327,7 +1329,8 @@ export interface DemoScript {
+   tipo: ConsultKind;
+   especialidade?: string;
+   titulo: string;
+-  falas: { t: number; falante: Speaker; texto: string }[];
++  idioma_paciente?: string;
++  falas: { t: number; falante: Speaker; texto: string; idioma?: string }[];
+ }
+ 
+ // ---------- Jornada do paciente ----------
+diff --git a/data/consultations/cen_hispanica.json b/data/consultations/cen_hispanica.json
+new file mode 100644
+index 0000000..0c4812a
+--- /dev/null
++++ b/data/consultations/cen_hispanica.json
+@@ -0,0 +1,106 @@
++{
++ "patient_id": "cen8",
++ "tipo": "consulta",
++ "especialidade": "clinica_medica",
++ "idioma_paciente": "es",
++ "titulo": "Dor no peito em paciente hispanofalante (tradução simultânea es↔pt-BR, traduções pré-gravadas para o modo mock)",
++ "falas": [
++  {
++   "t": 0.0,
++   "falante": "medico",
++   "idioma": "pt-BR",
++   "texto": "Bom dia, dona Carmen! Que bom ver a senhora. O Luis veio junto hoje.",
++   "traducao": "¡Buenos días, doña Carmen! Qué bueno verla. Luis vino con usted hoy."
++  },
++  {
++   "t": 5.5,
++   "falante": "paciente",
++   "idioma": "es",
++   "texto": "Buenos días, doctora. Me duele el pecho desde ayer.",
++   "traducao": "Bom dia, doutora. Estou com dor no peito desde ontem."
++  },
++  {
++   "t": 11.0,
++   "falante": "medico",
++   "idioma": "pt-BR",
++   "texto": "Me conta dessa dor no peito. Ela vem quando a senhora caminha ou também em repouso?",
++   "traducao": "Cuénteme de ese dolor en el pecho. ¿Viene cuando camina o también en reposo?"
++  },
++  {
++   "t": 16.5,
++   "falante": "paciente",
++   "idioma": "es",
++   "texto": "Es como una presión. Aparece cuando subo las escaleras y se me pasa cuando descanso un poco.",
++   "traducao": "É como uma pressão. Aparece quando eu subo as escadas e passa quando eu descanso um pouco."
++  },
++  {
++   "t": 22.0,
++   "falante": "acompanhante",
++   "idioma": "pt-BR",
++   "texto": "Ela quase não dormiu essa noite, doutora, ficou muito preocupada."
++  },
++  {
++   "t": 27.5,
++   "falante": "medico",
++   "idioma": "pt-BR",
++   "texto": "Entendi. A senhora sentiu falta de ar ou suor frio junto com a dor?",
++   "traducao": "Entendí. ¿Sintió falta de aire o sudor frío junto con el dolor?"
++  },
++  {
++   "t": 33.0,
++   "falante": "paciente",
++   "idioma": "es",
++   "texto": "No tengo falta de aire, pero sí sudor frío cuando me aparece el dolor.",
++   "traducao": "Não tenho falta de ar, mas tenho suor frio quando a dor aparece."
++  },
++  {
++   "t": 38.5,
++   "falante": "medico",
++   "idioma": "pt-BR",
++   "texto": "E os remédios da pressão e do diabetes, como a senhora toma?",
++   "traducao": "¿Y los remedios de la presión y de la diabetes, cómo los toma?"
++  },
++  {
++   "t": 44.0,
++   "falante": "paciente",
++   "idioma": "es",
++   "texto": "Tomo losartán de 50 mg dos veces al día, pero a veces se me olvida la pastilla de la noche.",
++   "traducao": "Tomo losartana de 50 mg duas vezes ao dia, mas às vezes esqueço o comprimido da noite."
++  },
++  {
++   "t": 49.5,
++   "falante": "paciente",
++   "idioma": "es",
++   "texto": "La metformina de 500 mg la tomo con el almuerzo y la cena.",
++   "traducao": "A metformina de 500 mg eu tomo no almoço e no jantar."
++  },
++  {
++   "t": 55.0,
++   "falante": "medico",
++   "idioma": "pt-BR",
++   "texto": "Hoje a sua pressão está 152 por 94, um pouco alta. Vamos pedir um eletrocardiograma agora.",
++   "traducao": "Hoy su presión está en 152 por 94, un poco alta. Vamos a pedir un electrocardiograma ahora."
++  },
++  {
++   "t": 60.5,
++   "falante": "paciente",
++   "idioma": "es",
++   "texto": "Tengo miedo, doctora. Mi papá murió del corazón.",
++   "traducao": "Estou com medo, doutora. Meu pai morreu do coração."
++  },
++  {
++   "t": 66.0,
++   "falante": "medico",
++   "idioma": "pt-BR",
++   "texto": "Eu entendo o seu medo. Vamos investigar com calma e a senhora não fica sozinha nisso.",
++   "traducao": "Entiendo su miedo. Vamos a investigar con calma y usted no está sola en esto."
++  },
++  {
++   "t": 71.5,
++   "falante": "paciente",
++   "idioma": "es",
++   "texto": "Gracias, doctora. Me siento más tranquila.",
++   "traducao": "Obrigada, doutora. Estou mais tranquila."
++  }
++ ]
++}
+\ No newline at end of file
+diff --git a/data/reference/consult_emotions.csv b/data/reference/consult_emotions.csv
+index 9fe306e..fe45d47 100644
+--- a/data/reference/consult_emotions.csv
++++ b/data/reference/consult_emotions.csv
+@@ -1,9 +1,9 @@
+ emocao,rotulo,palavras,exclui,abordagem
+-ansiedade,Ansiedade/medo,ansiosa|ansioso|nervosa|nervoso|aflita|aflito|apavorad|tenho medo|to com medo|estou com medo|com medo|muito medo|medo de|me assusta|assustad,,"Validar o medo com uma frase empática, explicar o próximo passo em linguagem simples e checar o entendimento (teach-back)."
+-preocupacao,Preocupação,preocupad|me preocupa|fico preocupada|fico preocupado|e grave|perigoso|perigosa,,"Responder primeiro à dúvida principal, sem jargão, e combinar sinais claros de quando procurar ajuda."
+-tristeza,Tristeza/desânimo,desanimad|triste|cansei de|nao aguento mais|sem vontade,,"Investigar humor (PHQ-2), sono e rede de apoio; abrir espaço para a pessoa falar."
+-frustracao,Frustração,ja falei isso|ja te falei|eu ja falei que|ninguem explica|nao adianta|sempre a mesma|toda vez e a mesma|toda vez que venho|toda vez que eu venho|de novo isso|tudo de novo|outra vez a mesma,,"Reconhecer a frustração, explicar o que muda agora e entregar um plano simples e por escrito."
+-confusao,Dúvida/confusão,nao entendi|como assim|nao sei o que|nao sei se|confusa|confuso|o que significa|o que e isso| e se |sera que|nao compreendi|nao ficou claro|entendi mais ou menos,,Explicar de novo com palavras do dia a dia e pedir para a pessoa repetir com as próprias palavras.
+-dor,Sofrimento por dor,doi muito|dor forte|insuportavel|muita dor,,Abordar o controle da dor antes de seguir a conversa.
+-alivio,Alívio,alivio|aliviad|que bom|ainda bem|gracas a deus|menos mal|ufa,nao entendi|como assim,Consolidar: resumir o plano combinado e confirmar a data do retorno.
+-confianca,Confiança/adesão,confio|entendi|entendido|vou fazer direitinho|pode deixar|combinado|vou seguir|ta bom doutora|ta bom doutor,nao entendi|nao compreendi|nao ficou claro|como assim|o que significa|nao sei o que|nao sei se|sera que|mais ou menos,Reforçar a adesão entregando a orientação escrita e marcando o retorno.
++ansiedade,Ansiedade/medo,ansiosa|ansioso|nervosa|nervoso|aflita|aflito|apavorad|tenho medo|to com medo|estou com medo|com medo|muito medo|medo de|me assusta|assustad|tengo miedo|estoy asustada|estoy asustado|nerviosa|nervioso|angustia|estoy preocupada por|i am scared|im scared|im afraid|i am afraid|anxious|im nervous|panic,,"Validar o medo com uma frase empática, explicar o próximo passo em linguagem simples e checar o entendimento (teach-back)."
++preocupacao,Preocupação,preocupad|me preocupa|fico preocupada|fico preocupado|e grave|perigoso|perigosa|me preocupa|estoy preocupada|estoy preocupado|im worried|i am worried|worried about|es grave,,"Responder primeiro à dúvida principal, sem jargão, e combinar sinais claros de quando procurar ajuda."
++tristeza,Tristeza/desânimo,desanimad|triste|cansei de|nao aguento mais|sem vontade|estoy triste|me siento triste|desanimada|desanimado|sin ganas|im sad|feeling down|depressed|hopeless,,"Investigar humor (PHQ-2), sono e rede de apoio; abrir espaço para a pessoa falar."
++frustracao,Frustração,ja falei isso|ja te falei|eu ja falei que|ninguem explica|nao adianta|sempre a mesma|toda vez e a mesma|toda vez que venho|toda vez que eu venho|de novo isso|tudo de novo|outra vez a mesma|ya se lo dije|ya le dije|nadie me explica|todas las veces es lo mismo|i already told you|nobody explains|every time its the same,,"Reconhecer a frustração, explicar o que muda agora e entregar um plano simples e por escrito."
++confusao,Dúvida/confusão,nao entendi|como assim|nao sei o que|nao sei se|confusa|confuso|o que significa|o que e isso| e se |sera que|nao compreendi|nao ficou claro|entendi mais ou menos|no entiendo|no entendi|no comprendo|i dont understand|i didnt understand|im confused,,Explicar de novo com palavras do dia a dia e pedir para a pessoa repetir com as próprias palavras.
++dor,Sofrimento por dor,doi muito|dor forte|insuportavel|muita dor|me duele mucho|dolor muy fuerte|mucho dolor|it hurts a lot|severe pain|in a lot of pain,,Abordar o controle da dor antes de seguir a conversa.
++alivio,Alívio,alivio|aliviad|que bom|ainda bem|gracas a deus|menos mal|ufa|que alivio|me siento mejor|estoy mas tranquila|estoy mas tranquilo|what a relief|i feel better|relieved,nao entendi|como assim,Consolidar: resumir o plano combinado e confirmar a data do retorno.
++confianca,Confiança/adesão,confio|entendi|entendido|vou fazer direitinho|pode deixar|combinado|vou seguir|ta bom doutora|ta bom doutor|confio en usted|voy a tomar|lo voy a hacer|i trust you|i will take|ill follow,nao entendi|nao compreendi|nao ficou claro|como assim|o que significa|nao sei o que|nao sei se|sera que|mais ou menos,Reforçar a adesão entregando a orientação escrita e marcando o retorno.
+diff --git a/data/reference/consult_symptoms.csv b/data/reference/consult_symptoms.csv
+index cf7ee4a..a88227d 100644
+--- a/data/reference/consult_symptoms.csv
++++ b/data/reference/consult_symptoms.csv
+@@ -1,46 +1,46 @@
+ chave,rotulo,palavras,exclui,idade_min,idade_max,sexo,agrupa_em
+-tontura,Tontura,tontura|tonta|tonto|tonteira|zonza|zonzo|vertigem|cabeca rodando|tudo rodando,,,,,
+-tontura_postural,Tontura ao levantar,quando levanto|ao levantar|levanto rapido|levantar rapido|quando fico em pe|fico em pe|quando eu levanto|vez que levanto|vez que eu levanto|sempre que levanto|levanto da cama|levanto do sofa|levanto da cadeira|me levanto,,,,,tontura
+-cansaco,Cansaço,cansaco|cansada|cansado|fraqueza|sem energia|fadiga|desanimo|moida|moido,,,,,
+-sintomas_hipoglicemia,Suor frio e tremor,suor frio|suando frio|sua frio|tremedeira|tremor|tremendo|tremer|treme toda|treme todo,,,,,
++tontura,Tontura,tontura|tonta|tonto|tonteira|zonza|zonzo|vertigem|cabeca rodando|tudo rodando|mareo|mareada|mareado|me mareo|vertigo|dizzy|dizziness|lightheaded|light headed,,,,,
++tontura_postural,Tontura ao levantar,quando levanto|ao levantar|levanto rapido|levantar rapido|quando fico em pe|fico em pe|quando eu levanto|vez que levanto|vez que eu levanto|sempre que levanto|levanto da cama|levanto do sofa|levanto da cadeira|me levanto|al levantarme|cuando me levanto|al ponerme de pie|cuando me paro|when i stand up|when i get up|on standing,,,,,tontura
++cansaco,Cansaço,cansaco|cansada|cansado|fraqueza|sem energia|fadiga|desanimo|moida|moido|cansancio|cansada|cansado|fatiga|debilidad|sin energia|tired|fatigue|exhausted|weakness,,,,,
++sintomas_hipoglicemia,Suor frio e tremor,suor frio|suando frio|sua frio|tremedeira|tremor|tremendo|tremer|treme toda|treme todo|sudor frio|sudando frio|temblor|temblores|cold sweat|shaky|shaking,,,,,
+ nicturia,Urina à noite,levanto pra fazer xixi|levanto para fazer xixi|xixi de noite|xixi a noite|urino a noite|urinar a noite|varias vezes a noite|levanto+noite+xixi|levanto+noite+urinar|levanta+noite+xixi|acordo+noite+xixi|acordo+noite+urinar|acorda+noite+xixi,,,,,
+-dor_joelho,Dor no joelho,dor no joelho|dor nos joelhos|dor de joelho|joelho+doi|joelho+doem|joelho+doendo|joelho+dor|joelhos+doem|joelho+trava,,,,,
+-cefaleia,Dor de cabeça,dor de cabeca|cabeca doendo|cabeca latejando|cabeca ta latejando|cefaleia|enxaqueca,,,,,
+-dor_abdominal,Dor na barriga,dor na barriga|dor de barriga|barriga doi|barriga doendo|dor abdominal|perto do corte|dor no corte|doi o corte,,,,,
++dor_joelho,Dor no joelho,dor no joelho|dor nos joelhos|dor de joelho|joelho+doi|joelho+doem|joelho+doendo|joelho+dor|joelhos+doem|joelho+trava|dolor de rodilla|me duele la rodilla|knee pain|knee hurts,,,,,
++cefaleia,Dor de cabeça,dor de cabeca|cabeca doendo|cabeca latejando|cabeca ta latejando|cefaleia|enxaqueca|dolor de cabeza|me duele la cabeza|cefalea|jaqueca|headache|head hurts,,,,,
++dor_abdominal,Dor na barriga,dor na barriga|dor de barriga|barriga doi|barriga doendo|dor abdominal|perto do corte|dor no corte|doi o corte|dolor de barriga|dolor abdominal|dolor de panza|me duele la barriga|stomach ache|abdominal pain|belly pain,,,,,
+ retencao_urinaria,Não consegue urinar,nao fiz xixi|nao consigo urinar|nao consigo fazer xixi|nao urinei|bexiga cheia|bexiga estufada|vontade de urinar e nao sai,,,,,
+-dispneia,Falta de ar,falta de ar|sem ar|dispneia|ofegante|cansaco para respirar|cansaco pra respirar|ar tem faltado|ar faltando|faltando ar|faltou o ar|falta o ar|falta ar|sem folego|folego curto|puxar o ar,,,,,
+-dor_toracica,Dor no peito,dor no peito|aperto no peito|peito doendo|dor toracica|peito apertado,,,,,
+-palpitacao,Palpitação,palpitac|coracao disparado|coracao acelerado|coracao batendo forte|coracao dispara|coracao acelera,,,,,
+-visao_turva,Visão embaçada,visao embacada|vista embacada|visao turva|enxergando mal|enxergo mal|vista turva|vejo embacado|embacad,,,,,
+-queda,Queda ou quase queda,quase caiu|quase cai|ela caiu|ele caiu|eu cai|caiu no|caiu na|caiu da|caiu do|caiu de|caiu em|cai no|cai na|cai da|cai do|cai de|cai em|tombo|levei um tombo|tive uma queda|levei uma queda|sofri uma queda|caiu ontem|caiu hoje|caiu anteontem|caiu semana|caiu mes|caiu essa|caiu esse|caiu duas|caiu tres|caiu umas|caiu algumas|caiu varias|caiu sozinha|caiu sozinho|caiu andando|tem caido|anda caindo|vive caindo|caindo muito|caindo sozinha|caindo sozinho|teve uma queda|teve um tombo|mae caiu|pai caiu|avo caiu|vovo caiu|vo caiu,pressao caiu|pressao dela caiu|pressao dele caiu|pressao baixou|glicemia caiu|acucar caiu|febre caiu|cabelo|ficha caiu|caiu a pressao|caiu o acucar|caiu a glicemia|caiu a febre,,,,
++dispneia,Falta de ar,falta de ar|sem ar|dispneia|ofegante|cansaco para respirar|cansaco pra respirar|ar tem faltado|ar faltando|faltando ar|faltou o ar|falta o ar|falta ar|sem folego|folego curto|puxar o ar|falta de aire|me falta el aire|dificultad para respirar|ahogo|shortness of breath|short of breath|trouble breathing|cant breathe,,,,,
++dor_toracica,Dor no peito,dor no peito|aperto no peito|peito doendo|dor toracica|peito apertado|dolor de pecho|dolor en el pecho|me duele el pecho|duele el pecho|opresion en el pecho|presion en el pecho|chest pain|chest tightness|chest hurts|pain in my chest|tight chest,,,,,
++palpitacao,Palpitação,palpitac|coracao disparado|coracao acelerado|coracao batendo forte|coracao dispara|coracao acelera|palpitaciones|palpitacion|el corazon late rapido|corazon acelerado|heart racing|palpitations|racing heart,,,,,
++visao_turva,Visão embaçada,visao embacada|vista embacada|visao turva|enxergando mal|enxergo mal|vista turva|vejo embacado|embacad|vision borrosa|veo borroso|blurry vision|blurred vision,,,,,
++queda,Queda ou quase queda,quase caiu|quase cai|ela caiu|ele caiu|eu cai|caiu no|caiu na|caiu da|caiu do|caiu de|caiu em|cai no|cai na|cai da|cai do|cai de|cai em|tombo|levei um tombo|tive uma queda|levei uma queda|sofri uma queda|caiu ontem|caiu hoje|caiu anteontem|caiu semana|caiu mes|caiu essa|caiu esse|caiu duas|caiu tres|caiu umas|caiu algumas|caiu varias|caiu sozinha|caiu sozinho|caiu andando|tem caido|anda caindo|vive caindo|caindo muito|caindo sozinha|caindo sozinho|teve uma queda|teve um tombo|mae caiu|pai caiu|avo caiu|vovo caiu|vo caiu|me cai|me cai|casi me caigo|caida|i fell|nearly fell|almost fell|fall,pressao caiu|pressao dela caiu|pressao dele caiu|pressao baixou|glicemia caiu|acucar caiu|febre caiu|cabelo|ficha caiu|caiu a pressao|caiu o acucar|caiu a glicemia|caiu a febre,,,,
+ formigamento,Formigamento nos pés,formigamento|formigando|formiga|dormencia|pe dormente|pes dormentes,,,,,
+-nausea,Náusea/vômito,enjoo|enjoada|enjoado|nausea|vomit,vomit+sangue|vomit+borra,12,,,
+-edema,Inchaço,inchaco|inchada|inchado|incha|edema,,,,,
+-febre,Febre,febre|febril|calafrio,,12,,,
+-insonia,Dificuldade para dormir,nao consigo dormir|insonia|durmo mal|dormindo mal,,,,,
+-tosse,Tosse,tosse|tossindo,,,,,
+-sede,Sede excessiva,muita sede|sede o tempo todo|boca seca,,,,,
+-dor_garganta,Dor de garganta,dor de garganta|garganta doendo|garganta inflamada|dor pra engolir|dor para engolir|dor ao engolir|odinofagia|garganta arranhando,,,,,
+-coriza,Coriza ou nariz entupido,coriza|nariz escorrendo|nariz escorre|nariz entupido|nariz entupida|nariz congestionad|congestao nasal|espirrando|espirros,,,,,
+-dor_ouvido,Dor de ouvido,dor de ouvido|dor no ouvido|ouvido doendo|otalgia|puxando a orelha|puxa a orelha|secrecao no ouvido|ouvido supurando,,,,,
+-dor_lombar,Dor nas costas,dor nas costas|dor lombar|lombalgia|dor na lombar|costas doendo|dor na coluna,,,,,
++nausea,Náusea/vômito,enjoo|enjoada|enjoado|nausea|vomit|nauseas|nausea|vomito|vomitos|ganas de vomitar|nauseous|vomiting|threw up,vomit+sangue|vomit+borra,12,,,
++edema,Inchaço,inchaco|inchada|inchado|incha|edema|hinchazon|hinchado|hinchada|piernas hinchadas|swelling|swollen,,,,,
++febre,Febre,febre|febril|calafrio|fiebre|calentura|fever|temperature of,,12,,,
++insonia,Dificuldade para dormir,nao consigo dormir|insonia|durmo mal|dormindo mal|no puedo dormir|insomnio|no duermo|cant sleep|insomnia|trouble sleeping,,,,,
++tosse,Tosse,tosse|tossindo|tos seca|tengo tos|mucha tos|cough|coughing,,,,,
++sede,Sede excessiva,muita sede|sede o tempo todo|boca seca|mucha sed|sed excesiva|muy sediento|excessive thirst|very thirsty,,,,,
++dor_garganta,Dor de garganta,dor de garganta|garganta doendo|garganta inflamada|dor pra engolir|dor para engolir|dor ao engolir|odinofagia|garganta arranhando|dolor de garganta|me duele la garganta|sore throat,,,,,
++coriza,Coriza ou nariz entupido,coriza|nariz escorrendo|nariz escorre|nariz entupido|nariz entupida|nariz congestionad|congestao nasal|espirrando|espirros|mocos|nariz tapada|congestion nasal|runny nose|stuffy nose,,,,,
++dor_ouvido,Dor de ouvido,dor de ouvido|dor no ouvido|ouvido doendo|otalgia|puxando a orelha|puxa a orelha|secrecao no ouvido|ouvido supurando|dolor de oido|me duele el oido|earache|ear pain,,,,,
++dor_lombar,Dor nas costas,dor nas costas|dor lombar|lombalgia|dor na lombar|costas doendo|dor na coluna|dolor de espalda|dolor lumbar|me duele la espalda|back pain|lower back pain,,,,,
+ dor_muscular,Dor no corpo,dor no corpo|corpo doendo|dor muscular|dores musculares|mialgia|corpo dolorido,,,,,
+ dor_articular,Dor nas articulações,dor nas juntas|dor nas articulacoes|dor articular|juntas doendo|artralgia|dor no ombro|dor no quadril|dor no cotovelo|dor no punho|dor no tornozelo|junta inchada|articulacao inchada|rigidez matinal,,,,,
+ dor_perna,Dor nas pernas ou cãibra,dor na perna|dor nas pernas|dor na panturrilha|perna doendo|pernas doendo|dor na batata da perna|dor ao andar|dor pra andar|dor para andar|claudicacao|caimbra,,,,,
+ constipacao,Intestino preso,intestino preso|prisao de ventre|constipacao|constipad|nao evacuo|fezes duras|fezes ressecadas|dias sem evacuar|dias sem ir ao banheiro,,,,,
+-diarreia,Diarreia,diarreia|fezes liquidas|fezes moles|intestino solto|coco mole|coco liquido|caganeira|desarranjo intestinal|evacuando varias vezes|ir ao banheiro varias vezes,,,,,
++diarreia,Diarreia,diarreia|fezes liquidas|fezes moles|intestino solto|coco mole|coco liquido|caganeira|desarranjo intestinal|evacuando varias vezes|ir ao banheiro varias vezes|diarrea|diarrhea|loose stools,,,,,
+ sangue_fezes,Sangue ou fezes escuras,sangue nas fezes|fezes com sangue|sangue no coco|fezes escuras|fezes pretas|sangramento retal|sangue ao evacuar|sangue quando evacuo|melena|fezes vermelhas|coco preto,,,,,
+ azia,Azia ou queimação,azia|queimacao no estomago|queimacao|estomago queimando|refluxo|pirose|gosto amargo na boca|azedo na boca,,,,,
+ dor_estomago,Dor no estômago,dor no estomago|dor na boca do estomago|estomago doendo|dor epigastrica|dor de estomago,,,,,
+-disuria,Ardência ao urinar,ardencia ao urinar|arde ao urinar|ardendo ao urinar|dor ao urinar|dor para urinar|dor pra urinar|ardencia quando urino|queimando ao urinar|disuria|ardencia na urina|ardor ao urinar|urina ardendo,,,,,
++disuria,Ardência ao urinar,ardencia ao urinar|arde ao urinar|ardendo ao urinar|dor ao urinar|dor para urinar|dor pra urinar|ardencia quando urino|queimando ao urinar|disuria|ardencia na urina|ardor ao urinar|urina ardendo|ardor al orinar|me arde al orinar|dolor al orinar|burning when i pee|burning urination|painful urination,,,,,
+ hematuria,Sangue na urina,sangue na urina|urina com sangue|urina vermelha|urina cor de coca|hematuria,,,,,
+ incontinencia,Perda de urina,perco urina|perdendo urina|escapa urina|escapa xixi|escapando xixi|incontinencia|nao seguro o xixi|nao seguro a urina|xixi escapa|urina escapa|perda de urina|molho a roupa,,,,,
+ jato_fraco,Jato urinário fraco,jato fraco|jato fino|demora para urinar|demora pra urinar|dificuldade para urinar|dificuldade pra urinar|esforco para urinar|urina em gotas|pinga a urina|gotejando,,,,,
+-perda_peso,Perda de peso,perdi peso|emagreci|perda de peso|emagrecendo|perdendo peso|perdeu peso|emagreceu|roupa folgada|roupas largas,,,,,
+-sem_apetite,Falta de apetite,sem apetite|falta de apetite|perdi o apetite|nao tenho fome|sem fome|nao estou com fome|sem vontade de comer|inapetencia|nao tenho vontade de comer,,12,,,
++perda_peso,Perda de peso,perdi peso|emagreci|perda de peso|emagrecendo|perdendo peso|perdeu peso|emagreceu|roupa folgada|roupas largas|perdi peso|baje de peso|bajado de peso|lost weight|weight loss,,,,,
++sem_apetite,Falta de apetite,sem apetite|falta de apetite|perdi o apetite|nao tenho fome|sem fome|nao estou com fome|sem vontade de comer|inapetencia|nao tenho vontade de comer|sin apetito|no tengo apetito|no tengo hambre|loss of appetite|no appetite,,12,,,
+ sonolencia,Sonolência,sonolencia|muito sono|sonolent|dormindo demais|dormindo muito|sono demais|sono o dia todo|sono o tempo todo|dorme o dia todo,,,,,
+ humor_deprimido,Humor deprimido,depressao|deprimid|choro facil|choro a toa|chorando a toa|vontade de chorar|sem vontade de fazer nada|sem vontade de nada|perdeu o interesse|perdi o interesse|nada me da prazer|tristeza profunda,,,,,
+-desmaio,Desmaio,desmaio|desmaiei|desmaiou|desmaiar|desmaiando|sincope|apagou|apaguei|perdeu a consciencia|perdi a consciencia|perdeu os sentidos|perdi os sentidos,quase desmai|sensacao de desmai|vontade de desmai|vai desmaiar|ia desmaiar|medo de desmai|que vou desmaiar|que vai desmaiar,,,,
++desmaio,Desmaio,desmaio|desmaiei|desmaiou|desmaiar|desmaiando|sincope|apagou|apaguei|perdeu a consciencia|perdi a consciencia|perdeu os sentidos|perdi os sentidos|desmayo|me desmaye|me desmayo|perdi el conocimiento|fainted|passed out|blackout,quase desmai|sensacao de desmai|vontade de desmai|vai desmaiar|ia desmaiar|medo de desmai|que vou desmaiar|que vai desmaiar,,,,
+ confusao_mental,Confusão ou esquecimento,desorientad|confusao mental|esta confus|ficou confus|ficando confus|esquecimento|esquecendo das coisas|esquecendo tudo|perdendo a memoria|falha de memoria|memoria ruim|esquece tudo|esquece as coisas,,,,,
+ convulsao,Convulsão,convulsao|convulsoes|convulsionou|convulsionando|ataque epileptico|crise convulsiva|crise epileptica|teve uma crise de convuls|ficou duro e tremendo|olhos virados,,,,,
+ coceira,Coceira,coceira|cocando|me coco|prurido|pruriginos|comichao,,,,,
+diff --git a/data/reference/languages.csv b/data/reference/languages.csv
+new file mode 100644
+index 0000000..4d8dd57
+--- /dev/null
++++ b/data/reference/languages.csv
+@@ -0,0 +1,101 @@
++codigo,rotulo,web_speech,whisper
++pt-BR,Português (Brasil),pt-BR,pt
++es,Español,es-ES,es
++en,English,en-US,en
++fr,Français,fr-FR,fr
++it,Italiano,it-IT,it
++de,Deutsch,de-DE,de
++zh,中文,zh-CN,zh
++ar,العربية,ar-SA,ar
++ht,Kreyòl ayisyen,fr-HT,ht
++ru,Русский,ru-RU,ru
++ko,한국어,ko-KR,ko
++ja,日本語,ja-JP,ja
++tr,Türkçe,tr-TR,tr
++pl,Polski,pl-PL,pl
++ca,Català,ca-ES,ca
++nl,Nederlands,nl-NL,nl
++sv,Svenska,sv-SE,sv
++id,Bahasa Indonesia,id-ID,id
++hi,हिन्दी,hi-IN,hi
++fi,Suomi,fi-FI,fi
++vi,Tiếng Việt,vi-VN,vi
++he,עברית,he-IL,he
++uk,Українська,uk-UA,uk
++el,Ελληνικά,el-GR,el
++ms,Bahasa Melayu,ms-MY,ms
++cs,Čeština,cs-CZ,cs
++ro,Română,ro-RO,ro
++da,Dansk,da-DK,da
++hu,Magyar,hu-HU,hu
++ta,தமிழ்,ta-IN,ta
++no,Norsk,nb-NO,no
++th,ไทย,th-TH,th
++ur,اردو,ur-PK,ur
++hr,Hrvatski,hr-HR,hr
++bg,Български,bg-BG,bg
++lt,Lietuvių,lt-LT,lt
++la,Latina,,la
++mi,Te reo Māori,,mi
++ml,മലയാളം,ml-IN,ml
++cy,Cymraeg,,cy
++sk,Slovenčina,sk-SK,sk
++te,తెలుగు,te-IN,te
++fa,فارسی,fa-IR,fa
++lv,Latviešu,lv-LV,lv
++bn,বাংলা,bn-BD,bn
++sr,Српски,sr-RS,sr
++az,Azərbaycanca,az-AZ,az
++sl,Slovenščina,sl-SI,sl
++kn,ಕನ್ನಡ,kn-IN,kn
++et,Eesti,et-EE,et
++mk,Македонски,,mk
++br,Brezhoneg,,br
++eu,Euskara,eu-ES,eu
++is,Íslenska,is-IS,is
++hy,Հայերեն,hy-AM,hy
++ne,नेपाली,ne-NP,ne
++mn,Монгол,,mn
++bs,Bosanski,bs-BA,bs
++kk,Қазақша,kk-KZ,kk
++sq,Shqip,sq-AL,sq
++sw,Kiswahili,sw-KE,sw
++gl,Galego,gl-ES,gl
++mr,मराठी,mr-IN,mr
++pa,ਪੰਜਾਬੀ,pa-Guru-IN,pa
++si,සිංහල,si-LK,si
++km,ខ្មែរ,km-KH,km
++sn,ChiShona,,sn
++yo,Yorùbá,,yo
++so,Soomaali,,so
++af,Afrikaans,af-ZA,af
++oc,Occitan,,oc
++ka,ქართული,ka-GE,ka
++be,Беларуская,,be
++tg,Тоҷикӣ,,tg
++sd,سنڌي,,sd
++gu,ગુજરાતી,gu-IN,gu
++am,አማርኛ,am-ET,am
++yi,ייִדיש,,yi
++lo,ລາວ,,lo
++uz,Oʻzbekcha,uz-UZ,uz
++fo,Føroyskt,,fo
++ps,پښتو,,ps
++tk,Türkmençe,,tk
++nn,Nynorsk,,nn
++mt,Malti,,mt
++sa,संस्कृतम्,,sa
++lb,Lëtzebuergesch,,lb
++my,မြန်မာ,,my
++bo,བོད་སྐད།,,bo
++tl,Tagalog,fil-PH,tl
++mg,Malagasy,,mg
++as,অসমীয়া,,as
++tt,Татарча,,tt
++haw,ʻŌlelo Hawaiʻi,,haw
++ln,Lingála,,ln
++ha,Hausa,,ha
++ba,Башҡортса,,ba
++jw,Basa Jawa,jv-ID,jw
++su,Basa Sunda,su-ID,su
++zu,isiZulu,zu-ZA,
+diff --git a/data/scenarios/cenario8_consulta_hispanica.json b/data/scenarios/cenario8_consulta_hispanica.json
+new file mode 100644
+index 0000000..c78e3d2
+--- /dev/null
++++ b/data/scenarios/cenario8_consulta_hispanica.json
+@@ -0,0 +1,48 @@
++{
++  "id": "cen8",
++  "tag": "cenario-8",
++  "titulo": "Cenário 8 — Consulta com IA em espanhol: dor no peito, hipertensão e diabetes (tradução simultânea)",
++  "esperado": "Paciente hispanofalante (Patient.communication = es): o idioma é pré-selecionado, as falas em espanhol são traduzidas (roteiro cen_hispanica, traduções pré-gravadas no modo mock) e as regras de segurança rodam sobre a tradução mantendo a Fala/N: dor no peito desde ontem, esquecimento do anti-hipertensivo e alerta de tradução divergente quando a dose traduzida não bate com a falada. A nota registra 'Consulta com interpretação por IA (es→pt-BR)'.",
++  "paciente": {
++    "nome": "Carmen Rodríguez Salazar",
++    "sexo": "female",
++    "nascimento": "1968-08-21",
++    "cpf": "519.274.836-02",
++    "telefone": "(11) 95530-2184",
++    "endereco": "Rua Coimbra, 410, Brás, São Paulo - SP",
++    "idioma": "es"
++  },
++  "ambulatorio": {
++    "servico": "Ambulatório de Clínica Médica",
++    "sala": "Consultório 2",
++    "profissional": "Dra. Helena Prado",
++    "consultas": [
++      { "id": "c1", "inicio": "-182d2h", "duracao": "30m", "motivo": "Acompanhamento de hipertensão e diabetes" },
++      { "id": "hoje", "inicio": "-4m", "status": "arrived", "motivo": "Dor no peito desde ontem" }
++    ]
++  },
++  "diagnosticos": [
++    { "cid": "I10", "texto": "Hipertensão arterial sistêmica", "principal": true, "inicio": "-2900d", "registro": "-182d2h" },
++    { "cid": "E11.9", "texto": "Diabetes mellitus tipo 2", "inicio": "-1800d", "registro": "-182d2h" }
++  ],
++  "alergias": [],
++  "familiares": [
++    { "nome": "Luis Rodríguez Salazar", "parentesco": "filho", "codigo": "SON", "descricao": "filho (intérprete informal, fala português)", "telefone": "(11) 95530-7711" }
++  ],
++  "social": { "moradores": 3 },
++  "prescricoes": [
++    { "id": "losartana", "med": "losartana", "dose": "50 mg", "via": "VO", "horarios": ["08:00", "20:00"], "setor": "c1", "inicio": "-1200d" },
++    { "id": "metformina", "med": "metformina", "dose": "500 mg", "via": "VO", "horarios": ["08:00", "20:00"], "setor": "c1", "inicio": "-1700d" }
++  ],
++  "sinais": [
++    { "t": "-182d2h", "pa": [138, 88], "fc": 76 },
++    { "t": "-4m", "pa": [152, 94], "fc": 92 }
++  ],
++  "exames": [
++    { "t": "-190d", "hba1c": 7.2, "glicose": 132, "creatinina": 0.9, "potassio": 4.3, "sodio": 140, "ldl": 118 }
++  ],
++  "procedimentos": [],
++  "evolucoes": [
++    { "t": "-182d1h40m", "tipo": "medica", "autor": "Dra. Helena Prado (Clínica Médica)", "texto": "Retorno de HAS e DM2. PA 138/88. HbA1c 7,2%. Mantidas losartana 50 mg 2x/dia e metformina 500 mg 2x/dia. Paciente hispanofalante: consulta com apoio do filho como intérprete." }
++  ]
++}
+diff --git a/docs/decisions/0009-consulta-com-ia.md b/docs/decisions/0009-consulta-com-ia.md
+index 358fc6a..142ff9e 100644
+--- a/docs/decisions/0009-consulta-com-ia.md
++++ b/docs/decisions/0009-consulta-com-ia.md
+@@ -153,3 +153,15 @@ aprovada pelo profissional.
+    (`PATCH /consultations/{id}/segments/{n}`): as regras rodam de novo, o original fica guardado, o audit registra só o
+    número da fala e os campos, e a nota já gerada fica `desatualizada` com as seções que citam a fala. O `/finish` aceita
+    as falas ainda na fila de captura, anexadas na mesma transação.
++
++13. **Tradução e idiomas (≥ 95).** O idioma deixou de ser um `Literal`: vale qualquer código de
++   `data/reference/languages.csv` (BCP-47, com rótulo e os códigos da Web Speech e do Whisper; `pt`/`es-MX` são
++   normalizados). Sem idioma no corpo, a consulta nasce com o `Patient.communication` (preferred) do FHIR. Cada fala
++   guarda o próprio `idioma` (chip editável, `PATCH` aceita `idioma`). O motor lê fala estrangeira pela `traducao`
++   (a `Fala/N` não muda); sem tradução, ou com tradução divergente, lê o original pelos sinônimos de es/en dos CSVs, com
++   a negação estrangeira levada ao "não" só nessas falas (em português "no" é "em o"). A fidelidade é conferida por
++   regra, sem LLM (`consult/fidelidade.py`): números, unidades, doses e medicamentos de `drugs.csv` entre original e
++   tradução; divergência vira o alerta "Tradução divergente" e tira a tradução das regras. No modo mock a tradução vem
++   das gravações dos roteiros (`traducao` em `data/consultations/*.json`, ex.: `cen_hispanica`); fala sem gravação
++   recebe o aviso do mock, que as regras ignoram. A nota exportada e a `DocumentReference` registram "Consulta com
++   interpretação por IA (es→pt-BR)"; as orientações da alta aceitam os mesmos idiomas (pt-BR no mock).
+-- 
+2.43.0
+

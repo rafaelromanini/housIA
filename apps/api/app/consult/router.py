@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
-from app.consult import antiglosa, cid, consentimento, idiomas, knowledge, opme, service, stt
+from app.consult import antiglosa, cid, consentimento, idiomas, knowledge, note_templates, opme, service, stt
 from app.consult import ask as copilot
 from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
@@ -423,6 +423,32 @@ def recompute_surgical(
 ) -> dict:
     """Recalcula OPME, pendências e prontidão do relatório cirúrgico editado na revisão, sem salvar a nota."""
     return service.recompute_surgical(db, user, cid, note)
+
+
+class NoteTemplateIn(BaseModel):
+    modelo: str = Field(min_length=1, max_length=64)
+
+
+@router.get("/note-templates")
+def note_templates_list(
+    especialidade: str | None = Query(None, max_length=64),
+    tipo: str | None = Query(None, max_length=32),
+    _: User = Depends(clinician),
+) -> list[dict]:
+    """Modelos de nota versionados (data/reference/note_templates); com especialidade e/ou tipo, marca o sugerido."""
+    return note_templates.listing(tipo, especialidade)
+
+
+@router.put("/consultations/{cid}/note-template")
+def switch_note_template(
+    cid: int,
+    body: NoteTemplateIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Troca o modelo da nota na revisão (o texto já escrito é mantido)."""
+    return service.switch_note_template(db, fhir, user, cid, body.modelo)
 
 
 class SendIn(BaseModel):

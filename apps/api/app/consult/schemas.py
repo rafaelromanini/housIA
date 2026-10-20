@@ -652,6 +652,14 @@ class NoteSection(BaseModel):
     frases: list[Frase] = []  # proveniência do texto, frase a frase (texto continua sendo o que se lê e edita)
 
 
+class SecaoModelo(BaseModel):
+    """Seção do modelo de nota fora das nove clássicas (peso, vacinas, NYHA, CIAP-2...), pela `key` do modelo."""
+
+    key: str
+    texto: str
+    refs: list[str]
+
+
 class CidSuggestion(BaseModel):
     codigo: str
     descricao: str
@@ -686,6 +694,9 @@ class ConsultNote(BaseModel):
     cronologia: list[ChronoItem]
     pendencias: list[NoteSection]
     orientacoes_paciente: list[str]
+    secoes: list[
+        SecaoModelo
+    ] = []  # seções próprias do modelo de nota (note_templates); o `modelo` é guardado fora do schema
 
 
 SurgicalReport.model_rebuild()

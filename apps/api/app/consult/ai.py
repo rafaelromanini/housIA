@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult import acoes, cronologia, idiomas, notas
+from app.consult import acoes, cronologia, idiomas, notas, note_templates
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -869,6 +869,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     if language != "pt-BR":
         tips.insert(0, f"[Tradução para {idiomas.rotulo(language)} disponível com o LLM real.]")
     no_record = "Sem registro na consulta."
+    template = note_templates.select(engine.kind, engine.specialty)
 
     def section(items: list[tuple[str, list[str]]], fallback: str = no_record) -> dict:
         """Seção com o texto de sempre ("; " entre os itens) e uma frase por item que tenha fonte."""
@@ -926,6 +927,7 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
         "cronologia": chrono,
         "pendencias": pendencias,
         "orientacoes_paciente": tips,
+        "secoes": note_templates.fill_dynamic(template, engine, ins),
     }
 
 
@@ -973,7 +975,9 @@ def run_note(
     rules_only: bool = False,
     fallback: bool = False,
 ):
+    template = note_templates.select(engine.kind, engine.specialty)
     variables = {
+        "template": note_templates.for_prompt(template),
         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
         "especialidade": SPECIALTIES.get(engine.specialty, engine.specialty),
         "idioma": idiomas.rotulo(language),
@@ -1025,6 +1029,7 @@ def run_note(
         section: NoteSection = getattr(note, name)
         section.refs = [r for r in section.refs if r in valid]
         _validate_sentences(section, name, v, valid, result.mode)
+    note_templates.complete(note, template, engine, ins, valid)
     acoes.inject_into_note(note, ins)  # o que o profissional aceitou entra na nota mesmo que o LLM tenha omitido
     note.cids = v.keep(note.cids, "cids")
     # CID da nota precisa existir na tabela oficial; diagnóstico/hipótese não pode ser causa externa nem de outro sexo

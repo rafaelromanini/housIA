@@ -1,0 +1,61 @@
+id: ps
+versao: 1.0.0
+rotulo: Pronto-socorro (curta)
+titulo: Nota de pronto atendimento
+tipo: ps
+especialidades: []
+automatico: false
+loinc:
+  codigo: 34878-9
+  display: Emergency medicine Note
+fonte: Nota curta de pronto atendimento (queixa, achados, conduta)
+secoes:
+- key: queixa_principal
+  rotulo: Queixa principal
+  soap: S
+  obrigatoria: true
+  dica: Motivo do atendimento nas palavras do paciente.
+  loinc: 10154-3
+- key: hda
+  rotulo: História resumida
+  soap: S
+  obrigatoria: false
+  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
+  loinc: 10164-2
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: sinais_vitais
+  rotulo: Sinais vitais
+  soap: O
+  obrigatoria: true
+  dica: Pressão, frequências, saturação e temperatura do prontuário.
+  loinc: 8716-3
+  padrao: '{{pa}}; {{fc}}; {{fr}}; {{spo2}}; {{temp}}'
+- key: exame_fisico
+  rotulo: Exame físico
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi medido ou verbalizado.
+  loinc: 29545-1
+- key: avaliacao
+  rotulo: Impressão diagnóstica
+  soap: A
+  obrigatoria: true
+  dica: Raciocínio clínico e hipóteses, com CID-10.
+  loinc: 51848-0
+- key: plano
+  rotulo: Conduta e destino
+  soap: P
+  obrigatoria: true
+  dica: Medicação, exames, observação, alta ou internação.
+  loinc: 18776-5

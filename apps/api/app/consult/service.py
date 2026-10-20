@@ -27,6 +27,7 @@ from app.consult import (
     idiomas,
     knowledge,
     notas,
+    note_templates,
     opme,
     relevancia,
     stt,
@@ -218,6 +219,11 @@ def _sync_alerts(c: Consultation, ins: Insights) -> None:
         c.insight_actions_json = {**data, "alertas": mapping}
 
 
+def _nota(c: Consultation) -> dict | None:
+    """A nota como a tela a lê: nota antiga (sem modelo) é convertida na leitura, sem mexer no que está gravado."""
+    return note_templates.upgrade(c.note_json, c.kind, c.specialty) if c.kind != "cirurgia" else c.note_json
+
+
 def _public_meta(c: Consultation) -> dict | None:
     """Metadados da nota sem o rascunho da IA (cópia da nota inteira): ele sai pelo GET /note/diff, por seção."""
     if c.note_meta_json is None:
@@ -243,7 +249,7 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "cobertura": relevancia.coverage(segments, c.note_json) if c.kind != "cirurgia" else None,
         "insights": c.insights_json,
         "ia": meta or None,
-        "nota": c.note_json,
+        "nota": _nota(c),
         "nota_meta": _public_meta(c),
         "fhir_ref": c.fhir_ref,
         "roteiro_demo": (c.extra_json or {}).get("roteiro"),
@@ -504,6 +510,11 @@ def sections_citing(note: dict | None, ref: str) -> list[str]:
                     found += [f.get("rotulo") or f.get("campo", "") for f in v2 if _cites(f, ref)]
                 elif _cites(v2, ref):
                     found.append(k2.replace("_", " ").capitalize())
+        elif key == "secoes" and isinstance(value, list):
+            labels = {s["key"]: s["rotulo"] for s in ((note or {}).get("modelo") or {}).get("secoes", [])}
+            found += [labels.get(s.get("key"), str(s.get("key"))) for s in value if _cites(s, ref)]
+        elif key == "modelo":
+            continue
         elif _cites(value, ref):
             found.append(NOTE_LABELS.get(key, key.replace("_", " ").capitalize()))
     return list(dict.fromkeys(f for f in found if f))
@@ -1284,7 +1295,8 @@ def _generate_note(
     note_model, result, dropped = ai.run_note(engine, ins, pseudo, valid, c.patient_language, rules_only, fallback)
     note = hipoteses.apply_to_note(note_model.model_dump(mode="json"), hipoteses.apply(ins, c.extra_json))
     note = _apply_copilot(note, (c.extra_json or {}).get("copiloto", {}).get("insercoes", []), valid)
-    return notas.ensure(note), dropped, result, None
+    note = notas.ensure(note) | {"modelo": note_templates.snapshot(note_templates.select(c.kind, c.specialty))}
+    return note, dropped, result, None
 
 
 FALLBACK_NOTICE = "IA indisponível: a nota foi montada só pelas regras, sem o texto corrido da IA. Revise com atenção."
@@ -1457,6 +1469,11 @@ def update_note(db: Session, user: User, cid: int, note: dict, fhir: FhirSource 
             note = note | {"relatorio_cirurgico": report}
         else:
             ConsultNote.model_validate(note)
+            # o modelo da nota é o que o servidor guarda (só muda por PUT /note-template); as seções obrigatórias
+            # do modelo precisam estar preenchidas para a nota ser aprovada
+            model = (note_templates.upgrade(c.note_json, c.kind, c.specialty) or {})["modelo"]
+            note = note | {"modelo": model, "secoes": note_templates.complete_sections(note.get("secoes"), model)}
+            _require_sections(note)
             # as propostas de Condition vêm das decisões do profissional na consulta, não da edição do texto
             note = note | {
                 "condicoes_propostas": previous.get("condicoes_propostas", []),
@@ -1504,6 +1521,63 @@ def update_note(db: Session, user: User, cid: int, note: dict, fhir: FhirSource 
         "secoes_editadas": {k: v for k, v in version["secoes"].items() if v > 0},
     } | ({"opme": changes} if changes else {})
     log_action(db, user, "consulta.nota_revisada", "consultation", c.id, payload)
+    return out(c)
+
+
+def _require_sections(note: dict) -> None:
+    """Seção obrigatória do modelo vazia (ou só "Sem registro na consulta") impede a aprovação."""
+    empty = note_templates.missing_required(note, note["modelo"])
+    if empty:
+        raise HTTPException(
+            422,
+            {
+                "codigo": "secao_obrigatoria_vazia",
+                "mensagem": f"Preencha as seções obrigatórias antes de aprovar: {', '.join(empty)}.",
+                "secoes": empty,
+            },
+        )
+
+
+def switch_note_template(db: Session, fhir: FhirSource, user: User, cid: int, template_id: str) -> dict:
+    """Troca o modelo da nota na revisão: o texto já escrito fica, e as seções novas do modelo recebem o rascunho
+    das regras (prontuário, campos da especialidade e falas citadas)."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O relatório cirúrgico tem modelo próprio por procedimento.")
+    if c.note_json is None:
+        raise HTTPException(409, "Finalize a consulta antes de escolher o modelo da nota.")
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário.")
+    tpl = note_templates.get(template_id)
+    if tpl is None:
+        raise HTTPException(422, "Modelo de nota desconhecido.")
+    note = dict(_nota(c) or {})
+    if note["modelo"]["id"] == tpl.id:
+        return out(c)
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    engine = _engine(c, record, events, ctx, segments)
+    ins = Insights.model_validate(c.insights_json) if c.insights_json else engine.run()
+    filled = {s["key"] for s in note["secoes"] if not note_templates.is_empty(s["texto"])}
+    news = note_templates.fill_dynamic(tpl, engine, ins, only={s.key for s in tpl.secoes} - filled)
+    model = note_templates.snapshot(tpl)
+    kept = [s for s in note["secoes"] if s["key"] in filled]
+    note = note | {"modelo": model, "secoes": note_templates.complete_sections(kept + news, model)}
+    previous = c.note_json
+    c.note_json = note
+    log_action(
+        db,
+        user,
+        "consulta.modelo_nota",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "de": (previous or {}).get("modelo", {}).get("id"),
+            "para": tpl.id,
+            "versao": tpl.versao,
+        },
+    )
     return out(c)
 
 
@@ -1740,7 +1814,7 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     now = clock.now()
     role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
     author = f"{user.name} ({role})"
-    note = reidentify(c.note_json, record)  # o prontuário recebe os nomes, não os tokens enviados à IA
+    note = reidentify(_nota(c), record)  # o prontuário recebe os nomes, não os tokens enviados à IA
     interp = _interpretacao(c)
     text = note_as_text(
         c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c), interpretacao=interp
@@ -1755,6 +1829,8 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
         when=now,
         text=text,
         consultation_id=c.id,
+        loinc=note_templates.loinc_of(note),
+        title=(note.get("modelo") or {}).get("titulo"),
     )
     return text, doc
 
@@ -1886,6 +1962,8 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     c = _get(db, cid)
     if c.status == "enviada" and c.fhir_ref and get_settings().ehr_writeback:
         raise HTTPException(409, f"Nota já enviada ({c.fhir_ref}).")
+    if c.kind != "cirurgia" and c.note_json is not None:
+        _require_sections(_nota(c) or {})
     _require_review(c)
     _gate_billing(db, user, c, justification)
     _gate_clinical(db, user, c, justification)
@@ -2240,7 +2318,7 @@ def insert_into_note(
             c.id,
             {"patient_id": c.patient_id, "destino": ins["destino"], "refs": len(ins["refs"])},
         )
-    return {"insercao": ins, "criada": created, "insercoes": data["insercoes"], "nota": c.note_json}
+    return {"insercao": ins, "criada": created, "insercoes": data["insercoes"], "nota": _nota(c)}
 
 
 def include_segment(db: Session, user: User, cid: int, n: int, destino: str) -> dict:
@@ -2270,7 +2348,7 @@ def include_segment(db: Session, user: User, cid: int, n: int, destino: str) -> 
         {"patient_id": c.patient_id, "fala": n, "destino": destino},
     )
     return {
-        "nota": c.note_json,
+        "nota": _nota(c),
         "cobertura": relevancia.coverage(segments, c.note_json),
         "incluidas": note["incluidas"],
     }

@@ -1,5 +1,5 @@
 ---
-version: 1.4.0
+version: 1.5.0
 description: Nota clínica da consulta (anamnese + SOAP + CID-10 + cronologia + orientações), para revisão do profissional
 ---
 # system
@@ -27,6 +27,10 @@ Regras obrigatórias:
   cada alerta no `plano`, cada pergunta feita na `hda` e cada hipótese na `avaliacao`, mantendo as `refs` recebidas.
 - `cids`: CID-10 dos diagnósticos (principal/secundários) e das hipóteses, com refs. Use só códigos REAIS da
   CID-10 do DATASUS; o HousIA confere na tabela oficial e descarta o código inexistente.
+- `secoes`: seções do modelo de nota escolhido (abaixo). Uma entrada por `key`, com o texto e as `refs` de onde veio;
+  sem informação, "Sem registro na consulta". Dados medidos (peso, estatura, sinais vitais, TFG) vêm só do prontuário.
+  Para CIAP-2, use apenas códigos reais e coerentes com o CID-10 da avaliação. Nunca invente classe NYHA, escore IPSS
+  ou marco do desenvolvimento que não tenha sido dito: descreva o relato e deixe a classificação para o profissional.
 - `cronologia`: momentos-chave da consulta em ordem (mm:ss), uma linha cada, com `tipo`: queixa, negativa (o que o
   paciente nega), achado (exame dito pelo profissional), medicamento (iniciou, trocou, suspendeu, prescreveu),
   exame (pedido), orientacao, retorno ou emocao. Inclua toda decisão sobre medicamento, exame pedido, orientação e
@@ -40,6 +44,10 @@ Regras obrigatórias:
 <prontuario>
 $prontuario
 </prontuario>
+
+<modelo_de_nota>
+$template
+</modelo_de_nota>
 
 <achados_do_housia>
 $achados

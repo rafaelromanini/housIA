@@ -635,7 +635,7 @@ def test_prompt_versions_were_bumped():
     from app.llm.client import load_prompt
 
     assert load_prompt("consult_live_clinica").version == "1.5.0"
-    assert load_prompt("consult_note").version == "1.4.0"
+    assert load_prompt("consult_note").version == "1.5.0"
     assert load_prompt("surgical_report").version == "1.2.0"
 
 

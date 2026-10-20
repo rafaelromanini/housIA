@@ -1,0 +1,66 @@
+id: consulta_clinica
+versao: 1.0.0
+rotulo: Consulta clínica
+titulo: Nota de consulta
+tipo: consulta
+especialidades: []
+automatico: true
+loinc:
+  codigo: 11488-4
+  display: Consult note
+fonte: Anamnese e SOAP tradicionais (modelo anterior do HousIA)
+secoes:
+- key: queixa_principal
+  rotulo: Queixa principal
+  soap: S
+  obrigatoria: true
+  dica: Motivo do atendimento nas palavras do paciente.
+  loinc: 10154-3
+- key: hda
+  rotulo: História da doença atual
+  soap: S
+  obrigatoria: false
+  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
+  loinc: 10164-2
+- key: antecedentes
+  rotulo: Antecedentes
+  soap: S
+  obrigatoria: false
+  dica: Doenças prévias, cirurgias e história familiar.
+  loinc: 11348-0
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: exame_fisico
+  rotulo: Exame físico
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi medido ou verbalizado.
+  loinc: 29545-1
+- key: exames_complementares
+  rotulo: Exames complementares
+  soap: O
+  obrigatoria: false
+  dica: Resultados relevantes, com data.
+  loinc: 30954-2
+- key: avaliacao
+  rotulo: Avaliação
+  soap: A
+  obrigatoria: true
+  dica: Raciocínio clínico e hipóteses, com CID-10.
+  loinc: 51848-0
+- key: plano
+  rotulo: Plano
+  soap: P
+  obrigatoria: false
+  dica: Condutas combinadas; o que não foi combinado fica como "a confirmar".
+  loinc: 18776-5

@@ -6,7 +6,7 @@ import base64
 import uuid
 from datetime import datetime
 
-from app.consult import idiomas
+from app.consult import idiomas, note_templates
 from app.fhir_client import codes
 
 BUNDLE_NS = uuid.UUID("5b3f0c4e-9a1d-4c1e-8a57-2f0d7c0b6a11")
@@ -40,7 +40,7 @@ def note_as_text(
     orders: list | None = None,
     interpretacao: str | None = None,
 ) -> str:
-    title = KIND_TITLE.get(kind, "Nota clínica")
+    title = (note.get("modelo") or {}).get("titulo") or KIND_TITLE.get(kind, "Nota clínica")
     lines = [f"{title.upper()} — {patient_name}", f"{when.strftime('%d/%m/%Y %H:%M')} · {author}"]
     if interpretacao:
         lines.append(interpretacao)  # ex.: "Consulta com interpretação por IA (es→pt-BR)"
@@ -73,8 +73,11 @@ def note_as_text(
         if report.get("pedidos"):
             lines.append("Pedidos propostos: " + "; ".join(p["descricao"] for p in report["pedidos"]))
     else:
-        for key, label in NOTE_SECTIONS:
-            lines.append(f"{label}: {note.get(key, {}).get('texto', '')}")
+        sections = note_templates.sections_for_view(note) or [
+            (key, label, note.get(key, {}).get("texto", "")) for key, label in NOTE_SECTIONS
+        ]
+        for _, label, text in sections:
+            lines.append(f"{label}: {text}")
         if note.get("cids"):
             lines.append("CID-10: " + "; ".join(f"{c['codigo']} {c['descricao']} ({c['tipo']})" for c in note["cids"]))
         if note.get("cronologia"):
@@ -116,11 +119,14 @@ def document_reference(
     text: str,
     consultation_id: int,
     interpretacao: str | None = None,
+    loinc: tuple[str, str] | None = None,
+    title: str | None = None,
     approved: bool = True,
 ) -> dict:
-    """DocumentReference da nota. `docStatus` é "preliminary" até a aprovação (revisão + atestação), depois "final"."""
-    code, display = LOINC_OPERATIVE_NOTE if kind == "cirurgia" else LOINC_CONSULT_NOTE
-    label = f"{KIND_TITLE.get(kind, 'Nota clínica')} (HousIA)"
+    """DocumentReference da nota. `docStatus` é "preliminary" até a aprovação (revisão + atestação), depois "final".
+    `loinc` e `title` vêm do modelo da nota (visita de enfermagem: 34746-8; visita médica: 11506-3)."""
+    code, display = loinc or (LOINC_OPERATIVE_NOTE if kind == "cirurgia" else LOINC_CONSULT_NOTE)
+    label = f"{title or KIND_TITLE.get(kind, 'Nota clínica')} (HousIA)"
     resource = {
         "resourceType": "DocumentReference",
         "status": "current",
