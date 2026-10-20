@@ -96,17 +96,10 @@ Comparação item a item: [`../benchmark-lya.md`](../benchmark-lya.md). Decisõe
 
 ## O que falta, na ordem
 
-Feito e verificado (head 2a9f4bd): #22 (tradução, verificado com esforço alto e juntado), e2e 12/12 depois de
-#2+#13, #3, #14+#15, #16 (spec atualizada; corrigidos transcrição duplicada em note-review.tsx e formulário de início
-antes da checagem de consulta em andamento em consult-page.tsx), #31 (privacidade: AES-GCM em repouso, expurgo,
-exclusão pelo titular, rekey; migrações d401 e d402; verificado com esforço alto). O pytest completo sobre 2a9f4bd
-(após o merge do #31) não teve o resumo capturado: rode-o primeiro. e2e ainda não rodados depois do #22 e do #31.
+Feito e verificado até aqui: Ondas 1 e 2, #22, #31, #21 e #32. pytest 1014 passed/1 xfail, ruff, typecheck e lint
+limpos, e2e 16/16. Cabeça do Alembic: c201. Próximas etapas em branches separados a partir da main (um PR por entrega;
+ao criar migração, encadeie na cabeça da main para não gerar duas cabeças).
 
-1. **Confirmar pytest em 2a9f4bd e rodar os e2e** (stack: `scripts/sandbox-stack.sh up -d --build`).
-2. **#21 (Smart Apps como plug-ins):** feito e verificado (migração c201, cabeça do Alembic = c201 sobre d402).
-3. **#32 (frente B):** implementação parcial NÃO verificada em `docs/paridade-lya/wip/32-implementacao-parcial.patch`
-   (diff sobre 9fc3504 = conteúdo de 2a9f4bd na frente B; migrações d403+). Terminar, verificar e juntar. Apagar a pasta
-   wip no fim.
 4. **Resto da Onda 3.** Frente A: #27, #28, #17, #18, #29 (c2). Frente B: #33, #34, #35 (d4).
 5. **Onda 4:** #11, #12, depois P1 (#38 a #54) e P2 (#55 a #57).
 6. **Pitch:** refazer o vídeo (#0) com a Consulta com IA como foco: transcrição ao vivo, pergunta sugerida saindo da
