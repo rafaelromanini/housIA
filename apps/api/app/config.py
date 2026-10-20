@@ -14,6 +14,9 @@ def _default_data_dir() -> Path:
     return Path("/data")
 
 
+DEFAULT_JWT_SECRET = "dev-secret-housia-mvp-troque-em-producao"  # noqa: S105
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -35,9 +38,16 @@ class Settings(BaseSettings):
     fhir_mode: Literal["hapi", "local"] = "local"
     fhir_base_url: str = "http://localhost:8080/fhir"
 
+    llm_region: str = ""  # região do provedor de IA, exibida na tela Ambiente (#32)
+
+    # Ambiente (#32): com ENV=production o app recusa subir com configuração de demonstração (app/prontidao.py)
+    env: Literal["development", "production"] = "development"
+    allow_mock: bool = False  # produção com LLM_MODE=mock só com este aceite explícito
+
     # Auth
-    jwt_secret: str = "dev-secret-housia-mvp-troque-em-producao"
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_expires_minutes: int = 12 * 60
+    cookie_secure: bool | None = None  # None: ligado em produção
 
     # Consulta com IA
     # Transcrição no servidor (opcional): endpoint compatível com /v1/audio/transcriptions (ex.: Whisper on-premise).

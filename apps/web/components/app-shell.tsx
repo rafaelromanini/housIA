@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { BedDouble, CalendarClock, ChartNoAxesCombined, ClipboardList, LogOut, Route, ShieldCheck, Stethoscope } from "lucide-react";
+import { BedDouble, CalendarClock, ChartNoAxesCombined, ClipboardList, LogOut, Server, Route, ShieldCheck, Stethoscope } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,6 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { href: "/gestao", label: "Gestão", Icon: ClipboardList, show: user.role === "gestor" },
     { href: "/impacto", label: "Impacto", Icon: ChartNoAxesCombined, show: user.role === "gestor" },
     { href: "/auditoria", label: "Auditoria", Icon: ShieldCheck, show: user.role === "gestor" },
+    { href: "/ambiente", label: "Ambiente", Icon: Server, show: user.role === "gestor" },
   ].filter((n) => n.show);
 
   return (

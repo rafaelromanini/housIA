@@ -1,0 +1,114 @@
+# Compose de produção (#32). Diferenças para o docker-compose.yml de demonstração:
+#  - só o Caddy publica portas (80/443); HAPI, Postgres e API ficam na rede interna;
+#  - sem senhas padrão: as variáveis obrigatórias abortam o `up` se faltarem;
+#  - ENV=production: a API recusa subir com segredo padrão/curto, LLM_MODE=mock (sem ALLOW_MOCK) ou senha padrão do banco;
+#  - healthchecks em todos os serviços; web e API no mesmo domínio (cookie SameSite=strict).
+# Uso: cp .env.prod.example .env.prod && docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+name: housia-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: housia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
+      POSTGRES_DB: housia
+    volumes:
+      - housia-db:/var/lib/postgresql/data
+    networks: [interna]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U housia -d housia"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  fhir:
+    # HAPI FHIR R4 apontado para o prontuário do hospital em produção; aqui só na rede interna (sem `ports`).
+    # A imagem é distroless (sem shell): o healthcheck usa o binário java da própria imagem.
+    image: hapiproject/hapi:v8.12.0-1
+    environment:
+      hapi.fhir.fhir_version: R4
+      hapi.fhir.allow_external_references: "true"
+      hapi.fhir.reuse_cached_search_results_millis: "0"
+      hapi.fhir.client_id_strategy: ANY
+    networks: [interna]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/bin/java", "-version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+psycopg://housia:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}@db:5432/housia
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET (mínimo 32 caracteres)}
+      LLM_MODE: ${LLM_MODE:-real}
+      ALLOW_MOCK: ${ALLOW_MOCK:-false}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
+      LLM_REGION: ${LLM_REGION:-}
+      FHIR_MODE: hapi
+      FHIR_BASE_URL: ${FHIR_BASE_URL:-http://fhir:8080/fhir}
+      CORS_ORIGINS: https://${HOUSIA_DOMAIN:?defina HOUSIA_DOMAIN}
+      EHR_WRITEBACK: ${EHR_WRITEBACK:-false}
+    networks: [interna]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      fhir:
+        condition: service_healthy
+
+  web:
+    build:
+      context: apps/web
+      args:
+        # mesma origem: o Caddy encaminha /api/* para a API
+        NEXT_PUBLIC_API_URL: https://${HOUSIA_DOMAIN:?defina HOUSIA_DOMAIN}/api
+    networks: [interna]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    # TLS automático (Let's Encrypt) ou certificado do hospital (ver deploy/caddy/Caddyfile).
+    image: caddy:2.8-alpine
+    environment:
+      HOUSIA_DOMAIN: ${HOUSIA_DOMAIN:?defina HOUSIA_DOMAIN}
+      CADDY_TLS: ${CADDY_TLS:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CADDY_CERT_DIR:-./deploy/caddy/certs}:/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [interna]
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  interna: {}  # só o Caddy publica portas; os demais serviços não têm `ports`
+
+volumes:
+  housia-db:
+  caddy-data:
+  caddy-config:

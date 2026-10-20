@@ -25,6 +25,7 @@ from app.consult.templates import surgical_specialties
 from app.db.models import User
 from app.db.session import get_db
 from app.fhir_client.client import FhirSource, get_fhir
+from app.prontidao import ambiente
 
 router = APIRouter(tags=["consulta com IA"])
 clinician = require_roles("medico", "enfermagem")
@@ -40,6 +41,7 @@ def config(_: User = Depends(get_current_user)) -> dict:
         "stt_servidor": stt.enabled(),
         "stt_navegador": s.allow_browser_stt,
         "privacidade": privacidade.panel(),
+        "ambiente": ambiente(s),
         "envio_prontuario": s.ehr_writeback,
         "idiomas": idiomas.opcoes(),
         "aviso_consentimento": consentimento.NOTICES,

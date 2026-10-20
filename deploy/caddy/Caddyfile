@@ -1,0 +1,25 @@
+# Proxy reverso de produção (#32).
+# HOUSIA_DOMAIN: nome do site. Com um domínio público, o Caddy obtém e renova o certificado sozinho.
+# Certificado do hospital: defina CADDY_TLS="/certs/hospital.crt /certs/hospital.key" (montado em /certs).
+{$HOUSIA_DOMAIN} {
+	tls {$CADDY_TLS:internal}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# A API fica em /api (o prefixo é removido antes de chegar nela).
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

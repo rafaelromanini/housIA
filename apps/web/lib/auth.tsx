@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { api, clearSession, getStoredUser, getToken, storeSession, type User } from "@/lib/api";
+import { api, ApiError, endSession, type User } from "@/lib/api";
 
 interface AuthState {
   user: User | null;
@@ -20,24 +20,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    setUser(getToken() ? getStoredUser() : null);
-    setReady(true);
+    // A sessão vive num cookie httpOnly: quem decide se há sessão é o servidor.
+    let vivo = true;
+    api<User>("/auth/me")
+      .then((u) => vivo && setUser(u))
+      .catch((e) => {
+        if (!(e instanceof ApiError) || e.status !== 401) console.warn("Falha ao consultar a sessão", e);
+      })
+      .finally(() => vivo && setReady(true));
+    return () => {
+      vivo = false;
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api<{ access_token: string; user: User }>("/auth/login", {
+    const res = await api<{ user: User }>("/auth/login", {
       method: "POST",
       json: { email, password },
     });
-    storeSession(res.access_token, res.user);
     setUser(res.user);
     return res.user;
   }, []);
 
   const logout = useCallback(() => {
-    clearSession();
     setUser(null);
-    router.push("/login");
+    void endSession().then(() => router.push("/login"));
   }, [router]);
 
   const value = useMemo(() => ({ user, ready, login, logout }), [user, ready, login, logout]);

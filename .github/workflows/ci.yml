@@ -43,6 +43,19 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+  helm:
+    name: Helm (lint + template)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - run: helm lint deploy/helm/housia -f deploy/helm/housia/ci/lint-values.yaml
+      - run: helm template housia deploy/helm/housia -f deploy/helm/housia/ci/lint-values.yaml > /dev/null
+      - name: Sem valores obrigatórios o chart deve recusar renderizar
+        run: "! helm template housia deploy/helm/housia"
+
   e2e:
     name: E2E (Playwright, 3 pilares)
     runs-on: ubuntu-latest

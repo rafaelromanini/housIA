@@ -1,0 +1,62 @@
+{{- if .Values.fhir.internal }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-fhir
+  labels: {{- include "housia.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: fhir
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-fhir
+  labels: {{- include "housia.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: fhir
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: fhir
+    spec:
+      containers:
+        - name: fhir
+          image: {{ .Values.images.fhir }}
+          env:
+            - name: hapi.fhir.fhir_version
+              value: R4
+            - name: hapi.fhir.allow_external_references
+              value: "true"
+            - name: hapi.fhir.reuse_cached_search_results_millis
+              value: "0"
+            - name: hapi.fhir.client_id_strategy
+              value: ANY
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /fhir/metadata
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /fhir/metadata
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            failureThreshold: 6
+          resources: {{- toYaml .Values.resources.fhir | nindent 12 }}
+{{- end }}
