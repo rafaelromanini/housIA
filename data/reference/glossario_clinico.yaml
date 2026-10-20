@@ -19,13 +19,11 @@ termos:
   barriga dura: abdome distendido
   barriga d'agua: ascite
   azia: pirose
-  gases: flatulência
   enjoo: náusea
   ansia de vomito: náusea
   falta de ar: dispneia
   folego curto: dispneia aos esforços
   cansaco: fadiga
-  fraqueza: astenia
   dor de cabeca: cefaleia
   dor no peito: dor torácica
   dor nas costas: dorsalgia
@@ -42,7 +40,7 @@ termos:
   acucar baixo: hipoglicemia
   acucar no sangue: glicemia
   colesterol alto: dislipidemia
-  derrame: AVC
+  derrame cerebral: AVC
   ataque do coracao: infarto agudo do miocárdio
   desmaio: síncope
   vista escura: turvação visual

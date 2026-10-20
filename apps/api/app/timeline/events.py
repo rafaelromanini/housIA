@@ -27,6 +27,25 @@ KINDS: tuple[str, ...] = (
 )
 
 
+KG_FACTOR = {
+    "kg": 1.0,
+    "kilogram": 1.0,
+    "g": 0.001,
+    "gram": 0.001,
+    "[lb_av]": 0.45359237,
+    "lb": 0.45359237,
+    "lbs": 0.45359237,
+}
+
+
+def to_kg(value: float, unit: str | None) -> tuple[float, bool]:
+    """Peso em kg a partir da unidade da Observation (UCUM: kg, g, [lb_av]); sem unidade vale kg.
+    Unidade desconhecida devolve (valor, False): quem usa o peso para dose descarta o registro."""
+    key = (unit or "kg").strip().lower()
+    factor = KG_FACTOR.get(key)
+    return (value * factor, True) if factor else (value, False)
+
+
 class ClinicalEvent(BaseModel):
     id: str
     patient_id: str
@@ -230,6 +249,9 @@ class TimelineBuilder:
             if measure is None or vq is None:
                 continue
             value = float(vq["value"])
+            unit_ok = True
+            if measure.key == "peso":  # lb e g chegam de outros sistemas: a dose por peso lê sempre kg
+                value, unit_ok = to_kg(value, vq.get("unit") or vq.get("code"))
             level = codes.classify(measure, value)
             kind = "lab" if measure.key in codes.LABS else "io" if measure.key in codes.IO else "vital"
             unit = f" {measure.unit}" if measure.unit else ""
@@ -244,7 +266,8 @@ class TimelineBuilder:
                 source_ref=src,
                 encounter_id=enc,
                 severity=level if kind != "io" else None,
-                value={"codigo": code, "chave": measure.key, "valor": value, "unidade": measure.unit},
+                value={"codigo": code, "chave": measure.key, "valor": value, "unidade": measure.unit}
+                | ({} if unit_ok else {"unidade_invalida": True}),
             )
 
     def _procedures(self) -> None:

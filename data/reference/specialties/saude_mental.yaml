@@ -24,7 +24,6 @@ hipoteses_prioritarias:
 - G47.0
 glossario:
   crise de nervos: crise de ansiedade
-  nervoso: ansiedade
   sem vontade de nada: anedonia
   desanimado: humor deprimido
   desanimada: humor deprimido
@@ -32,7 +31,7 @@ glossario:
   nao consigo dormir: insônia
   pensei em me matar: ideação suicida
   quero morrer: ideação suicida
-  aperto no peito: sintoma somático de ansiedade
+  aperto no peito: opressão torácica
   bebo demais: uso nocivo de álcool
 perguntas:
 - id: pk_sm_01

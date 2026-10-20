@@ -8,8 +8,10 @@ Os critérios de aceite passam pelo caminho real (API/TestClient e Engine sobre 
 - schema dos YAML dos pacotes.
 """
 
+import copy
 import csv
 import re
+from datetime import timedelta
 
 import pytest
 
@@ -48,7 +50,25 @@ def peso_ins(record, falas: list[tuple[str, str]]):
 
 
 def dose_alerts(ins) -> list:
-    return [m for m in ins.sugestoes_medicamentos if "mg/kg" in m.texto or "sem peso" in m.texto]
+    marks = ("Dose citada", "sem peso", "sem a concentração")
+    return [m for m in ins.sugestoes_medicamentos if m.tipo == "ajuste_dose" and any(k in m.texto for k in marks)]
+
+
+def peso_ins_com_peso(record, valor, falas, unit="kg", dias=0, idade=None, pid="cen9", spec="pediatria"):
+    """Roda a análise com o peso da Observation trocado (`valor=None` apaga) e, se pedido, outra idade."""
+    rec = record(pid)
+    rec.resources = copy.deepcopy(rec.resources)  # o registro do store é compartilhado entre os testes
+    obs = rec.resources["Observation"]
+    if valor is None:
+        rec.resources["Observation"] = [o for o in obs if "29463-7" not in str(o.get("code"))]
+    for o in obs:
+        if "29463-7" in str(o.get("code")) and valor is not None:
+            o["valueQuantity"] = {"value": valor, "unit": unit}
+            o["effectiveDateTime"] = (clock.now() - timedelta(days=dias)).isoformat()
+    if idade is not None:
+        rec.patient = dict(rec.patient, birthDate=f"{clock.now().year - idade}-01-01")
+    segs = [Segment(n=i, t=float(i), falante=w, texto=t) for i, (w, t) in enumerate(falas, 1)]  # type: ignore[arg-type]
+    return Engine(rec, build_timeline(rec), build_context(rec), segs, spec, "consulta", clock.now()).run()
 
 
 # ---------- schema dos pacotes ----------
@@ -170,17 +190,10 @@ def test_funcoes_de_dose():
 
 
 def test_sem_peso_pede_o_peso(record):
-    rec = record("cen9")
-    rec.resources["Observation"] = [
-        o for o in rec.resources.get("Observation", []) if "29463-7" not in str(o.get("code"))
-    ]
-    segs = [Segment(n=1, t=1, falante="medico", texto="Vou passar amoxicilina 500 mg de 8 em 8 horas.")]
-    ins = Engine(rec, build_timeline(rec), build_context(rec), segs, "pediatria", "consulta", clock.now()).run()
+    ins = peso_ins_com_peso(record, None, [("medico", "Vou passar amoxicilina 500 mg de 8 em 8 horas.")])
     found = [m for m in ins.sugestoes_medicamentos if "sem peso" in m.texto]
-    if found:
-        assert found[0].severidade == "atencao" and "Pesar a criança" in found[0].texto
-    else:  # peso ainda vindo de outra fonte do prontuário: então a conferência por kg vale
-        assert dose_alerts(ins)
+    assert len(found) == 1 and found[0].severidade == "atencao" and "Pesar a criança" in found[0].texto
+    assert not [m for m in ins.sugestoes_medicamentos if "mg/kg" in m.texto]  # sem peso não há conferência cega
 
 
 def test_peso_dito_na_conversa_vale_sem_observation():
@@ -216,6 +229,138 @@ def test_csv_de_doses_pediatricas_tem_fonte_e_principio_conhecido():
         assert r["principio_ativo"] in catalog
         assert re.search(r"ANVISA|SBP", r["fonte"]), r
         assert float(r["mg_kg_dose_min"]) < float(r["mg_kg_dose_max"])
+
+
+AMOX = [("medico", "Vou passar amoxicilina 500 mg de 8 em 8 horas.")]
+
+
+@pytest.mark.parametrize(
+    ("valor", "unit"), [(12, "kg"), (12000, "g"), (26.46, "[lb_av]"), (26.46, "lb")], ids=["kg", "g", "lb_av", "lb"]
+)
+def test_peso_em_outra_unidade_vira_kg_antes_da_dose(record, valor, unit):
+    found = dose_alerts(peso_ins_com_peso(record, valor, AMOX, unit))
+    assert len(found) == 1 and found[0].severidade == "critico" and "peso de 12 kg" in found[0].texto
+
+
+@pytest.mark.parametrize("valor", [0, -3, 5000])
+def test_peso_zero_negativo_ou_absurdo_nao_vira_conferencia_cega(record, valor):
+    found = dose_alerts(peso_ins_com_peso(record, valor, AMOX))
+    assert len(found) == 1 and "sem peso" in found[0].texto and "mg/kg" not in found[0].texto
+
+
+def test_peso_em_unidade_desconhecida_e_descartado(record):
+    found = dose_alerts(peso_ins_com_peso(record, 26, AMOX, "stone"))
+    assert len(found) == 1 and "sem peso" in found[0].texto
+
+
+def test_peso_antigo_pede_pesagem_e_cede_ao_peso_dito(record):
+    assert "sem peso" in dose_alerts(peso_ins_com_peso(record, 12, AMOX, dias=400))[0].texto  # mais de 1 ano
+    velho = dose_alerts(peso_ins_com_peso(record, 5, AMOX, dias=200))[0]  # 5 kg de 200 dias atrás
+    assert "peso de 5 kg" in velho.texto and "pesar de novo" in velho.texto  # a idade do peso aparece no alerta
+    falas = [("acompanhante", "Ela pesa 12 quilos agora."), *AMOX]
+    dito = dose_alerts(peso_ins_com_peso(record, 5, falas, dias=200))[0]
+    assert "peso de 12 kg" in dito.texto and "peso dito na consulta" in dito.texto
+    assert any(r.startswith("Fala/1") for r in dito.refs)
+
+
+def test_peso_dito_nao_vem_do_nascimento_nem_da_mae():
+    for fala in ("Ele nasceu pesando 3 quilos.", "Eu peso 60 quilos e ele é pequeno.", "Meu peso é 70 quilos."):
+        assert dose_peso.spoken_weight([Segment(n=1, t=1, falante="acompanhante", texto=fala)]) is None, fala
+    assert dose_peso.spoken_weight([Segment(n=1, t=1, falante="acompanhante", texto="Ela pesa 0 quilos.")]) is None
+
+
+def test_mcg_nao_vira_mg(record):
+    assert dose_alerts(peso_ins(record, [("medico", "Vou passar amoxicilina 500 mcg de 8 em 8 horas.")])) == []
+    assert dose_peso.parse_mg("500 mcg") is None and dose_peso.parse_mg("500 microgramas") is None
+
+
+@pytest.mark.parametrize(
+    ("fala", "esperado"),
+    [
+        ("Vou passar amoxicilina 0,5 g de 8 em 8 horas.", "critico"),  # vírgula decimal não parte a oração
+        ("Vou passar amoxicilina 62,5 mg de 8 em 8 horas.", "atencao"),  # decimal: subdose, não 62 e 5
+        ("amoxicilina 250 mg/5 ml, 10 ml de 8 em 8 horas", "critico"),  # 10 ml × 50 mg/ml = 500 mg
+        ("amoxicilina 250 mg por 5 ml, dar 2,5 ml de 8 em 8 horas", None),  # 125 mg: na faixa
+        ("dipirona 1 grama a cada 4 horas", "critico"),
+        ("Vou passar Novalgina 1 g de 6 em 6 horas.", "critico"),  # nome comercial
+        ("Pode dar Tylenol 750 mg de 4 em 4 horas.", "critico"),
+        ("vou passar amoxicilina 500 mg de oito em oito horas", "critico"),  # intervalo por extenso
+    ],
+)
+def test_unidades_decimais_e_nomes_comerciais(record, fala, esperado):
+    found = dose_alerts(peso_ins(record, [("medico", fala)]))
+    assert [m.severidade for m in found] == ([esperado] if esperado else []), found
+    if esperado == "critico":
+        assert found[0].fonte
+
+
+def test_dose_em_ml_sem_concentracao_avisa_em_vez_de_calar(record):
+    found = dose_alerts(peso_ins(record, [("medico", "amoxicilina 5 ml de 8 em 8 horas")]))
+    assert len(found) == 1 and found[0].severidade == "atencao" and "sem a concentração" in found[0].texto
+
+
+@pytest.mark.parametrize(
+    ("fala", "esperado"),
+    [
+        ("amoxicilina 50 mg/kg/dia de 8 em 8 horas", None),  # mg/kg não é mg
+        ("amoxicilina 150 mg/kg/dia dividido em 3 vezes", "critico"),
+        ("amoxicilina 100 mg/kg por dose", "critico"),
+        ("Vou passar amoxicilina 500 mg por dia.", None),  # total do dia = 41,7 mg/kg/dia
+        ("Vou passar amoxicilina 1500 mg por dia dividido em três doses.", "critico"),  # 125 mg/kg/dia
+        ("Vou passar amoxicilina 750 mg por dia dividido em 3 doses.", None),  # 250 mg por tomada
+        ("Vou passar amoxicilina 500 mg de 12 em 12 horas.", None),  # 83 mg/kg/dia em 2 doses: dose alta guiada
+        ("Vou passar amoxicilina 540 mg de 12 em 12 horas.", None),  # 90 mg/kg/dia, 45 mg/kg/dose
+        ("Vou passar amoxicilina 600 mg de 12 em 12 horas.", "critico"),  # 100 mg/kg/dia
+    ],
+)
+def test_dose_diaria_e_por_tomada(record, fala, esperado):
+    found = dose_alerts(peso_ins(record, [("medico", fala)]))
+    assert [m.severidade for m in found] == ([esperado] if esperado else []), found
+
+
+def test_adolescente_grande_toma_dose_de_adulto_mas_respeita_o_teto(record):
+    for fala in (
+        "paracetamol 1 g de 6 em 6 horas",
+        "ibuprofeno 600 mg de 8 em 8 horas",
+        "amoxicilina 875 mg de 12 em 12 horas",
+        "dipirona 1 g de 6 em 6 horas",
+        "ondansetrona 8 mg de 8 em 8 horas",
+    ):
+        assert dose_alerts(peso_ins_com_peso(record, 60, [("medico", fala)], idade=16)) == [], fala
+    teto = dose_alerts(peso_ins_com_peso(record, 90, [("medico", "paracetamol 1 g de 4 em 4 horas")], idade=17))
+    assert len(teto) == 1 and teto[0].severidade == "critico" and "teto de 4000 mg/dia" in teto[0].texto
+    peq = dose_alerts(peso_ins_com_peso(record, 40, [("medico", "paracetamol 750 mg de 6 em 6 horas")], idade=12))
+    assert len(peq) == 1 and "mg/kg/dose" in peq[0].texto  # 40 kg ainda se calcula por kg
+
+
+def test_dose_em_ml_no_pedido_e_concentracao_nao_e_dose(client, auth):
+    from app.consult.orders import parse_posology
+
+    assert parse_posology("amoxicilina 250 mg/5 ml, 10 ml de 8 em 8 horas").dose == "10 ml"
+    assert parse_posology("500 mg de 8 em 8 horas").dose == "500 mg"
+    h = auth("medico")
+    c = start(client, h, "cen9", especialidade="pediatria")
+    ins = say(
+        client, h, c["id"], [{"falante": "medico", "texto": "Vou passar amoxicilina 5 ml de 8 em 8 horas.", "t": 1}]
+    )
+    draft = next(d for d in ins["pedidos"] if d["item"].lower().startswith("amoxicilina"))
+    assert any(k["tipo"] == "dose_peso" and k["severidade"] == "atencao" for k in draft["checagens"])
+
+
+def test_orders_importa_sozinho_sem_ciclo():
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    out = subprocess.run(
+        [sys.executable, "-c", "import app.consult.orders"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parents[1],
+        env={**os.environ, "LLM_MODE": "mock", "PYTHONPATH": "."},
+    )
+    assert out.returncode == 0, out.stderr[-400:]
 
 
 # ---------- escalas ----------
@@ -432,3 +577,123 @@ def test_stt_envia_o_vocabulario(monkeypatch):
     sent.clear()
     stt.transcribe(b"abc", "audio/webm", "pt-BR")
     assert "prompt" not in sent  # sem vocabulário, o campo nem vai
+
+
+# ---------- verificação cética: escalas e glossário ----------
+@pytest.mark.parametrize(
+    ("fala", "classe"),
+    [
+        ("Tenho falta de ar quando subo escada, mas em repouso não sinto nada.", "II"),  # "em repouso" negado
+        ("Não tenho falta de ar em repouso, só quando subo ladeira.", "II"),  # a negativa não apaga o esforço
+        ("Fico sem ar até parada, deitada.", "IV"),  # "sem ar" é a própria dispneia
+        ("Consigo andar no plano sem problema.", None),  # "no plano" negado: sem classe
+        ("Não tenho falta de ar.", "I"),
+        ("Eu canso pra tomar banho.", "III"),
+    ],
+)
+def test_nyha_pela_fala_respeita_a_negacao(fala, classe):
+    assert scales.nyha_pela_fala([Segment(n=1, t=1, falante="paciente", texto=fala)])[0] == classe
+    assert scales.nyha_pela_fala([Segment(n=1, t=1, falante="medico", texto=fala)])[0] is None  # só fala do paciente
+
+
+def test_ipss_pela_fala_nem_sempre_nao_e_sempre():
+    fala = [Segment(n=1, t=1, falante="paciente", texto="Nem sempre o jato fraco, quase nunca.")]
+    assert scales.ipss_pela_fala(fala)[0] == {"jato_fraco": "1"}
+    assert scales.ipss_pela_fala([Segment(n=1, t=1, falante="paciente", texto="Jato fraco, nem sempre.")])[0] == {}
+
+
+def test_phq9_com_ideacao_positiva_e_critico_mesmo_incompleto():
+    r = scales.calcular("phq9", {"ideacao": "1", "humor": "0"})
+    assert r.total is None and r.severidade == "critico" and r.aviso.startswith("ATENÇÃO")
+    assert scales.calcular("phq9", {"humor": "0"}).severidade == "info"  # incompleta sem ideação: só informa
+
+
+def test_escalas_resposta_faltando_ou_fora_da_faixa_nao_somam():
+    parcial = scales.calcular("ivcf20", {"idade": "85+", "saude": "regular_ruim"})
+    assert parcial.total is None and not parcial.completo and parcial.faltam
+    assert scales.calcular("ipss", {"esvaziamento": "9"}).total is None  # opção inexistente não pontua
+    assert scales.validar_respostas("ipss", {"nocturia": "6"}) and scales.validar_respostas("braden", {"umidade": "0"})
+    assert scales.validar_respostas("ivcf20", {"idade": "40"})  # fora das faixas do instrumento
+    assert scales.validar_respostas("phq9", {"humor": "1.0", "xx": "1"})
+
+
+def test_ivcf20_pesos_e_tetos_do_instrumento():
+    todos = {i.chave: ("sim" if "sim" in i.opcoes else "") for i in scales.IVCF20.itens}
+    todos |= {"idade": "85+", "saude": "regular_ruim"}
+    assert scales.calcular("ivcf20", todos).total == 40  # máximo do instrumento
+    nenhum = {i.chave: ("nao" if "nao" in i.opcoes else "") for i in scales.IVCF20.itens}
+    assert scales.calcular("ivcf20", nenhum | {"idade": "60-74", "saude": "boa"}).total == 0
+    # tetos por domínio: 3 itens de AVD instrumental valem 4, não 12; domínio de comorbidade vale 4
+    assert (
+        scales.calcular(
+            "ivcf20",
+            nenhum
+            | {
+                "idade": "60-74",
+                "saude": "boa",
+                "avdi_dinheiro": "sim",
+                "avdi_compras": "sim",
+                "avdi_domestico": "sim",
+            },
+        ).total
+        == 4
+    )
+    assert scales.calcular("ivcf20", nenhum | {"idade": "75-84", "saude": "boa", "avdb_banho": "sim"}).total == 1 + 6
+    assert [f.maximo for f in scales.IVCF20.faixas] == [6, 14, 40]  # 0-6 robusto, 7-14 em risco, 15+ frágil
+
+
+def test_cha2ds2_vasc_aneurisma_de_aorta_nao_conta_e_idade_ausente_avisa():
+    cond = lambda cid, i: (cid, cid, {"id": i})  # noqa: E731
+    assert scales.cha2ds2_vasc(50, False, [cond("I48", "a"), cond("I71.4", "b")], "Patient/x").total == 0
+    assert scales.cha2ds2_vasc(50, False, [cond("I48", "a"), cond("I70.2", "b")], "Patient/x").total == 1
+    sem_idade = scales.cha2ds2_vasc(None, False, [cond("I48", "a")], "Patient/x")
+    assert "Idade não registrada" in sem_idade.aviso
+
+
+@pytest.mark.parametrize(
+    ("texto", "pacote", "esperado"),
+    [
+        ("Derrame pleural volumoso e derrame articular.", "", "Derrame pleural volumoso e derrame articular."),
+        ("Teve derrame cerebral ano passado.", "", "Teve AVC ano passado."),
+        ("Gases arteriais e gasometria normais.", "", "Gases arteriais e gasometria normais."),
+        ("Chiado no peito, sem febre.", "pediatria", "Chiado no peito, sem febre."),
+        ("Exame do sistema nervoso normal.", "saude_mental", "Exame do sistema nervoso normal."),
+        ("Ferida operatória limpa; curativo trocado.", "enfermagem", "Ferida operatória limpa; curativo trocado."),
+        (
+            "Refluxo gastroesofágico e refluxo vesicoureteral.",
+            "nutricao",
+            "Refluxo gastroesofágico e refluxo vesicoureteral.",
+        ),
+        ("Fraqueza no braço direito.", "", "Fraqueza no braço direito."),  # déficit focal não é astenia
+        ("Aperto no peito ao esforço.", "saude_mental", "Opressão torácica ao esforço."),  # sem rotular como ansiedade
+        ("Xixizinho, pixixi e oxixi não são o termo.", "", "Xixizinho, pixixi e oxixi não são o termo."),
+        ("Nega azia, mas tem dor de cabeça.", "", "Nega pirose, mas tem cefaleia."),  # a negação fica
+        ("XIXI! Xixi? xixi.", "", "DIURESE! Diurese? diurese."),
+    ],
+)
+def test_glossario_nao_muda_o_sentido(texto, pacote, esperado):
+    saida = glossario.tecnico(texto, pacote)[0]
+    assert saida == esperado or saida.replace("DIURESE", "Diurese") == esperado.replace("DIURESE", "Diurese"), saida
+
+
+def test_glossario_dos_pacotes_nao_tem_palavra_solta_ambigua():
+    arriscadas = {"peito", "nervoso", "regra", "ferida", "curativo", "refluxo", "caiu", "bronquite", "gases", "derrame"}
+    for pack in pacotes().values():
+        assert not arriscadas & set(glossario._key(k) for k in pack.glossario), pack.id
+    assert not arriscadas & set(glossario.comum())
+
+
+def test_glossario_nao_mexe_na_fala_original_nem_nas_refs():
+    from app.consult.schemas import Frase, NoteSection
+
+    fala = Segment(n=1, t=1, falante="acompanhante", texto="Fez pouco xixi hoje.")
+    frase = Frase(texto="Mãe refere que fez pouco xixi hoje.", refs=["Fala/1"])
+    sec = NoteSection(texto=frase.texto, refs=["Fala/1"], frases=[frase])
+
+    class Note:  # só o que `aplicar_nota` toca
+        queixa_principal = hda = antecedentes = sec
+        secoes: list = []
+
+    swaps = glossario.aplicar_nota(Note(), "pediatria")
+    assert swaps and "xixi" not in sec.texto and "diurese" in frase.texto
+    assert frase.refs == ["Fala/1"] and sec.refs == ["Fala/1"] and fala.texto == "Fez pouco xixi hoje."

@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.consult.schemas import Segment, fala_ref
-from app.consult.text import find, norm
+from app.consult.text import clauses, find, norm
 
 PATIENT_SIDE = ("paciente", "acompanhante")
 
@@ -447,7 +447,7 @@ def calcular(escala_id: str, respostas: dict[str, str], refs: dict[str, list[str
         total=total if completo else None,
         maximo=escala.maximo,
         faixa=faixa.rotulo if faixa else "incompleta",
-        severidade=("critico" if aviso.startswith("ATENÇÃO") else faixa.severidade) if faixa else "info",
+        severidade="critico" if aviso.startswith("ATENÇÃO") else (faixa.severidade if faixa else "info"),
         pontos=pontos,
         fonte=escala.fonte,
         completo=completo,
@@ -481,7 +481,7 @@ _IC = ("I50", "I11.0", "I13.0", "I13.2", "I42")
 _HAS = ("I10", "I11", "I12", "I13", "I15")
 _DM = ("E10", "E11", "E12", "E13", "E14")
 _AVC = ("I63", "I64", "G45", "I74", "I69.3")
-_VASC = ("I21", "I22", "I25.2", "I70", "I73.9", "I71")
+_VASC = ("I21", "I22", "I25.2", "I70", "I73.9")  # IAM prévio, aterosclerose/DAP; aneurisma e dissecção (I71) não contam
 
 
 def tem_fa(conditions: list[tuple[str, str, dict]]) -> bool:
@@ -542,7 +542,8 @@ def cha2ds2_vasc(
         severidade=sev,
         pontos=pontos,
         fonte=FONTE_CHA2DS2,
-        aviso="Conferir também o risco de sangramento (HAS-BLED) antes de decidir.",
+        aviso=("Idade não registrada: os pontos de idade não foram contados. " if idade is None else "")
+        + "Conferir também o risco de sangramento (HAS-BLED) antes de decidir.",
     )
 
 
@@ -631,6 +632,7 @@ _NUM_WORDS = {"uma": 1, "um": 1, "duas": 2, "dois": 2, "tres": 3, "quatro": 4, "
 
 
 def _freq_pontos(texto_norm: str) -> str | None:
+    texto_norm = re.sub(r"\bnem (?:sempre|toda vez|todas as vezes)\b", " ", texto_norm)  # negação de "sempre"
     for chave, palavras in _FREQ_WORDS:
         if find(texto_norm, palavras):
             return chave
@@ -732,6 +734,12 @@ _NYHA_WORDS = (
         "II",
         (
             "subir escada",
+            "subo escada",
+            "subo a escada",
+            "subo uma escada",
+            "subindo escada",
+            "subo ladeira",
+            "subindo ladeira",
             "subir uma escada",
             "subir a escada",
             "subir escadas",
@@ -748,6 +756,32 @@ _NYHA_WORDS = (
 _NYHA_I = ("nao tenho falta de ar", "nao canso", "sem falta de ar", "faco tudo sem", "nao sinto falta de ar")
 
 
+_NEG_CLAUSE = re.compile(r"\b(?:nao|nunca|sem|nega|negou|nenhum|nenhuma|jamais)\b")
+_SO_QUANDO = re.compile(r"\b(?:so|apenas|somente|mas) (?:quando|se|ao|em|se eu)\b|\bso (?:de|com)\b")
+
+
+def _classe_da_fala(t: str) -> str | None:
+    """Classe NYHA de uma fala: cada oração é lida com a sua negação ("em repouso não sinto nada" não é classe IV;
+    "não tenho falta de ar em repouso, só quando subo ladeira" é classe II, não I)."""
+    dispneia = negou = False
+    atividades: list[str] = []
+    for c in clauses(t):
+        neg = _NEG_CLAUSE.search(re.sub(r"\bsem (?:ar|folego)\b", " ", c))  # "sem ar" é a própria dispneia
+        if find(c, _DISPNEIA):
+            if neg:
+                negou = True
+            else:
+                dispneia = True
+        if neg:
+            continue  # atividade negada na oração ("sem problema", "em repouso não") não conta
+        atividades += [cl for cl, palavras in _NYHA_WORDS if find(c, palavras)]
+    ordem = {"I": 1, "II": 2, "III": 3, "IV": 4}
+    pior = max(atividades, key=ordem.__getitem__, default=None)
+    if pior and (dispneia or (negou and _SO_QUANDO.search(t))):
+        return pior
+    return "I" if find(t, _NYHA_I) and not pior else None
+
+
 def nyha_pela_fala(segments: list[Segment]) -> tuple[str | None, list[str]]:
     """Classe funcional estimada pela fala do paciente: a pior classe que ele descreve, com as falas de origem."""
     ordem = {"I": 1, "II": 2, "III": 3, "IV": 4}
@@ -756,13 +790,7 @@ def nyha_pela_fala(segments: list[Segment]) -> tuple[str | None, list[str]]:
     for s in segments:
         if s.falante not in PATIENT_SIDE:
             continue
-        t = norm(s.texto)
-        if find(t, _NYHA_I):
-            classe = "I"
-        elif find(t, _DISPNEIA):
-            classe = next((c for c, palavras in _NYHA_WORDS if find(t, palavras)), None)
-        else:
-            classe = None
+        classe = _classe_da_fala(norm(s.texto))
         if classe is None:
             continue
         if melhor is None or ordem[classe] > ordem[melhor]:
