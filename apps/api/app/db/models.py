@@ -5,9 +5,23 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app import clock
+from app.db import crypto
 from app.db.session import Base
 
 JsonType = JSON().with_variant(JSONB(), "postgresql")
+
+
+class EncryptedJson(TypeDecorator):
+    """JSON cifrado em AES-GCM (app.db.crypto): o SELECT direto na coluna só mostra texto cifrado."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else crypto.encrypt(value)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else crypto.decrypt(value)
 
 
 class UTCDateTime(TypeDecorator):
@@ -170,14 +184,14 @@ class Consultation(Base):
     specialty: Mapped[str] = mapped_column(String(40))
     patient_language: Mapped[str] = mapped_column(String(10), default="pt-BR")
     status: Mapped[str] = mapped_column(String(20), default="em_andamento")  # em_andamento | finalizada | enviada
-    segments_json: Mapped[list] = mapped_column(JsonType, default=list)
-    insights_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
-    ai_meta_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    segments_json: Mapped[list] = mapped_column(EncryptedJson(), default=list)
+    insights_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
+    ai_meta_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
     insight_actions_json: Mapped[dict | None] = mapped_column(
         JsonType, nullable=True
     )  # decisões sobre cada insight (#3)
-    note_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
-    note_meta_json: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    note_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
+    note_meta_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
     extra_json: Mapped[dict] = mapped_column(JsonType, default=dict)
     fhir_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

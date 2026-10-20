@@ -7,7 +7,18 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_roles
 from app.config import get_settings
-from app.consult import antiglosa, cid, consentimento, idiomas, knowledge, note_templates, opme, service, stt
+from app.consult import (
+    antiglosa,
+    cid,
+    consentimento,
+    idiomas,
+    knowledge,
+    note_templates,
+    opme,
+    privacidade,
+    service,
+    stt,
+)
 from app.consult import ask as copilot
 from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
@@ -27,6 +38,8 @@ def config(_: User = Depends(get_current_user)) -> dict:
     return {
         "llm_mode": s.llm_mode,
         "stt_servidor": stt.enabled(),
+        "stt_navegador": s.allow_browser_stt,
+        "privacidade": privacidade.panel(),
         "envio_prontuario": s.ehr_writeback,
         "idiomas": idiomas.opcoes(),
         "aviso_consentimento": consentimento.NOTICES,
@@ -110,6 +123,14 @@ def create_consultation(
     user: User = Depends(clinician),
 ) -> dict:
     return service.create(db, fhir, user, patient_id, body)
+
+
+@router.delete("/patients/{patient_id}/consultation-data")
+def delete_consultation_data(
+    patient_id: str, db: Session = Depends(get_db), user: User = Depends(require_roles("gestor"))
+) -> dict:
+    """Exclusão a pedido do titular (LGPD art. 18): só o gestor, auditada."""
+    return privacidade.delete_patient_data(db, user, patient_id)
 
 
 @router.get("/patients/{patient_id}/consultations")

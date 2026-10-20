@@ -21,6 +21,7 @@ import {
 
 import { useDemoPlayer, usePushToTalk, useServerRecorder, useSpeechCapture, speechSupported } from "@/components/consult/capture";
 import { CopilotPanel } from "@/components/consult/copilot-panel";
+import { PrivacyPanel } from "@/components/consult/privacy-panel";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
 import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS, type SegmentPatch } from "@/components/consult/transcript";
@@ -83,7 +84,10 @@ export function LiveConsult({
   const surgical = c.tipo === "cirurgia";
   const proLabel = surgical ? "Cirurgião(ã)" : consultLabel;
   const speakers = surgical ? SURGICAL_SPEAKERS : CONSULT_SPEAKERS;
-  const [mode, setMode] = useState<Mode>(() => (c.roteiro_demo ? "demo" : speechSupported() ? "microfone" : "digitar"));
+  const browserStt = config.stt_navegador;
+  const [mode, setMode] = useState<Mode>(() =>
+    c.roteiro_demo ? "demo" : browserStt && speechSupported() ? "microfone" : "digitar",
+  );
   // no microfone a fala chega contínua: começa em "Automático" (as regras atribuem quem falou e a IA corrige). Com
   // paciente em outro idioma, quem fala escolhe o idioma do reconhecimento, então o falante continua manual. No ditado
   // cirúrgico quem dita é a equipe: começa em "Profissional" (a heurística chamaria a afirmação solta de paciente).
@@ -439,7 +443,7 @@ export function LiveConsult({
   const ia = c.ia;
   const pending = c.segmentos.length - (ia?.falas ?? 0);
   const modes: { key: Mode; label: string; short: string; Icon: typeof Mic; show: boolean }[] = [
-    { key: "microfone", label: "Microfone", short: "Microfone", Icon: Mic, show: true },
+    { key: "microfone", label: "Microfone", short: "Microfone", Icon: Mic, show: browserStt },
     { key: "servidor", label: "Servidor (Whisper)", short: "Servidor", Icon: Server, show: config.stt_servidor },
     { key: "digitar", label: "Digitar", short: "Digitar", Icon: Keyboard, show: true },
     { key: "demo", label: "Simular consulta", short: "Simular", Icon: Sparkles, show: !!c.roteiro_demo },
@@ -705,6 +709,7 @@ export function LiveConsult({
             onEdit={editSegment}
             speakers={speakers.filter((sp) => sp !== "desconhecido")}
           />
+          <PrivacyPanel panel={c.privacidade ?? config.privacidade} expurgadaEm={c.privacidade?.expurgada_em} />
         </section>
 
         <section aria-label="Assistente" className="space-y-3">
@@ -714,7 +719,7 @@ export function LiveConsult({
               patientId={c.patient_id}
               insights={c.insights}
               pushed={pushed}
-              ptt={{ active: ptt.active, interim: ptt.interim, error: ptt.error, supported: speechSupported(), start: ptt.start, stop: ptt.stop }}
+              ptt={{ active: ptt.active, interim: ptt.interim, error: ptt.error, supported: browserStt && speechSupported(), start: ptt.start, stop: ptt.stop }}
             />
           )}
           {c.insights?.relatorio_cirurgico ? (

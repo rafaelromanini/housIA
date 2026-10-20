@@ -11,6 +11,7 @@ from app.audit.router import router as audit_router
 from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
 from app.config import get_settings
+from app.consult import privacidade
 from app.consult.router import router as consult_router
 from app.db import session as db_session
 from app.db.session import Base
@@ -36,6 +37,11 @@ async def lifespan(app: FastAPI):
     if settings.seed_users:
         with db_session.SessionLocal() as db:
             seed_demo_users(db)
+    with db_session.SessionLocal() as db:  # expurgo por retenção (#31)
+        try:
+            privacidade.run(db)
+        except Exception:  # tabela ainda sem migrar etc.: não derruba a API
+            logger.exception("Falha no expurgo por retenção")
     yield
 
 
