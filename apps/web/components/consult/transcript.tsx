@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Languages, Pause, Pencil, Play, ShieldOff, Volume2 } from "lucide-react";
+import { AlertTriangle, Languages, Pause, Pencil, Play, ShieldOff, Volume2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,8 @@ import { usePatient } from "@/components/patient/patient-context";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Segment, Speaker } from "@/lib/api";
+import type { ConsultConfig, Segment, Speaker } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 
 export const SPEAKER_STYLE: Record<Speaker, string> = {
@@ -41,6 +42,7 @@ export function speakerLabel(s: Speaker, proLabel: string) {
 
 export const clock = (t: number) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
+// voz do navegador por idioma; fora dessa lista vale o próprio código BCP-47 (a lista completa vem de /consult/config)
 export const VOICE_LANG: Record<string, string> = { "pt-BR": "pt-BR", es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT", de: "de-DE", zh: "zh-CN", ar: "ar-SA", ht: "fr-HT" };
 
 /** Transcrição ao vivo: falas com quem falou, tempo, tradução e destaque quando um Smart App cita a fala. */
@@ -50,7 +52,7 @@ const MARKER_META = {
   revogado: { label: "Consentimento revogado", Icon: ShieldOff },
 } as const;
 
-export type SegmentPatch = { texto?: string; falante?: Speaker };
+export type SegmentPatch = { texto?: string; falante?: Speaker; idioma?: string };
 
 /** Transcrição: falas com quem falou, tempo, tradução, marcos de privacidade e, se `onEdit` vier, correção da fala. */
 export function Transcript({
@@ -73,6 +75,7 @@ export function Transcript({
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [draftSpeaker, setDraftSpeaker] = useState<Speaker>("medico");
+  const [draftLang, setDraftLang] = useState("pt-BR");
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const speakerOptions = speakers ?? (["medico", "paciente", "acompanhante"] as Speaker[]);
@@ -81,6 +84,7 @@ export function Transcript({
     const patch: SegmentPatch = {};
     if (draft.trim() && draft.trim() !== s.texto) patch.texto = draft.trim();
     if (draftSpeaker !== s.falante) patch.falante = draftSpeaker;
+    if (draftLang !== s.idioma) patch.idioma = draftLang;
     if (Object.keys(patch).length === 0) {
       setEditing(null);
       return;
@@ -192,6 +196,11 @@ export function Transcript({
               <span className="tabular-nums text-muted-foreground">
                 {clock(s.t)} · fala {s.n}
               </span>
+              {(s.idioma !== "pt-BR" || patientLanguage !== "pt-BR") && s.origem !== "marco" && (
+                <span className="rounded border px-1.5 uppercase text-muted-foreground" title="Idioma em que a fala foi dita" data-testid={`idioma-fala-${s.n}`}>
+                  {s.idioma}
+                </span>
+              )}
               {s.editado_em && (
                 <span
                   className="rounded border border-info-border bg-info-bg px-1.5 text-info"
@@ -210,6 +219,7 @@ export function Transcript({
                     setEditing(s.n);
                     setDraft(s.texto);
                     setDraftSpeaker(s.falante);
+                    setDraftLang(s.idioma);
                     setEditError(null);
                   }}
                 >
@@ -242,6 +252,7 @@ export function Transcript({
                       </option>
                     ))}
                   </NativeSelect>
+                  <LanguageField id={`idioma-fala-edit-${s.n}`} value={draftLang} onChange={setDraftLang} />
                   <Button size="sm" onClick={() => void save(s)} disabled={saving || !draft.trim()}>
                     Salvar correção
                   </Button>
@@ -253,6 +264,12 @@ export function Transcript({
               </div>
             ) : (
               <p className="leading-snug">{s.texto}</p>
+            )}
+            {s.traducao_divergente && s.traducao_divergente.length > 0 && (
+              <p className="mt-1 flex items-start gap-1.5 rounded border border-atencao-border bg-atencao-bg p-1.5 text-sm text-atencao" role="alert" data-testid={`traducao-divergente-${s.n}`}>
+                <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                <span>Tradução divergente: {s.traducao_divergente.join("; ")}. Confira a fala original.</span>
+              </p>
             )}
             {s.traducao && (
               <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
@@ -284,5 +301,22 @@ export function Transcript({
       </ol>
     </div>
     </div>
+  );
+}
+
+/** Idioma de uma fala (chip editável): lista completa vinda da configuração (≥ 95 idiomas). */
+function LanguageField({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+  const config = useApi<ConsultConfig>("/consult/config");
+  return (
+    <>
+      <Label htmlFor={id}>Idioma da fala</Label>
+      <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-10 w-48">
+        {(config.data?.idiomas ?? [{ value, label: value }]).map((i) => (
+          <option key={i.value} value={i.value}>
+            {i.label}
+          </option>
+        ))}
+      </NativeSelect>
+    </>
   );
 }

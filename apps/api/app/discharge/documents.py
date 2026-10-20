@@ -4,14 +4,16 @@ Inspirado na estruturação SOAP e na tradução de ferramentas de consulta (doc
 transição hospital → casa. Toda linha cita a fonte; o HousIA não escreve no prontuário.
 """
 
-from typing import Literal
+from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
+from app.consult import idiomas
 from app.timeline.events import ClinicalEvent
 from app.timeline.record import MedInfo, PatientRecord
 
-Language = Literal["pt-BR", "es", "en"]
+# os mesmos idiomas da consulta (data/reference/languages.csv); no modo mock o texto continua em pt-BR
+Language = Annotated[str, AfterValidator(idiomas.validar)]
 HOME_ROUTES = {"vo", "sc", "inalatória", "inalatoria", "sl", "tópica", "topica"}
 
 

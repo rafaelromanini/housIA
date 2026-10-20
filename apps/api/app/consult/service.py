@@ -21,8 +21,10 @@ from app.consult import (
     ai,
     antiglosa,
     consentimento,
+    fidelidade,
     gs1,
     hipoteses,
+    idiomas,
     knowledge,
     notas,
     note_templates,
@@ -264,6 +266,13 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
 
 
 # ---------- criar / listar ----------
+def idioma_paciente(fhir: FhirSource, patient_id: str) -> dict:
+    """Idioma preferido do paciente (Patient.communication) para pré-selecionar na abertura da consulta."""
+    record, _, _ = _chart(fhir, patient_id)
+    code, fonte = idiomas.do_paciente(record.patient)
+    return {"idioma": code or idiomas.PADRAO, "rotulo": idiomas.rotulo(code or idiomas.PADRAO), "fonte": fonte}
+
+
 def companions(fhir: FhirSource, patient_id: str) -> list[dict]:
     record, _, _ = _chart(fhir, patient_id)
     out_: list[dict] = []
@@ -331,7 +340,7 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
         encounter_id=encounter_id,
         kind=body.tipo,
         specialty=body.especialidade,
-        patient_language=body.idioma_paciente,
+        patient_language=body.idioma_paciente or idiomas.do_paciente(record.patient)[0] or idiomas.PADRAO,
         status="em_andamento",
         segments_json=[],
         extra_json=extra,
@@ -517,8 +526,8 @@ def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, bo
     c = _get(db, cid)
     if c.status == "enviada":
         raise HTTPException(409, "Nota já enviada ao prontuário: a transcrição não pode mais ser editada.")
-    if body.texto is None and body.falante is None:
-        raise HTTPException(422, "Informe o texto e/ou o falante da fala.")
+    if body.texto is None and body.falante is None and body.idioma is None:
+        raise HTTPException(422, "Informe o texto, o falante e/ou o idioma da fala.")
     segments = _segments(c)
     idx = next((i for i, s in enumerate(segments) if s.n == n), None)
     if idx is None:
@@ -534,12 +543,18 @@ def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, bo
         if text != seg.texto:
             seg.texto_original = seg.texto_original if seg.texto_original is not None else seg.texto
             seg.texto, seg.traducao = text, None  # a tradução antiga não vale para o texto novo
+            seg.traducao_divergente = []
             changed.append("texto")
     if body.falante is not None and body.falante != seg.falante:
         seg.falante_original = seg.falante_original or seg.falante
         seg.falante, seg.falante_auto = body.falante, False
-        seg.idioma = c.patient_language if body.falante in PATIENT_SIDE else "pt-BR"
+        if body.idioma is None:
+            seg.idioma = c.patient_language if body.falante in PATIENT_SIDE else "pt-BR"
+            seg.traducao, seg.traducao_divergente = None, []
         changed.append("falante")
+    if body.idioma is not None and body.idioma != seg.idioma:
+        seg.idioma, seg.traducao, seg.traducao_divergente = body.idioma, None, []  # a tradução é de outro idioma
+        changed.append("idioma")
     if not changed:
         return out(c)
     previous = next((s for s in reversed(segments[:idx]) if s.origem != "marco"), None)
@@ -1196,18 +1211,28 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
     return out(c)
 
 
+def translate_targets(c: Consultation, segments: list[Segment], ns: list[int] | None) -> dict[int, str]:
+    """Destino de cada fala ainda sem tradução: fala estrangeira vai para pt-BR; a do profissional (pt-BR) vai para o
+    idioma do paciente. Cada fala traz o próprio idioma (acompanhante pode falar outro idioma que o paciente)."""
+    targets: dict[int, str] = {}
+    for s in segments:
+        if s.origem == "marco" or s.traducao or (ns is not None and s.n not in ns):
+            continue
+        if s.idioma != idiomas.PADRAO:
+            targets[s.n] = idiomas.PADRAO
+        elif c.patient_language != idiomas.PADRAO and s.falante not in PATIENT_SIDE:
+            targets[s.n] = c.patient_language
+    return targets
+
+
 def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int] | None) -> dict:
     c = _get(db, cid)
     _require_ai(c, "a tradução por IA externa", "traducao")
-    if c.patient_language == "pt-BR":
-        return {"traducoes": {}}
-    record, _, _ = _chart(fhir, c.patient_id)
+    record, events, ctx = _chart(fhir, c.patient_id)
     segments = _segments(c)
-    targets = {
-        s.n: ("pt-BR" if s.falante in PATIENT_SIDE else c.patient_language)
-        for s in segments
-        if (ns is None or s.n in ns) and not s.traducao and s.origem != "marco"
-    }
+    targets = translate_targets(c, segments, ns)
+    if not targets:
+        return {"traducoes": {}, "insights": c.insights_json}
     try:
         done = ai.run_translation(segments, targets, _pseudo(record))
     except LLMError as exc:
@@ -1215,9 +1240,32 @@ def translate(db: Session, fhir: FhirSource, user: User, cid: int, ns: list[int]
     for s in segments:
         if s.n in done:
             s.traducao = done[s.n]
+            # números, doses e medicamentos conferidos por regra entre a fala e a tradução (não depende do LLM)
+            s.traducao_divergente = (
+                []
+                if idiomas.placeholder(s.traducao)
+                else fidelidade.divergencias(s.texto, s.traducao, s.idioma, targets[s.n])
+            )
     c.segments_json = [s.model_dump() for s in segments]
-    log_action(db, user, "consulta.traducao", "consultation", c.id, {"falas": len(done), "idioma": c.patient_language})
-    return {"traducoes": {str(k): v for k, v in done.items()}}
+    # com a tradução, as regras passam a ler a fala estrangeira pela tradução (Fala/N preservada)
+    ins = _refresh_insights(c, record, events, ctx, segments)
+    log_action(
+        db,
+        user,
+        "consulta.traducao",
+        "consultation",
+        c.id,
+        {
+            "falas": len(done),
+            "idioma": c.patient_language,
+            "divergentes": sum(1 for s in segments if s.n in done and s.traducao_divergente),
+        },
+    )
+    return {
+        "traducoes": {str(k): v for k, v in done.items()},
+        "divergentes": {str(s.n): s.traducao_divergente for s in segments if s.n in done and s.traducao_divergente},
+        "insights": ins.model_dump(mode="json"),
+    }
 
 
 # ---------- nota, revisão e envio ----------
@@ -1747,6 +1795,19 @@ def _gate_clinical_export(c: Consultation) -> None:
         )
 
 
+def _interpretacao(c: Consultation) -> str | None:
+    """Linha "Consulta com interpretação por IA (es→pt-BR)": só com tradução de fato, um par por idioma de origem."""
+    pairs: list[str] = []
+    for s in _segments(c):
+        if not s.traducao or idiomas.placeholder(s.traducao):
+            continue
+        src, dst = (s.idioma, idiomas.PADRAO) if s.idioma != idiomas.PADRAO else (idiomas.PADRAO, c.patient_language)
+        pair = f"{src}→{dst}"
+        if pair not in pairs:
+            pairs.append(pair)
+    return f"Consulta com interpretação por IA ({', '.join(sorted(pairs))})" if pairs else None
+
+
 def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tuple[str, dict]:
     _require_review(c)
     record = load_record(fhir, c.patient_id)
@@ -1754,8 +1815,12 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
     author = f"{user.name} ({role})"
     note = reidentify(_nota(c), record)  # o prontuário recebe os nomes, não os tokens enviados à IA
-    text = note_as_text(c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c))
+    interp = _interpretacao(c)
+    text = note_as_text(
+        c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c), interpretacao=interp
+    )
     doc = document_reference(
+        interpretacao=interp,
         kind=c.kind,
         patient_id=c.patient_id,
         patient_name=record.name,

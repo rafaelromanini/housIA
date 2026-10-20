@@ -1,0 +1,101 @@
+codigo,rotulo,web_speech,whisper
+pt-BR,Português (Brasil),pt-BR,pt
+es,Español,es-ES,es
+en,English,en-US,en
+fr,Français,fr-FR,fr
+it,Italiano,it-IT,it
+de,Deutsch,de-DE,de
+zh,中文,zh-CN,zh
+ar,العربية,ar-SA,ar
+ht,Kreyòl ayisyen,fr-HT,ht
+ru,Русский,ru-RU,ru
+ko,한국어,ko-KR,ko
+ja,日本語,ja-JP,ja
+tr,Türkçe,tr-TR,tr
+pl,Polski,pl-PL,pl
+ca,Català,ca-ES,ca
+nl,Nederlands,nl-NL,nl
+sv,Svenska,sv-SE,sv
+id,Bahasa Indonesia,id-ID,id
+hi,हिन्दी,hi-IN,hi
+fi,Suomi,fi-FI,fi
+vi,Tiếng Việt,vi-VN,vi
+he,עברית,he-IL,he
+uk,Українська,uk-UA,uk
+el,Ελληνικά,el-GR,el
+ms,Bahasa Melayu,ms-MY,ms
+cs,Čeština,cs-CZ,cs
+ro,Română,ro-RO,ro
+da,Dansk,da-DK,da
+hu,Magyar,hu-HU,hu
+ta,தமிழ்,ta-IN,ta
+no,Norsk,nb-NO,no
+th,ไทย,th-TH,th
+ur,اردو,ur-PK,ur
+hr,Hrvatski,hr-HR,hr
+bg,Български,bg-BG,bg
+lt,Lietuvių,lt-LT,lt
+la,Latina,,la
+mi,Te reo Māori,,mi
+ml,മലയാളം,ml-IN,ml
+cy,Cymraeg,,cy
+sk,Slovenčina,sk-SK,sk
+te,తెలుగు,te-IN,te
+fa,فارسی,fa-IR,fa
+lv,Latviešu,lv-LV,lv
+bn,বাংলা,bn-BD,bn
+sr,Српски,sr-RS,sr
+az,Azərbaycanca,az-AZ,az
+sl,Slovenščina,sl-SI,sl
+kn,ಕನ್ನಡ,kn-IN,kn
+et,Eesti,et-EE,et
+mk,Македонски,,mk
+br,Brezhoneg,,br
+eu,Euskara,eu-ES,eu
+is,Íslenska,is-IS,is
+hy,Հայերեն,hy-AM,hy
+ne,नेपाली,ne-NP,ne
+mn,Монгол,,mn
+bs,Bosanski,bs-BA,bs
+kk,Қазақша,kk-KZ,kk
+sq,Shqip,sq-AL,sq
+sw,Kiswahili,sw-KE,sw
+gl,Galego,gl-ES,gl
+mr,मराठी,mr-IN,mr
+pa,ਪੰਜਾਬੀ,pa-Guru-IN,pa
+si,සිංහල,si-LK,si
+km,ខ្មែរ,km-KH,km
+sn,ChiShona,,sn
+yo,Yorùbá,,yo
+so,Soomaali,,so
+af,Afrikaans,af-ZA,af
+oc,Occitan,,oc
+ka,ქართული,ka-GE,ka
+be,Беларуская,,be
+tg,Тоҷикӣ,,tg
+sd,سنڌي,,sd
+gu,ગુજરાતી,gu-IN,gu
+am,አማርኛ,am-ET,am
+yi,ייִדיש,,yi
+lo,ລາວ,,lo
+uz,Oʻzbekcha,uz-UZ,uz
+fo,Føroyskt,,fo
+ps,پښتو,,ps
+tk,Türkmençe,,tk
+nn,Nynorsk,,nn
+mt,Malti,,mt
+sa,संस्कृतम्,,sa
+lb,Lëtzebuergesch,,lb
+my,မြန်မာ,,my
+bo,བོད་སྐད།,,bo
+tl,Tagalog,fil-PH,tl
+mg,Malagasy,,mg
+as,অসমীয়া,,as
+tt,Татарча,,tt
+haw,ʻŌlelo Hawaiʻi,,haw
+ln,Lingála,,ln
+ha,Hausa,,ha
+ba,Башҡортса,,ba
+jw,Basa Jawa,jv-ID,jw
+su,Basa Sunda,su-ID,su
+zu,isiZulu,zu-ZA,

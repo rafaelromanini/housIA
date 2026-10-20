@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import { api, type DischargeDocuments, type DocSection, type ImplantCard } from "@/lib/api";
+import { api, type ConsultConfig, type DischargeDocuments, type DocSection, type ImplantCard } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
 import { fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +81,9 @@ const HANDOUT_LABELS = {
 export function DischargeDocumentsCard() {
   const { patient } = usePatient();
   const [lang, setLang] = useState<DischargeDocuments["idioma"]>("pt-BR");
+  // mesma lista de idiomas da consulta (≥ 95); quem não pode ler a configuração fica com os três de sempre
+  const config = useApi<ConsultConfig>("/consult/config");
+  const langOptions = config.data?.idiomas ?? LANGS;
   const [doc, setDoc] = useState<DischargeDocuments | null>(null);
   const [tab, setTab] = useState<"soap" | "orientacoes">("orientacoes");
   const [busy, setBusy] = useState(false);
@@ -106,7 +110,7 @@ export function DischargeDocumentsCard() {
 
   const name = patient.nome;
   const r = (t: string) => reidentify(t, name);
-  const L = HANDOUT_LABELS[doc?.meta.traducao_disponivel ? doc.idioma : "pt-BR"];
+  const L = HANDOUT_LABELS[(doc?.meta.traducao_disponivel ? doc.idioma : "pt-BR") as keyof typeof HANDOUT_LABELS] ?? HANDOUT_LABELS["pt-BR"];
   const implants = doc?.cartao_implante ?? [];
   const implantLine = (i: ImplantCard) =>
     [
@@ -156,8 +160,8 @@ export function DischargeDocumentsCard() {
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
             <Label htmlFor="idioma">Idioma das orientações</Label>
-            <NativeSelect id="idioma" value={lang} onChange={(e) => setLang(e.target.value as DischargeDocuments["idioma"])}>
-              {LANGS.map((l) => (
+            <NativeSelect id="idioma" value={lang} onChange={(e) => setLang(e.target.value)}>
+              {langOptions.map((l) => (
                 <option key={l.value} value={l.value}>
                   {l.label}
                 </option>

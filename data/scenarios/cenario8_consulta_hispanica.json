@@ -1,0 +1,48 @@
+{
+  "id": "cen8",
+  "tag": "cenario-8",
+  "titulo": "Cenário 8 — Consulta com IA em espanhol: dor no peito, hipertensão e diabetes (tradução simultânea)",
+  "esperado": "Paciente hispanofalante (Patient.communication = es): o idioma é pré-selecionado, as falas em espanhol são traduzidas (roteiro cen_hispanica, traduções pré-gravadas no modo mock) e as regras de segurança rodam sobre a tradução mantendo a Fala/N: dor no peito desde ontem, esquecimento do anti-hipertensivo e alerta de tradução divergente quando a dose traduzida não bate com a falada. A nota registra 'Consulta com interpretação por IA (es→pt-BR)'.",
+  "paciente": {
+    "nome": "Carmen Rodríguez Salazar",
+    "sexo": "female",
+    "nascimento": "1968-08-21",
+    "cpf": "519.274.836-02",
+    "telefone": "(11) 95530-2184",
+    "endereco": "Rua Coimbra, 410, Brás, São Paulo - SP",
+    "idioma": "es"
+  },
+  "ambulatorio": {
+    "servico": "Ambulatório de Clínica Médica",
+    "sala": "Consultório 2",
+    "profissional": "Dra. Helena Prado",
+    "consultas": [
+      { "id": "c1", "inicio": "-182d2h", "duracao": "30m", "motivo": "Acompanhamento de hipertensão e diabetes" },
+      { "id": "hoje", "inicio": "-4m", "status": "arrived", "motivo": "Dor no peito desde ontem" }
+    ]
+  },
+  "diagnosticos": [
+    { "cid": "I10", "texto": "Hipertensão arterial sistêmica", "principal": true, "inicio": "-2900d", "registro": "-182d2h" },
+    { "cid": "E11.9", "texto": "Diabetes mellitus tipo 2", "inicio": "-1800d", "registro": "-182d2h" }
+  ],
+  "alergias": [],
+  "familiares": [
+    { "nome": "Luis Rodríguez Salazar", "parentesco": "filho", "codigo": "SON", "descricao": "filho (intérprete informal, fala português)", "telefone": "(11) 95530-7711" }
+  ],
+  "social": { "moradores": 3 },
+  "prescricoes": [
+    { "id": "losartana", "med": "losartana", "dose": "50 mg", "via": "VO", "horarios": ["08:00", "20:00"], "setor": "c1", "inicio": "-1200d" },
+    { "id": "metformina", "med": "metformina", "dose": "500 mg", "via": "VO", "horarios": ["08:00", "20:00"], "setor": "c1", "inicio": "-1700d" }
+  ],
+  "sinais": [
+    { "t": "-182d2h", "pa": [138, 88], "fc": 76 },
+    { "t": "-4m", "pa": [152, 94], "fc": 92 }
+  ],
+  "exames": [
+    { "t": "-190d", "hba1c": 7.2, "glicose": 132, "creatinina": 0.9, "potassio": 4.3, "sodio": 140, "ldl": 118 }
+  ],
+  "procedimentos": [],
+  "evolucoes": [
+    { "t": "-182d1h40m", "tipo": "medica", "autor": "Dra. Helena Prado (Clínica Médica)", "texto": "Retorno de HAS e DM2. PA 138/88. HbA1c 7,2%. Mantidas losartana 50 mg 2x/dia e metformina 500 mg 2x/dia. Paciente hispanofalante: consulta com apoio do filho como intérprete." }
+  ]
+}

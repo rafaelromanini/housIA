@@ -282,7 +282,7 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
 export function useDemoPlayer(
   script: DemoScript | null,
   startAt: number,
-  onLine: (line: { falante: Speaker; texto: string; t: number }) => void,
+  onLine: (line: { falante: Speaker; texto: string; t: number; idioma?: string }) => void,
 ) {
   const [playing, setPlaying] = useState(false);
   const [index, setIndex] = useState(startAt);

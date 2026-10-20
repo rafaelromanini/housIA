@@ -24,6 +24,7 @@ import { CopilotPanel } from "@/components/consult/copilot-panel";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
 import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS, type SegmentPatch } from "@/components/consult/transcript";
+import { reidentify } from "@/components/ai/ai-badge";
 import { usePatient } from "@/components/patient/patient-context";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -47,10 +48,9 @@ import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 
 type Mode = "microfone" | "servidor" | "digitar" | "demo";
-type SegmentIn = { falante: Speaker; texto: string; t?: number; origem: Segment["origem"] };
+type SegmentIn = { falante: Speaker; texto: string; t?: number; origem: Segment["origem"]; idioma?: string };
 
 const AI_EVERY_MS = 12000;
-const RECOGNITION_LANG: Record<string, string> = { "pt-BR": "pt-BR", es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT", de: "de-DE", zh: "zh-CN", ar: "ar-SA", ht: "fr-HT" };
 const KIND_LABEL = { consulta: "Consulta", visita: "Visita à beira do leito", cirurgia: "Ditado cirúrgico" };
 const CONSULT_SPEAKERS: Speaker[] = ["medico", "paciente", "acompanhante", "desconhecido"];
 // modo cirúrgico: a equipe de sala também dita (Alt+4 anestesista, Alt+5 circulante, Alt+6 instrumentador)
@@ -96,6 +96,9 @@ export function LiveConsult({
   const [error, setError] = useState<string | null>(null);
   const [aiRunning, setAiRunning] = useState(false);
   const [autoAI, setAutoAI] = useState(true);
+  const [autoVoice, setAutoVoice] = useState(true);
+  const autoVoiceRef = useRef(true);
+  autoVoiceRef.current = autoVoice;
   const [finishing, setFinishing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
@@ -128,17 +131,40 @@ export function LiveConsult({
   const translate = useCallback(
     async (ns: number[]) => {
       const allowed = cRef.current.consentimento ? cRef.current.consentimento.permite.traducao : true;
-      if (cRef.current.idioma_paciente === "pt-BR" || ns.length === 0 || !allowed) return;
+      const foreign = cRef.current.segmentos.some((s) => ns.includes(s.n) && s.idioma !== "pt-BR");
+      if ((cRef.current.idioma_paciente === "pt-BR" && !foreign) || ns.length === 0 || !allowed) return;
       try {
-        const out = await api<{ traducoes: Record<string, string> }>(`/consultations/${c.id}/translate`, { method: "POST", json: { ns } });
-        setConsultation((prev) =>
-          prev ? { ...prev, segmentos: prev.segmentos.map((s) => (out.traducoes[s.n] ? { ...s, traducao: out.traducoes[s.n] } : s)) } : prev,
+        const out = await api<{ traducoes: Record<string, string>; divergentes: Record<string, string[]>; insights: ConsultInsights | null }>(
+          `/consultations/${c.id}/translate`,
+          { method: "POST", json: { ns } },
         );
+        setConsultation((prev) =>
+          prev
+            ? {
+                ...prev,
+                segmentos: prev.segmentos.map((s) =>
+                  out.traducoes[s.n] ? { ...s, traducao: out.traducoes[s.n], traducao_divergente: out.divergentes?.[s.n] ?? [] } : s,
+                ),
+                insights: newerInsights(prev.insights, out.insights),
+              }
+            : prev,
+        );
+        // voz automática: a fala do profissional traduzida é lida em voz alta no idioma do paciente (desligável)
+        if (autoVoiceRef.current && typeof window !== "undefined" && "speechSynthesis" in window) {
+          const voice = config.idiomas.find((i) => i.value === cRef.current.idioma_paciente)?.web_speech ?? cRef.current.idioma_paciente;
+          cRef.current.segmentos
+            .filter((s) => ns.includes(s.n) && s.falante === "medico" && out.traducoes[s.n] && !out.traducoes[s.n].includes("tradução com LLM real"))
+            .forEach((s) => {
+              const u = new SpeechSynthesisUtterance(reidentify(out.traducoes[s.n], patient.nome));
+              u.lang = voice;
+              window.speechSynthesis.speak(u);
+            });
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro na tradução");
       }
     },
-    [c.id, setConsultation],
+    [c.id, setConsultation, config.idiomas, patient.nome],
   );
 
   // envia em ordem (fila), mesmo com falas chegando rápido
@@ -197,7 +223,7 @@ export function LiveConsult({
 
   // ---------- captura ----------
   const patientSide = speaker === "paciente" || speaker === "acompanhante";
-  const lang = patientSide ? (RECOGNITION_LANG[c.idioma_paciente] ?? "pt-BR") : "pt-BR";
+  const lang = patientSide ? (config.idiomas.find((i) => i.value === c.idioma_paciente)?.web_speech ?? c.idioma_paciente) : "pt-BR";
   const mic = useSpeechCapture(lang, (texto) => send([{ falante: speaker, texto, origem: "microfone" }]));
   const recorder = useServerRecorder((blob) => {
     queue.current = queue.current.then(async () => {
@@ -216,7 +242,7 @@ export function LiveConsult({
   });
   const script = useApi<DemoScript>(c.roteiro_demo && mode === "demo" ? `/consult/demo-scripts/${c.roteiro_demo}` : null);
   const demoStart = c.segmentos.filter((s) => s.origem === "demo").length;
-  const demo = useDemoPlayer(script.data, demoStart, (line) => send([{ falante: line.falante, texto: line.texto, t: line.t, origem: "demo" }]));
+  const demo = useDemoPlayer(script.data, demoStart, (line) => send([{ falante: line.falante, texto: line.texto, t: line.t, origem: "demo", idioma: line.idioma }]));
 
   // Alt+Q (segurar): pergunta por voz ao copiloto. Pausa a transcrição enquanto fala e nada vira Fala/N
   const resumeMic = useRef(false);
@@ -380,8 +406,9 @@ export function LiveConsult({
       setConsultation((prev) =>
         prev ? { ...prev, segmentos: updated.segmentos, insights: updated.insights ?? prev.insights, ia: updated.ia ?? prev.ia } : prev,
       );
+      void translate([n]); // texto ou idioma novo: a tradução antiga foi descartada pelo servidor
     },
-    [c.id, setConsultation],
+    [c.id, setConsultation, translate],
   );
 
   // pausa de privacidade, retomada e revogação do consentimento: viram marcos na transcrição
@@ -464,6 +491,11 @@ export function LiveConsult({
             {!surgical && (
               <label className="inline-flex min-h-9 items-center gap-1.5 text-xs">
                 <input type="checkbox" checked={autoAI} onChange={(e) => setAutoAI(e.target.checked)} className="size-4" /> IA automática
+              </label>
+            )}
+            {c.idioma_paciente !== "pt-BR" && (
+              <label className="inline-flex min-h-9 items-center gap-1.5 text-xs">
+                <input type="checkbox" checked={autoVoice} onChange={(e) => setAutoVoice(e.target.checked)} className="size-4" /> Voz automática ao paciente
               </label>
             )}
             {consent && consentState === "ativo" && (

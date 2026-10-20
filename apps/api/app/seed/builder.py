@@ -227,6 +227,10 @@ class ScenarioBuilder:
             "telecom": [{"system": "phone", "value": p["telefone"]}] if p.get("telefone") else [],
             "address": [{"text": p["endereco"]}] if p.get("endereco") else [],
         }
+        if p.get("idioma"):  # idioma preferido (BCP-47), lido pela consulta com IA para pré-selecionar a tradução
+            resource["communication"] = [
+                {"language": {"coding": [{"system": "urn:ietf:bcp:47", "code": p["idioma"]}]}, "preferred": True}
+            ]
         self.out.append(resource)
 
     def _encounters(self) -> None:
