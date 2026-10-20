@@ -11,7 +11,9 @@ from app.audit.router import router as audit_router
 from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
 from app.config import get_settings
+from app.consult import privacidade
 from app.consult.router import router as consult_router
+from app.db import crypto, rekey
 from app.db import session as db_session
 from app.db.session import Base
 from app.discharge.router import router as discharge_router
@@ -36,6 +38,14 @@ async def lifespan(app: FastAPI):
     if settings.seed_users:
         with db_session.SessionLocal() as db:
             seed_demo_users(db)
+    crypto.keys()  # chave malformada derruba a subida, em vez de gravar com a chave errada
+    with db_session.SessionLocal() as db:  # cifra o que ficou em texto aberto e faz o expurgo por retenção (#31)
+        for job in (rekey.run, privacidade.run):
+            try:
+                job(db)
+            except Exception:  # tabela ainda sem migrar etc.: não derruba a API
+                db.rollback()
+                logger.exception("Falha em %s.%s", job.__module__, job.__name__)
     yield
 
 

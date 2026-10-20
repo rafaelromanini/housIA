@@ -29,9 +29,15 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool
+    url = get_settings().database_url
+    ssl = (
+        {"connect_args": {"sslmode": get_settings().db_sslmode}}
+        if get_settings().db_sslmode and not url.startswith("sqlite")
+        else {}
     )
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool, **ssl
+    )  # DB_SSLMODE vale também para a migration, não só para a API
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata, render_item=render_item)
         with context.begin_transaction():

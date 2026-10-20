@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # Banco do HousIA
     database_url: str = "sqlite:///./housia.db"
+    db_sslmode: str = ""  # Postgres: disable | require | verify-full ... (vazio: padrão do driver)
 
     # Fonte clínica: "hapi" lê um servidor FHIR R4; "local" monta os cenários em memória
     # (ver docs/decisions/0001-fonte-fhir-local.md)
@@ -46,6 +47,14 @@ class Settings(BaseSettings):
     stt_model: str = "whisper-1"
     # Envio da nota aprovada ao prontuário (FHIR DocumentReference). Desligado por padrão; ligado no compose demo.
     ehr_writeback: bool = False
+
+    # Privacidade (#31): retenção da transcrição, criptografia de campo e captura de voz
+    # "90" vale para todos os tipos; "consulta=90,visita=30,cirurgia=365" por tipo; vazio: não expurga
+    transcript_retention_days: str = ""
+    # Chaves `id:segredo` (a primeira cifra, todas decifram). Vazia: colunas clínicas sem criptografia
+    data_encryption_key: str = ""
+    # false: o áudio não vai ao fabricante do navegador (some o modo Microfone); sobra servidor, digitar e simular
+    allow_browser_stt: bool = True
 
     data_dir: Path = Field(default_factory=_default_data_dir)
     timezone: str = "America/Sao_Paulo"

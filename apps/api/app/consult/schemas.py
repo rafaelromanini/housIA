@@ -48,6 +48,7 @@ class Segment(BaseModel):
     falante_original: Speaker | None = None
     editado_por: str | None = None
     editado_em: str | None = None
+    expurgada: bool = False  # texto apagado pelo prazo de retenção (#31)
     marco: Marker | None = None  # só nos marcos de privacidade (origem "marco"): não é fala, as regras e a IA ignoram
 
 

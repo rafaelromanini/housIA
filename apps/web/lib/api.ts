@@ -1297,6 +1297,8 @@ export interface Consultation {
   } | null;
   fhir_ref: string | null;
   roteiro_demo: string | null;
+  /** painel "Privacidade desta consulta": gerado da configuração em vigor */
+  privacidade?: PrivacyPanel & { expurgada_em: string | null };
   opme_guia?: OpmeGuideInfo | null;
   faturamento?: { convenio?: string | null; numero_guia?: string | null } | null;
   justificativa_envio?: { texto: string; por: string; em: string; regras_justificadas: string[] } | null;
@@ -1328,11 +1330,26 @@ export interface ConsentInfo extends Omit<ConsentInput, "related_person_id"> {
   permite: { ia: boolean; traducao: boolean; transcricao_servidor: boolean; emocoes: boolean };
 }
 
+export interface PrivacyPanel {
+  guardado: string;
+  retencao: string;
+  retencao_dias: number | null;
+  voz: string;
+  ia: string;
+  criptografia: string;
+  criptografia_ativa: boolean;
+  stt_navegador: boolean;
+  exclusao: string;
+}
+
 export interface ConsultConfig {
   aviso_consentimento: Record<string, string>;
   finalidades: { value: keyof ConsentPurposes; label: string }[];
   llm_mode: "real" | "mock";
   stt_servidor: boolean;
+  /** false (ALLOW_BROWSER_STT): o áudio não vai ao fabricante do navegador e o modo Microfone some */
+  stt_navegador: boolean;
+  privacidade: PrivacyPanel;
   envio_prontuario: boolean;
   idiomas: { value: string; label: string; web_speech: string; whisper: string }[];
   especialidades: { value: string; label: string; foco: string; cirurgica: boolean }[];

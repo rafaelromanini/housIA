@@ -14,6 +14,8 @@ def _make_engine(url: str):
     kwargs: dict = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
+    elif get_settings().db_sslmode:
+        kwargs["connect_args"] = {"sslmode": get_settings().db_sslmode}
     return create_engine(url, **kwargs)
 
 
