@@ -507,6 +507,7 @@ OrderCheckType = Literal[
     "reatividade_cruzada",
     "dose_tfg",
     "dose_idade",
+    "dose_peso",
     "interacao",
     "duplicidade",
     "alto_alerta",

@@ -7,7 +7,7 @@ FHIR R4. **Todos os horários são relativos à âncora** (o "agora" da carga): 
 {
   "id": "cen1",                       // vira Patient/cen1 e prefixo de todos os IDs
   "tag": "cenario-1", "titulo": "...", "esperado": "...",
-  "paciente": {"nome", "sexo": "male|female", "nascimento", "cpf", "telefone", "endereco"},
+  "paciente": {"nome", "sexo": "male|female", "nascimento" /* ou "idade_dias": N, relativo à âncora (criança) */, "cpf", "telefone", "endereco"},
   "internacao": {
     "inicio": "-3d2h", "fim": "-1d" /* opcional: paciente já teve alta */, "tipo": "urgencia|eletiva", "motivo": "...", "alta_prevista": "+3h" /* opcional: previsão de alta (extensão do Encounter), usada em /gestao */,
     "setores": [{"id": "uti", "setor": "UTI Adulto", "leito": "04", "inicio": "-2d22h", "fim": "-3h"}, ...]

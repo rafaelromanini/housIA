@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
 
-from app.consult import knowledge
+from app.consult import dose_peso, knowledge
 from app.consult.chart import ChartView, fmt_date, fmt_num
 from app.consult.schemas import (
     AllergyInfo,
@@ -531,6 +531,10 @@ def _drug_checks(d: OrderDraft, ing: str, cls: str, name: str, ctx: OrderContext
         elif rule.criterion == "idade" and age >= rule.limit:
             fired.add("idade")
             checks.append(_check("dose_idade", sev, f"{name}: {rule.recommendation} ({age} anos)", []))
+    if ing and d.dose and (mg := dose_peso.parse_mg(d.dose)) and (w := chart.weight()):
+        found = dose_peso.avaliar(ing, mg, dose_peso.interval_hours(d.periodicidade), w[0], ctx.age)
+        if found:  # criança: a dose do rascunho confere com o último peso registrado
+            checks.append(_check("dose_peso", found.severidade, f"{found.texto} Fonte: {found.fonte}", [w[1]]))  # type: ignore[arg-type]
     others = [c for c in ctx.in_use if (c[0] != ing if ing else c[1] != cls)]
     for other in drafts:  # outros rascunhos da mesma consulta também entram na checagem
         if other is d or other.tipo != "medicamento" or other.acao in ("suspender",) or other.chave.startswith(UNKNOWN):

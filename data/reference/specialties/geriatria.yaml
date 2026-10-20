@@ -1,0 +1,61 @@
+id: geriatria
+ordem: 4
+rotulo: Geriatria
+foco: quedas, cognição, funcionalidade, polifarmácia (critérios de Beers), humor, sono e rede de apoio
+modelo_nota: consulta_clinica
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+- rede_apoio
+- rastreios
+- vacinas
+escalas:
+- ivcf20
+- morse
+- braden
+- imc
+- phq9
+hipoteses_prioritarias:
+- F03
+- I95.1
+- E87.1
+- F32.9
+glossario:
+  esquecimento: déficit de memória
+  esquecida: déficit de memória
+  esquecido: déficit de memória
+  arrasta o pe: marcha arrastada
+  arrastando o pe: marcha arrastada
+  caiu: queda
+  escapa urina: incontinência urinária
+  fralda geriatrica: dispositivo para incontinência
+perguntas:
+- id: pk_ger_01
+  pergunta: Alguém da família ou um amigo já comentou que o senhor/a senhora anda esquecido(a)? Isso piorou nos últimos meses?
+  motivo: 'Itens de cognição do IVCF-20: queixa de memória relatada por terceiros e piora recente.'
+  ja_perguntado:
+  - esquecido
+  - esquecida
+  - esquecimento
+  - memoria
+  prioridade: media
+  fonte: IVCF-20 (Moraes et al., Rev Saúde Pública 2016)
+  idade_min: 60
+- id: pk_ger_02
+  pergunta: Consegue tomar banho, controlar o dinheiro e fazer compras sozinho(a)?
+  motivo: Atividades de vida diária básicas e instrumentais compõem o IVCF-20 e predizem dependência.
+  ja_perguntado:
+  - toma banho sozinh
+  - controla o dinheiro
+  - faz compras
+  - banho sozinho
+  prioridade: media
+  fonte: IVCF-20 (Moraes et al., Rev Saúde Pública 2016)
+  idade_min: 60

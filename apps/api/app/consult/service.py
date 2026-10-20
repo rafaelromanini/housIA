@@ -23,6 +23,7 @@ from app.consult import (
     apps,
     consentimento,
     fidelidade,
+    glossario,
     gs1,
     hipoteses,
     idiomas,
@@ -32,6 +33,7 @@ from app.consult import (
     opme,
     privacidade,
     relevancia,
+    scales,
     stt,
     summary,
 )
@@ -671,7 +673,9 @@ def transcribe_audio(
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
     try:
-        text = stt.transcribe(audio, content_type, language)
+        text = stt.transcribe(
+            audio, content_type, language, glossario.prompt_stt(c.specialty) if language.startswith("pt") else ""
+        )
     except stt.STTUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
     log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(text)})
@@ -711,6 +715,34 @@ def mark_checklist(db: Session, fhir: FhirSource, user: User, cid: int, step: st
         c.id,
         {"patient_id": c.patient_id, "etapa": CHECKLIST_LABEL[step], "feito": done},
     )
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
+def save_scale(db: Session, fhir: FhirSource, user: User, cid: int, scale: str, answers: dict) -> dict:
+    """Respostas de uma escala dadas pelo profissional (valem mais que a estimativa pela fala): a pontuação sai das
+    regras em `scales.py`, com o ponto a ponto no Smart App "Escalas clínicas"."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "As escalas clínicas valem para consultas e visitas, não para o modo cirúrgico.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: não aceita novas respostas de escala.")
+    if scale == "nyha":
+        errors = [] if str(answers.get("classe")) in scales.NYHA_CLASSES else ["Classe NYHA: use I, II, III ou IV."]
+    elif scale == "imc":
+        ok = isinstance(answers.get("altura_cm"), int | float) and 40 <= answers["altura_cm"] <= 250
+        errors = [] if ok else ["IMC: informe altura_cm entre 40 e 250."]
+    else:
+        errors = scales.validar_respostas(scale, {k: str(v) for k, v in answers.items()})
+    if errors:
+        raise HTTPException(422, " ".join(errors))
+    record, events, ctx = _chart(fhir, c.patient_id)
+    extra = dict(c.extra_json or {})
+    saved = dict(extra.get("escalas") or {})
+    saved[scale] = {"respostas": answers, "por": user.name, "em": clock.now().isoformat()}
+    c.extra_json = extra | {"escalas": saved}
+    segments = _segments(c)
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    log_action(db, user, "consulta.escala", "consultation", c.id, {"patient_id": c.patient_id, "escala": scale})
     return {"insights": c.insights_json, "total": len(segments)}
 
 

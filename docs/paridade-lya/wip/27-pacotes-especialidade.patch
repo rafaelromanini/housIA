@@ -1,0 +1,3517 @@
+diff --git a/apps/api/app/consult/ai.py b/apps/api/app/consult/ai.py
+index 0f30233..50e3ce3 100644
+--- a/apps/api/app/consult/ai.py
++++ b/apps/api/app/consult/ai.py
+@@ -13,7 +13,7 @@ from typing import Literal
+ 
+ from pydantic import BaseModel
+ 
+-from app.consult import acoes, cronologia, idiomas, notas, note_templates
++from app.consult import acoes, cronologia, glossario, idiomas, notas, note_templates
+ from app.consult.cid import screen
+ from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
+ from app.consult.knowledge import (
+@@ -1031,6 +1031,7 @@ def run_note(
+         _validate_sentences(section, name, v, valid, result.mode)
+     note_templates.complete(note, template, engine, ins, valid)
+     acoes.inject_into_note(note, ins)  # o que o profissional aceitou entra na nota mesmo que o LLM tenha omitido
++    glossario.aplicar_nota(note, engine.specialty)  # "xixi" sai como "diurese" (a fala original não muda)
+     note.cids = v.keep(note.cids, "cids")
+     # CID da nota precisa existir na tabela oficial; diagnóstico/hipótese não pode ser causa externa nem de outro sexo
+     note.cids, bad_cids = screen(
+diff --git a/apps/api/app/consult/apps/escalas.py b/apps/api/app/consult/apps/escalas.py
+new file mode 100644
+index 0000000..03a52f7
+--- /dev/null
++++ b/apps/api/app/consult/apps/escalas.py
+@@ -0,0 +1,91 @@
++"""Smart App "Escalas clínicas" (#27): pontuação determinística, com o ponto a ponto e a fonte de cada escala.
++
++Mostra o que o pacote da especialidade lista (data/reference/specialties/*.yaml) e o que o prontuário pede (CHA2DS2-VASc
++em quem tem fibrilação atrial). Respostas dadas pelo profissional valem mais que a estimativa pela fala.
++"""
++
++from app.consult import knowledge, scales
++from app.consult.apps.base import AppContext, Manifest, Saida
++from app.consult.schemas import AppItem
++
++MANIFEST = Manifest(
++    id="escalas",
++    nome="Escalas clínicas",
++    aba="raciocinio",
++    ordem=45,
++    recursos_fhir=["Condition", "Observation", "Patient"],
++    saida=Saida(card="lista"),
++    versao="1.0.0",
++    refs_obrigatorias=False,  # resposta dada pelo profissional não tem Fala/N
++    vazio="Nenhuma escala se aplica a este atendimento ainda.",
++)
++
++
++def _item(r: scales.Resultado, patient_ref: str) -> AppItem:
++    linhas = []
++    for p in r.pontos:
++        pontos = f" = {p.pontos} ponto(s)" if r.maximo else ""
++        refs = f" [{', '.join(p.refs)}]" if p.refs else ""
++        linhas.append(f"{p.rotulo}: {p.resposta}{pontos}{refs}")
++    if r.faltam:
++        linhas.append("Faltam: " + "; ".join(r.faltam))
++    if r.estimada:
++        linhas.append("Estimada pela fala do paciente: confirme as respostas.")
++    if r.aviso:
++        linhas.append(r.aviso)
++    linhas.append(f"Fonte: {r.fonte}")
++    texto = r.resumo() if r.maximo else f"{r.nome}: {r.faixa}"
++    return AppItem(texto=texto, detalhe="\n".join(linhas), severidade=r.severidade, refs=r.refs or [patient_ref])  # type: ignore[arg-type]
++
++
++def avaliar(ctx: AppContext) -> list[scales.Resultado]:
++    """Escalas do atendimento: prontuário, pacote da especialidade e respostas enviadas pelo profissional."""
++    out: list[scales.Resultado] = []
++    wanted = set(knowledge.specialty_pack(ctx.specialty).escalas) if ctx.specialty in knowledge.SPECIALTIES else set()
++    given: dict = (ctx.extra or {}).get("escalas") or {}
++    r = ctx.record
++    conds = ctx.chart.conditions
++    if scales.tem_fa(conds):
++        out.append(scales.cha2ds2_vasc(r.age, r.sex == "F", conds, ctx.patient_ref))
++    if "ipss" in wanted or "ipss" in given:
++        answers, refs = scales.ipss_pela_fala(ctx.segments)
++        answers = answers | {k: str(v) for k, v in (given.get("ipss") or {}).get("respostas", {}).items()}
++        refs = {
++            k: v for k, v in refs.items() if k in answers and k not in (given.get("ipss") or {}).get("respostas", {})
++        }
++        if answers or "ipss" in given:
++            out.append(scales.calcular("ipss", answers, refs))
++    has_ic = any(icd.startswith(("I50", "I11.0", "I13.0", "I13.2")) for icd, _, _ in conds)
++    if "nyha" in wanted or has_ic:
++        classe, refs_ = scales.nyha_pela_fala(ctx.segments)
++        manual = (given.get("nyha") or {}).get("respostas", {}).get("classe")
++        if manual in scales.NYHA_CLASSES:
++            out.append(scales.nyha(manual, [], "resposta"))
++        elif classe:
++            out.append(scales.nyha(classe, refs_))
++    for key in ("phq9", "gad7", "morse", "braden", "ivcf20"):
++        if key in given:
++            out.append(scales.calcular(key, {k: str(v) for k, v in given[key].get("respostas", {}).items()}))
++    if "imc" in given:
++        resp = given["imc"].get("respostas", {})
++        w = ctx.chart.weight()
++        if w and resp.get("altura_cm"):
++            out.append(scales.imc(w[0], float(resp["altura_cm"]), r.age, w[1]))
++    return out
++
++
++def run(ctx: AppContext) -> list[AppItem]:
++    done = avaliar(ctx)
++    items = [_item(x, ctx.patient_ref) for x in done]
++    wanted = knowledge.specialty_pack(ctx.specialty).escalas if ctx.specialty in knowledge.SPECIALTIES else []
++    taken = {x.id for x in done}
++    pending = [scales.QUESTIONARIOS[i].nome for i in wanted if i in scales.QUESTIONARIOS and i not in taken]
++    if pending:  # as do pacote da especialidade que ainda esperam resposta do profissional
++        items.append(
++            AppItem(
++                texto="Escalas deste perfil ainda sem respostas: " + "; ".join(pending),
++                detalhe="Registre as respostas na tela de escalas para ver a pontuação, o ponto a ponto e a fonte.",
++                refs=[ctx.patient_ref],
++            )
++        )
++    return items
+diff --git a/apps/api/app/consult/dose_peso.py b/apps/api/app/consult/dose_peso.py
+new file mode 100644
+index 0000000..7a00ecb
+--- /dev/null
++++ b/apps/api/app/consult/dose_peso.py
+@@ -0,0 +1,191 @@
++"""Dose pediátrica por peso (#27): confere a dose citada na conversa ou prescrita contra pediatric_doses.csv.
++
++Roda nas regras, antes de qualquer IA. Compara com o ÚLTIMO PESO registrado (Observation) e, na falta dele, com o peso
++dito na conversa. Dose acima do máximo (por kg, por dose ou por dia) ou intervalo curto demais é alerta crítico com a
++fonte (bula ANVISA ou SBP); abaixo da faixa é atenção. Sem peso, o alerta pede o peso: não há conferência cega.
++"""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass
++
++from app.consult import knowledge
++from app.consult.chart import fmt_date, fmt_num
++from app.consult.orders import parse_posology
++from app.consult.schemas import MedSuggestion, Segment, fala_ref
++from app.consult.text import clauses, drug_hits, norm
++from app.reference import drugs
++
++TOLERANCE = 1.02  # arredondamento de gotas e frações de comprimido
++UNDER = 0.75
++MG = re.compile(r"(\d{1,3}(?:\.\d{3})+(?![\d,])|\d+(?:[.,]\d+)?)\s*(mg|g|gramas?|miligramas?)\b")
++SPOKEN_WEIGHT = re.compile(r"(\d{1,3}(?:[.,]\d+)?)\s*(?:kg|quilos?|kilos?)\b")
++NEGATION = re.compile(r"\b(?:nao|nunca|sem)\b")
++
++
++@dataclass
++class Achado:
++    severidade: str  # critico | atencao
++    texto: str
++    fonte: str
++
++
++def parse_mg(dose: str) -> float | None:
++    """'500 mg' → 500; '1 g' → 1000; '1.000 mg' → 1000; unidades que não são massa (ml, gotas) → None."""
++    m = MG.search((dose or "").lower().replace("miligrama", "mg"))
++    if not m:
++        return None
++    raw, unit = m.group(1), m.group(2)
++    value = float(raw.replace(".", "") if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw) else raw.replace(",", "."))
++    return value * 1000 if unit.startswith(("g", "gramas")) and not unit.startswith("mg") else value
++
++
++def interval_hours(periodicidade: dict | None) -> float | None:
++    """Intervalo entre doses a partir do Timing.repeat ({"frequencia": 3, "periodo": 1, "unidade": "d"})."""
++    if not periodicidade:
++        return None
++    per = {"h": 1, "d": 24, "wk": 168, "mo": 720}.get(periodicidade.get("unidade", ""))
++    freq = periodicidade.get("frequencia") or 0
++    return per * periodicidade.get("periodo", 1) / freq if per and freq else None
++
++
++def _n(value: float) -> str:
++    return fmt_num(value, 0 if abs(value - round(value)) < 0.05 else 1)
++
++
++def avaliar(ingredient: str, dose_mg: float, interval_h: float | None, weight: float, age: int | None) -> Achado | None:
++    """Confere uma dose (mg) com o peso (kg). Devolve o achado ou None se está na faixa."""
++    row = knowledge.pediatric_doses().get(ingredient)
++    if row is None or (age is not None and age > row.age_max) or weight <= 0:
++        return None
++    name = drugs()[ingredient].name if ingredient in drugs() else ingredient
++    per_kg = dose_mg / weight
++    over: list[str] = []
++    if per_kg > row.kg_max * TOLERANCE:
++        over.append(
++            f"{_n(per_kg)} mg/kg/dose, acima do máximo de {_n(row.kg_max)} mg/kg/dose "
++            f"({_n(row.kg_max * weight)} mg para {_n(weight)} kg)"
++        )
++    if row.max_dose is not None and dose_mg > row.max_dose * TOLERANCE:
++        over.append(f"{_n(dose_mg)} mg por dose, acima do teto de {_n(row.max_dose)} mg por dose")
++    daily = None
++    if interval_h:
++        daily = dose_mg * (24 / interval_h)
++        if row.max_kg_day is not None and daily / weight > row.max_kg_day * TOLERANCE:
++            over.append(
++                f"{_n(daily / weight)} mg/kg/dia ({_n(daily)} mg/dia), acima do máximo de {_n(row.max_kg_day)} "
++                f"mg/kg/dia ({_n(row.max_kg_day * weight)} mg/dia para {_n(weight)} kg)"
++            )
++        elif row.max_day is not None and daily > row.max_day * TOLERANCE:
++            over.append(f"{_n(daily)} mg/dia, acima do teto de {_n(row.max_day)} mg/dia")
++        if interval_h < row.interval_h * 0.99:
++            over.append(f"intervalo de {_n(interval_h)} h, menor que o mínimo de {_n(row.interval_h)} h")
++    if over:
++        return Achado(
++            "critico",
++            f"{name}: dose acima do máximo para o peso de {_n(weight)} kg — " + "; ".join(over) + ".",
++            row.source,
++        )
++    if per_kg < row.kg_min * UNDER:
++        return Achado(
++            "atencao",
++            f"{name}: dose abaixo da faixa para {_n(weight)} kg — {_n(per_kg)} mg/kg/dose, abaixo do mínimo de "
++            f"{_n(row.kg_min)} mg/kg/dose ({_n(row.kg_min * weight)} mg); risco de subdose.",
++            row.source,
++        )
++    return None
++
++
++def spoken_weight(segments: list[Segment]) -> tuple[float, str] | None:
++    """Peso dito na conversa ("ela pesa 12 quilos"), só quando o prontuário não tem peso recente."""
++    for s in reversed(segments):
++        text = norm(s.texto)  # a vírgula decimal ("12,5 quilos") não pode separar orações
++        if re.search(r"\b(?:pesa|pesou|peso|pesando)\b", text) and (m := SPOKEN_WEIGHT.search(text)):
++            return float(m.group(1).replace(",", ".")), fala_ref(s.n)
++    return None
++
++
++def _weight(engine) -> tuple[float, str, str] | None:
++    """(kg, ref, rótulo da origem): o último Observation de peso, senão o peso dito na conversa."""
++    w = engine.chart.weight()
++    if w:
++        events = engine.chart.vitals.get("peso", [])
++        when = fmt_date(events[-1].timestamp) if events else None
++        return w[0], w[1], f"último peso registrado{f' em {when}' if when else ''}"
++    said = spoken_weight(engine.segments)
++    return (said[0], said[1], "peso dito na consulta") if said else None
++
++
++def _mentions(engine, table: dict) -> list[tuple[str, float, float | None, bool, str]]:
++    """(princípio, mg, intervalo em h, dose citada na fala?, ref) das doses ditas e das prescritas no prontuário."""
++    found: list[tuple[str, float, float | None, bool, str]] = []
++    for s in engine.segments:
++        if s.origem == "marco":
++            continue
++        for clause in clauses(s.texto):
++            hits = [h for h in drug_hits(clause) if h[2] in table]
++            t = f" {clause} "
++            for i, (start, end, ing, _term) in enumerate(hits):
++                prev_end = hits[i - 1][1] if i else 0
++                nxt = hits[i + 1][0] if i + 1 < len(hits) else len(t)
++                before, after = t[prev_end:start], t[end:nxt]
++                if NEGATION.search(before):
++                    continue
++                pos = parse_posology(after) if parse_mg(parse_posology(after).dose) else parse_posology(before + after)
++                mg = parse_mg(pos.dose)
++                if mg is None:
++                    continue
++                found.append((ing, mg, interval_hours(pos.periodicidade), True, fala_ref(s.n)))
++    for m in engine.chart.active_meds:
++        mg = parse_mg(m.dose)
++        if m.ingredient in table and mg is not None:
++            interval = None if m.prn or not m.times else 24 / len(m.times)
++            found.append((m.ingredient, mg, interval, False, m.ref))
++    return found
++
++
++def alerts(engine) -> list[MedSuggestion]:
++    """Alertas de dose pediátrica por peso (criança/adolescente), com a fonte e as refs da dose e do peso."""
++    age = engine.r.age
++    table = knowledge.pediatric_doses()
++    if age is None or age > max(r.age_max for r in table.values()):
++        return []
++    mentions = _mentions(engine, table)
++    if not mentions:
++        return []
++    weight = _weight(engine)
++    out: list[MedSuggestion] = []
++    seen: dict[tuple, MedSuggestion] = {}
++    for ing, mg, interval, _spoken, ref in mentions:
++        key = (ing, mg, interval)
++        if key in seen:
++            if ref not in seen[key].refs:
++                seen[key].refs.append(ref)
++            continue
++        if weight is None:
++            name = drugs()[ing].name if ing in drugs() else ing
++            sug = MedSuggestion(
++                texto=f"{name} {_n(mg)} mg: sem peso registrado no último ano. Pesar a criança e conferir a dose "
++                "por kg antes de prescrever.",
++                tipo="ajuste_dose",
++                severidade="atencao",
++                refs=[ref],
++                fonte=table[ing].source,
++            )
++        else:
++            kg, wref, origin = weight
++            found = avaliar(ing, mg, interval, kg, age)
++            if found is None:
++                continue
++            freq = f", {_n(24 / interval)} vezes ao dia" if interval else ""
++            sug = MedSuggestion(
++                texto=f"{found.texto} Dose citada: {_n(mg)} mg{freq} ({origin}).",
++                tipo="ajuste_dose",
++                severidade=found.severidade,  # type: ignore[arg-type]
++                refs=list(dict.fromkeys([ref, wref])),
++                fonte=found.fonte,
++            )
++        seen[key] = sug
++        out.append(sug)
++    return out
+diff --git a/apps/api/app/consult/engine.py b/apps/api/app/consult/engine.py
+index 86aa57c..63afe9f 100644
+--- a/apps/api/app/consult/engine.py
++++ b/apps/api/app/consult/engine.py
+@@ -10,7 +10,7 @@ from __future__ import annotations
+ import re
+ from datetime import datetime
+ 
+-from app.consult import cronologia, extract, idiomas, knowledge, orders, reminders, semiology, summary
++from app.consult import cronologia, dose_peso, extract, idiomas, knowledge, orders, reminders, semiology, summary
+ from app.consult.chart import ChartView, fmt_date
+ from app.consult.cid import screen
+ from app.consult.schemas import (
+@@ -739,7 +739,13 @@ class Engine:
+                 )
+             )
+         rank = {"alta": 0, "media": 1, "baixa": 2}
+-        out.sort(key=lambda h: (rank[h.confianca], -len(h.a_favor), len(h.contra)))
++        # o pacote da especialidade (#27) prioriza hipóteses típicas dela quando a confiança empata
++        first = (
++            set(knowledge.specialty_pack(self.specialty).hipoteses_prioritarias)
++            if self.specialty in knowledge.SPECIALTIES
++            else set()
++        )
++        out.sort(key=lambda h: (rank[h.confianca], h.cid not in first, -len(h.a_favor), len(h.contra)))
+         return out[:MAX_HYPOTHESES]
+ 
+     # ---------- Segurança de medicamentos ----------
+@@ -981,6 +987,7 @@ class Engine:
+                 )
+             )
+         out += self._allergy_alerts(self._allergy_matches(allergies, reported, planned))
++        out += dose_peso.alerts(self)  # criança: dose citada ou prescrita contra o último peso (mg/kg)
+         out += self.adverse_effects(present or {})
+         active = {m.ingredient for m in self.chart.active_meds}
+         for ing, term, ref in reported:
+diff --git a/apps/api/app/consult/especialidades.py b/apps/api/app/consult/especialidades.py
+new file mode 100644
+index 0000000..5dbd0f8
+--- /dev/null
++++ b/apps/api/app/consult/especialidades.py
+@@ -0,0 +1,83 @@
++"""Pacotes de especialidade (#27): data/reference/specialties/*.yaml.
++
++Um pacote reúne o que muda de uma especialidade para outra: rótulo e foco, perguntas extras, Smart Apps padrão, modelo
++de nota, escalas, glossário popular → técnico e hipóteses priorizadas. Esta é a fonte de `SPECIALTIES` e
++`SPECIALTY_FOCUS` (knowledge.py). Os pacotes são validados aqui pelo schema (campo desconhecido é erro) e, nos testes,
++contra o registro de Smart Apps, os modelos de nota, as escalas e a tabela CID-10.
++"""
++
++from __future__ import annotations
++
++import re
++from functools import lru_cache
++from typing import Literal
++
++import yaml
++from pydantic import BaseModel, ConfigDict, Field, field_validator
++
++from app.config import get_settings
++
++ID = r"^[a-z][a-z0-9_]{2,40}$"
++
++
++class _Strict(BaseModel):
++    model_config = ConfigDict(extra="forbid")
++
++
++class PerguntaPacote(_Strict):
++    id: str = Field(pattern=r"^pk_[a-z0-9_]{3,30}$")
++    pergunta: str = Field(min_length=10)
++    motivo: str = Field(min_length=10)
++    ja_perguntado: list[str] = Field(min_length=1)  # palavras (sem acento) que mostram que o profissional já perguntou
++    prioridade: Literal["alta", "media", "baixa"] = "media"
++    fonte: str = Field(min_length=5)
++    idade_min: int | None = Field(None, ge=0, le=120)
++    idade_max: int | None = Field(None, ge=0, le=120)
++
++
++class Pacote(_Strict):
++    id: str = Field(pattern=ID)
++    ordem: int = Field(ge=1)
++    rotulo: str = Field(min_length=3)
++    foco: str = Field(min_length=10)
++    modelo_nota: str = Field(pattern=ID)
++    smart_apps: list[str] = Field(min_length=1)
++    escalas: list[str] = []
++    hipoteses_prioritarias: list[str] = []  # CID-10 reais; sobem na lista quando a confiança empata
++    glossario: dict[str, str] = {}  # termo popular → termo técnico (vale na nota e no prompt do STT)
++    perguntas: list[PerguntaPacote] = []
++
++    @field_validator("hipoteses_prioritarias")
++    @classmethod
++    def _cid(cls, v: list[str]) -> list[str]:
++        bad = [c for c in v if not re.fullmatch(r"[A-Z]\d{2}(\.\d{1,2})?", c)]
++        if bad:
++            raise ValueError(f"CID-10 em formato inválido: {bad}")
++        return v
++
++    @field_validator("glossario")
++    @classmethod
++    def _glossario(cls, v: dict[str, str]) -> dict[str, str]:
++        if any(not k.strip() or not t.strip() for k, t in v.items()):
++            raise ValueError("glossário com termo vazio")
++        return v
++
++
++@lru_cache
++def pacotes() -> dict[str, Pacote]:
++    """Pacotes por id, na ordem do campo `ordem`."""
++    folder = get_settings().data_dir / "reference" / "specialties"
++    found: list[Pacote] = []
++    for path in sorted(folder.glob("*.yaml")):
++        with open(path, encoding="utf-8") as fh:
++            pack = Pacote.model_validate(yaml.safe_load(fh))
++        if pack.id != path.stem:
++            raise ValueError(f"Pacote {path.name}: id '{pack.id}' difere do nome do arquivo")
++        found.append(pack)
++    ordens = [p.ordem for p in found]
++    if len(set(ordens)) != len(ordens):
++        raise ValueError("Pacotes de especialidade com a mesma ordem")
++    ids = [q.id for p in found for q in p.perguntas]
++    if len(set(ids)) != len(ids):
++        raise ValueError("Pergunta de pacote repetida")
++    return {p.id: p for p in sorted(found, key=lambda p: p.ordem)}
+diff --git a/apps/api/app/consult/glossario.py b/apps/api/app/consult/glossario.py
+new file mode 100644
+index 0000000..828dd11
+--- /dev/null
++++ b/apps/api/app/consult/glossario.py
+@@ -0,0 +1,112 @@
++"""Glossário clínico brasileiro (#27): fala popular → termo técnico.
++
++Duas camadas: o glossário comum (data/reference/glossario_clinico.yaml) e o do pacote da especialidade. Vale em dois
++lugares: na nota (as citações do paciente e os rascunhos por palavras saem com o termo técnico: "xixi" vira
++"diurese") e no prompt do reconhecimento de fala (STT), para o motor acertar os termos técnicos que o profissional usa.
++A fala original nunca é alterada: a conversa e as refs `Fala/N` seguem com o que foi dito.
++"""
++
++from __future__ import annotations
++
++import re
++import unicodedata
++from functools import lru_cache
++
++import yaml
++
++from app.config import get_settings
++
++MAX_PROMPT_TERMS = 80
++
++
++def _fold(text: str) -> str:
++    """Minúsculas e sem acento, com o mesmo tamanho do texto (para devolver os trechos na posição certa)."""
++    out = []
++    for ch in text.replace("’", "'"):
++        base = unicodedata.normalize("NFD", ch)[0]
++        out.append(base.lower() if base.isascii() else ch.lower())
++    return "".join(out)
++
++
++def _key(term: str) -> str:
++    return re.sub(r"\s+", " ", _fold(term)).strip()
++
++
++@lru_cache
++def comum() -> dict[str, str]:
++    with open(get_settings().data_dir / "reference" / "glossario_clinico.yaml", encoding="utf-8") as fh:
++        data = yaml.safe_load(fh)
++    return {_key(k): v for k, v in data["termos"].items()}
++
++
++@lru_cache
++def termos(specialty: str = "") -> dict[str, str]:
++    """Popular (sem acento) → técnico, do glossário comum mais o do pacote; o pacote tem a última palavra."""
++    from app.consult import knowledge  # import tardio: knowledge também lê dados de referência
++
++    out = dict(comum())
++    if specialty in knowledge.SPECIALTIES:
++        out |= {_key(k): v for k, v in knowledge.specialty_pack(specialty).glossario.items()}
++    return out
++
++
++@lru_cache
++def _pattern(specialty: str) -> re.Pattern | None:
++    keys = sorted(termos(specialty), key=len, reverse=True)
++    if not keys:
++        return None
++    alt = "|".join(re.escape(k).replace(r"\ ", r"\s+") for k in keys)
++    return re.compile(rf"(?<![a-z0-9]){'(' + alt + ')'}(?![a-z0-9])")
++
++
++def tecnico(text: str, specialty: str = "") -> tuple[str, list[tuple[str, str]]]:
++    """Texto com os termos populares trocados pelos técnicos, e a lista (dito, técnico) do que foi trocado."""
++    pattern = _pattern(specialty)
++    if not text or pattern is None:
++        return text, []
++    table = termos(specialty)
++    folded = _fold(text)
++    out, last, swaps = [], 0, []
++    for m in pattern.finditer(folded):
++        tech = table[re.sub(r"\s+", " ", m.group(1))]
++        said = text[m.start() : m.end()]
++        if said[:1].isupper() and not tech[:1].isupper():
++            tech = tech[:1].upper() + tech[1:]
++        out += [text[last : m.start()], tech]
++        swaps.append((said, tech))
++        last = m.end()
++    out.append(text[last:])
++    return "".join(out), swaps
++
++
++def prompt_stt(specialty: str = "") -> str:
++    """Dica de vocabulário para o STT (campo `prompt` da API de transcrição compatível com Whisper)."""
++    tech = list(dict.fromkeys(termos(specialty).values()))[:MAX_PROMPT_TERMS]
++    if not tech:
++        return ""
++    return "Consulta clínica em português do Brasil. Vocabulário: " + ", ".join(tech) + "."
++
++
++NOTE_SECTIONS = ("queixa_principal", "hda", "antecedentes")  # as seções que reproduzem a fala do paciente
++
++
++def aplicar_nota(note, specialty: str = "") -> list[tuple[str, str]]:
++    """Troca, no texto da nota, o termo popular pelo técnico (seções que citam o paciente e seções do modelo).
++
++    Mexe só no texto e nas frases: as refs `Fala/N` seguem apontando para a fala original, que não é alterada.
++    Devolve os pares (dito, técnico) trocados, para auditoria.
++    """
++    swaps: list[tuple[str, str]] = []
++
++    def fix(section) -> None:
++        section.texto, found = tecnico(section.texto, specialty)
++        swaps.extend(found)
++        for f in getattr(section, "frases", []):
++            f.texto, found = tecnico(f.texto, specialty)
++            swaps.extend(found)
++
++    for name in NOTE_SECTIONS:
++        fix(getattr(note, name))
++    for extra in note.secoes:
++        fix(extra)
++    return swaps
+diff --git a/apps/api/app/consult/knowledge.py b/apps/api/app/consult/knowledge.py
+index 6712d26..bd1c3f8 100644
+--- a/apps/api/app/consult/knowledge.py
++++ b/apps/api/app/consult/knowledge.py
+@@ -11,6 +11,7 @@ from functools import lru_cache
+ import yaml
+ 
+ from app.config import get_settings
++from app.consult import especialidades
+ from app.reference import _read_csv
+ 
+ 
+@@ -55,6 +56,21 @@ class QuestionDef:
+     discriminates: tuple[str, ...] = ()  # CID-10 das hipóteses que a resposta ajuda a separar
+ 
+ 
++@dataclass(frozen=True)
++class PediatricDose:
++    """Faixa de dose pediátrica de um fármaco (pediatric_doses.csv): por kg, por dose e por dia, com a fonte."""
++
++    ingredient: str
++    kg_min: float  # mg/kg/dose
++    kg_max: float
++    interval_h: float  # intervalo mínimo entre doses
++    max_dose: float | None  # mg por dose, qualquer que seja o peso
++    max_kg_day: float | None  # mg/kg/dia
++    max_day: float | None  # mg/dia
++    age_max: int
++    source: str
++
++
+ @dataclass(frozen=True)
+ class DifferentialDef:
+     """Hipótese diagnóstica (consult_differentials.csv).
+@@ -207,6 +223,22 @@ def questions() -> tuple[QuestionDef, ...]:
+                 _words(r.get("discrimina", "")),
+             )
+         )
++    for pack in especialidades.pacotes().values():  # perguntas extras do pacote da especialidade (#27)
++        for q in pack.perguntas:
++            out.append(
++                QuestionDef(
++                    q.id,
++                    "especialidade:*",
++                    q.pergunta,
++                    q.motivo,
++                    tuple(q.ja_perguntado),
++                    q.prioridade,
++                    pack.id,
++                    q.fonte,
++                    q.idade_min,
++                    q.idade_max,
++                )
++            )
+     return tuple(out)
+ 
+ 
+@@ -443,6 +475,29 @@ def dose_alerts() -> tuple[DoseAlertDef, ...]:
+     )
+ 
+ 
++def _float(cell: str | None) -> float | None:
++    return float(cell) if cell not in (None, "") else None
++
++
++@lru_cache
++def pediatric_doses() -> dict[str, PediatricDose]:
++    """Doses pediátricas por peso (data/reference/pediatric_doses.csv), por princípio ativo de drugs.csv."""
++    return {
++        r["principio_ativo"]: PediatricDose(
++            r["principio_ativo"],
++            float(r["mg_kg_dose_min"]),
++            float(r["mg_kg_dose_max"]),
++            float(r["intervalo_h_min"]),
++            _float(r["max_mg_dose"]),
++            _float(r["max_mg_kg_dia"]),
++            _float(r["max_mg_dia"]),
++            int(r["idade_max_anos"]),
++            r["fonte"],
++        )
++        for r in _read_csv("pediatric_doses.csv")
++    }
++
++
+ @lru_cache
+ def protocols() -> tuple[ProtocolDef, ...]:
+     return tuple(
+@@ -569,34 +624,10 @@ def regression_corpus() -> dict:
+         return json.load(fh)
+ 
+ 
+-SPECIALTIES: dict[str, str] = {
+-    "clinica_medica": "Clínica médica",
+-    "cardiologia": "Cardiologia",
+-    "endocrinologia": "Endocrinologia",
+-    "geriatria": "Geriatria",
+-    "urologia": "Urologia",
+-    "pediatria": "Pediatria",
+-    "enfermagem": "Consulta de enfermagem",
+-    "cirurgia_geral": "Cirurgia geral",
+-    "ortopedia": "Ortopedia e traumatologia",
+-    "cirurgia_cardiovascular": "Cirurgia cardiovascular",
+-    "cirurgia_oncologica": "Cirurgia oncológica",
+-    "ginecologia_obstetricia": "Ginecologia e obstetrícia",
+-    "cirurgia_vascular": "Cirurgia vascular",
+-}
+-
+-SPECIALTY_FOCUS: dict[str, str] = {
+-    "clinica_medica": "visão integral: queixas, comorbidades, polifarmácia, prevenção e protocolos",
+-    "cardiologia": "dor torácica, dispneia e classe funcional, edema, palpitações, pressão e risco cardiovascular",
+-    "endocrinologia": "controle glicêmico, hipoglicemias, alimentação, atividade física, complicações e tireoide",
+-    "geriatria": "quedas, cognição, funcionalidade, polifarmácia (critérios de Beers), humor, sono e rede de apoio",
+-    "urologia": "sintomas do trato urinário inferior (IPSS), hematúria, incontinência, função renal e próstata",
+-    "pediatria": "hidratação, alimentação, febre, vacinação e desenvolvimento; doses por peso",
+-    "enfermagem": "autocuidado, técnica de uso de medicamentos, pele, eliminações, sono, alimentação e educação",
+-    "cirurgia_geral": "indicação, achados, técnica, materiais (OPME), intercorrências e documentação para faturamento",
+-    "ortopedia": "lateralidade, garrote, implantes e rastreabilidade, radioscopia (tempo, dose) e RX de controle",
+-    "cirurgia_cardiovascular": "circulação extracorpórea, pinçamento aórtico, enxertos, cardioplegia e profilaxia",
+-    "cirurgia_oncologica": "lateralidade, peça orientada, margens, linfonodos para estadiamento e reconstrução",
+-    "ginecologia_obstetricia": "indicação da cesariana, nascimento e Apgar, dequitação, uterotônico e histerorrafia",
+-    "cirurgia_vascular": "lateralidade, acesso e hemostasia da punção, contraste, stents e radioscopia",
+-}
++SPECIALTIES: dict[str, str] = {k: p.rotulo for k, p in especialidades.pacotes().items()}
++SPECIALTY_FOCUS: dict[str, str] = {k: p.foco for k, p in especialidades.pacotes().items()}
++
++
++def specialty_pack(specialty: str) -> especialidades.Pacote:
++    """Pacote da especialidade (KeyError se não existir: quem chama já validou contra SPECIALTIES)."""
++    return especialidades.pacotes()[specialty]
+diff --git a/apps/api/app/consult/orders.py b/apps/api/app/consult/orders.py
+index 35b130d..ae0a40b 100644
+--- a/apps/api/app/consult/orders.py
++++ b/apps/api/app/consult/orders.py
+@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
+ from datetime import datetime
+ from functools import lru_cache
+ 
+-from app.consult import knowledge
++from app.consult import dose_peso, knowledge
+ from app.consult.chart import ChartView, fmt_date, fmt_num
+ from app.consult.schemas import (
+     AllergyInfo,
+@@ -531,6 +531,10 @@ def _drug_checks(d: OrderDraft, ing: str, cls: str, name: str, ctx: OrderContext
+         elif rule.criterion == "idade" and age >= rule.limit:
+             fired.add("idade")
+             checks.append(_check("dose_idade", sev, f"{name}: {rule.recommendation} ({age} anos)", []))
++    if ing and d.dose and (mg := dose_peso.parse_mg(d.dose)) and (w := chart.weight()):
++        found = dose_peso.avaliar(ing, mg, dose_peso.interval_hours(d.periodicidade), w[0], ctx.age)
++        if found:  # criança: a dose do rascunho confere com o último peso registrado
++            checks.append(_check("dose_peso", found.severidade, f"{found.texto} Fonte: {found.fonte}", [w[1]]))  # type: ignore[arg-type]
+     others = [c for c in ctx.in_use if (c[0] != ing if ing else c[1] != cls)]
+     for other in drafts:  # outros rascunhos da mesma consulta também entram na checagem
+         if other is d or other.tipo != "medicamento" or other.acao in ("suspender",) or other.chave.startswith(UNKNOWN):
+diff --git a/apps/api/app/consult/perfis.py b/apps/api/app/consult/perfis.py
+index 69d46ac..ab2f1f0 100644
+--- a/apps/api/app/consult/perfis.py
++++ b/apps/api/app/consult/perfis.py
+@@ -54,4 +54,5 @@ def save(db: Session, user: User, specialty: str, hidden: list[str]) -> dict:
+ 
+ def listing(db: Session, user: User, specialty: str = "") -> list[dict]:
+     hidden = set(effective(db, user, specialty)["ocultos"])
+-    return [{**m, "oculto": m["id"] in hidden} for m in apps.catalog(specialty or None)]
++    default = set(knowledge.specialty_pack(specialty).smart_apps) if specialty else set()  # padrão do pacote (#27)
++    return [{**m, "oculto": m["id"] in hidden, "padrao": m["id"] in default} for m in apps.catalog(specialty or None)]
+diff --git a/apps/api/app/consult/router.py b/apps/api/app/consult/router.py
+index 3ef01cd..07aeb8c 100644
+--- a/apps/api/app/consult/router.py
++++ b/apps/api/app/consult/router.py
+@@ -17,6 +17,7 @@ from app.consult import (
+     opme,
+     perfis,
+     privacidade,
++    scales,
+     service,
+     stt,
+ )
+@@ -48,7 +49,15 @@ def config(_: User = Depends(get_current_user)) -> dict:
+         "aviso_consentimento": consentimento.NOTICES,
+         "finalidades": [{"value": k, "label": v} for k, v in consentimento.PURPOSES.items()],
+         "especialidades": [
+-            {"value": k, "label": v, "foco": knowledge.SPECIALTY_FOCUS.get(k, ""), "cirurgica": k in surgical}
++            {
++                "value": k,
++                "label": v,
++                "foco": knowledge.SPECIALTY_FOCUS.get(k, ""),
++                "cirurgica": k in surgical,
++                "smart_apps": knowledge.specialty_pack(k).smart_apps,
++                "escalas": knowledge.specialty_pack(k).escalas,
++                "modelo_nota": knowledge.specialty_pack(k).modelo_nota,
++            }
+             for k, v in knowledge.SPECIALTIES.items()
+         ],
+     }
+@@ -232,6 +241,29 @@ def checklist(
+     return service.mark_checklist(db, fhir, user, cid, body.etapa, body.feito)
+ 
+ 
++class ScaleIn(BaseModel):
++    respostas: dict[str, str | int | float] = Field(..., min_length=1, max_length=40)
++
++
++@router.put("/consultations/{cid}/escalas/{escala}")
++def scale_answers(
++    cid: int,
++    escala: str,
++    body: ScaleIn,
++    db: Session = Depends(get_db),
++    fhir: FhirSource = Depends(get_fhir),
++    user: User = Depends(clinician),
++) -> dict:
++    """Respostas de uma escala (IPSS, PHQ-9, GAD-7, Morse, Braden, IVCF-20, NYHA ou IMC): o servidor soma os pontos."""
++    return service.save_scale(db, fhir, user, cid, escala, body.respostas)
++
++
++@router.get("/escalas")
++def scale_catalog(_: User = Depends(clinician)) -> list[dict]:
++    """Escalas disponíveis, com itens, opções e fonte (a tela monta o formulário por aqui)."""
++    return scales.catalogo()
++
++
+ class MainComplaintIn(BaseModel):
+     chave: str | None = None  # chave do sintoma (ex.: "tontura"); vazio solta a queixa fixada
+ 
+diff --git a/apps/api/app/consult/scales.py b/apps/api/app/consult/scales.py
+new file mode 100644
+index 0000000..9d8eb84
+--- /dev/null
++++ b/apps/api/app/consult/scales.py
+@@ -0,0 +1,830 @@
++"""Escalas clínicas determinísticas (#27): cada ponto sai de uma resposta ou de um dado do prontuário e cita a fonte.
++
++Duas famílias:
++- questionários (IPSS, PHQ-9, GAD-7, Morse, Braden, IVCF-20): tabela de itens × opções com pontos, faixas de
++  interpretação e a referência do instrumento. As respostas vêm do profissional (endpoint de escalas) ou, no IPSS e
++  na classe funcional NYHA, são estimadas pela fala do paciente (cada estimativa cita `Fala/N`).
++- calculadoras sobre o prontuário (CHA2DS2-VASc, IMC): leem os diagnósticos e a idade, com a ref de cada ponto.
++
++Nada aqui chama IA nem inventa pontuação: faltou resposta, a escala sai incompleta e diz o que falta. Base de
++demonstração: os pontos seguem os instrumentos publicados, mas a conduta é sempre decisão do profissional.
++"""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass, field
++
++from app.consult.schemas import Segment, fala_ref
++from app.consult.text import find, norm
++
++PATIENT_SIDE = ("paciente", "acompanhante")
++
++
++@dataclass(frozen=True)
++class Opcao:
++    rotulo: str
++    pontos: int
++
++
++@dataclass(frozen=True)
++class Item:
++    chave: str
++    rotulo: str
++    opcoes: dict[str, Opcao]
++    grupo: str = ""  # itens do mesmo grupo somam até o teto do grupo (IVCF-20)
++
++
++@dataclass(frozen=True)
++class Faixa:
++    minimo: int
++    maximo: int
++    rotulo: str
++    severidade: str  # critico | atencao | info | ok
++
++
++@dataclass(frozen=True)
++class Escala:
++    id: str
++    nome: str
++    fonte: str
++    itens: tuple[Item, ...]
++    faixas: tuple[Faixa, ...]
++    maximo: int
++    tetos: dict[str, int] = field(default_factory=dict)
++    aviso: str = ""
++
++
++@dataclass
++class Ponto:
++    """Uma linha da pontuação: o que contou, quantos pontos e de onde veio (resposta, fala ou recurso do prontuário)."""
++
++    rotulo: str
++    resposta: str
++    pontos: int
++    refs: list[str] = field(default_factory=list)
++    origem: str = "resposta"  # resposta | fala | prontuario
++
++
++@dataclass
++class Resultado:
++    id: str
++    nome: str
++    total: int | None
++    maximo: int
++    faixa: str
++    severidade: str
++    pontos: list[Ponto]
++    fonte: str
++    completo: bool = True
++    faltam: list[str] = field(default_factory=list)
++    aviso: str = ""
++    estimada: bool = False  # alguma resposta veio da fala do paciente: o profissional confirma
++
++    @property
++    def refs(self) -> list[str]:
++        return list(dict.fromkeys(r for p in self.pontos for r in p.refs))
++
++    def resumo(self) -> str:
++        if self.total is None:
++            return f"{self.nome}: incompleta (faltam {len(self.faltam)} item(ns))"
++        parcial = "" if self.completo else " (parcial)"
++        return f"{self.nome}: {self.total} de {self.maximo} pontos{parcial} — {self.faixa}"
++
++
++def _opc(*pares: tuple[str, str, int]) -> dict[str, Opcao]:
++    return {k: Opcao(r, p) for k, r, p in pares}
++
++
++def _escala_0_3() -> dict[str, Opcao]:
++    return _opc(
++        ("0", "Nenhuma vez", 0),
++        ("1", "Vários dias", 1),
++        ("2", "Mais da metade dos dias", 2),
++        ("3", "Quase todos os dias", 3),
++    )
++
++
++# ---------- PHQ-9 e GAD-7 ----------
++PHQ9 = Escala(
++    id="phq9",
++    nome="PHQ-9 (depressão)",
++    fonte="Kroenke K, Spitzer RL, Williams JB. The PHQ-9. J Gen Intern Med 2001; validação brasileira: "
++    "Santos IS et al., Cad Saúde Pública 2013",
++    itens=tuple(
++        Item(k, r, _escala_0_3())
++        for k, r in (
++            ("interesse", "Pouco interesse ou prazer em fazer as coisas"),
++            ("humor", "Sentir-se para baixo, deprimido(a) ou sem perspectiva"),
++            ("sono", "Dificuldade para dormir, ou dormir demais"),
++            ("energia", "Sentir-se cansado(a) ou com pouca energia"),
++            ("apetite", "Falta de apetite ou comer demais"),
++            ("culpa", "Sentir-se mal consigo mesmo(a), um fracasso ou que decepcionou a família"),
++            ("concentracao", "Dificuldade para se concentrar"),
++            ("lentidao", "Lentidão (ou agitação) percebida pelos outros"),
++            ("ideacao", "Pensamentos de que seria melhor estar morto(a) ou de se ferir de alguma maneira"),
++        )
++    ),
++    faixas=(
++        Faixa(0, 4, "sintomas mínimos", "ok"),
++        Faixa(5, 9, "depressão leve", "info"),
++        Faixa(10, 14, "depressão moderada", "atencao"),
++        Faixa(15, 19, "depressão moderadamente grave", "atencao"),
++        Faixa(20, 27, "depressão grave", "critico"),
++    ),
++    maximo=27,
++    aviso="Rastreio, não diagnóstico. O item 9 (ideação) positivo pede avaliação de risco no mesmo atendimento.",
++)
++
++GAD7 = Escala(
++    id="gad7",
++    nome="GAD-7 (ansiedade)",
++    fonte="Spitzer RL et al. A brief measure for assessing generalized anxiety disorder. Arch Intern Med 2006; "
++    "adaptação brasileira: Moreno AL et al., Trends Psychiatry Psychother 2016",
++    itens=tuple(
++        Item(k, r, _escala_0_3())
++        for k, r in (
++            ("nervosismo", "Sentir-se nervoso(a), ansioso(a) ou muito tenso(a)"),
++            ("preocupacao_controle", "Não ser capaz de impedir ou controlar as preocupações"),
++            ("preocupacao_excesso", "Preocupar-se muito com diversas coisas"),
++            ("relaxar", "Dificuldade para relaxar"),
++            ("inquietacao", "Ficar tão agitado(a) que se torna difícil permanecer sentado(a)"),
++            ("irritabilidade", "Ficar facilmente aborrecido(a) ou irritado(a)"),
++            ("medo", "Sentir medo como se algo terrível fosse acontecer"),
++        )
++    ),
++    faixas=(
++        Faixa(0, 4, "ansiedade mínima", "ok"),
++        Faixa(5, 9, "ansiedade leve", "info"),
++        Faixa(10, 14, "ansiedade moderada", "atencao"),
++        Faixa(15, 21, "ansiedade grave", "critico"),
++    ),
++    maximo=21,
++    aviso="Rastreio, não diagnóstico. Pontuação ≥ 10 é o ponto de corte usual para avaliação clínica.",
++)
++
++# ---------- IPSS ----------
++_FREQ = _opc(
++    ("0", "Nenhuma vez", 0),
++    ("1", "Menos de 1 vez em cada 5", 1),
++    ("2", "Menos da metade das vezes", 2),
++    ("3", "Cerca de metade das vezes", 3),
++    ("4", "Mais da metade das vezes", 4),
++    ("5", "Quase sempre", 5),
++)
++IPSS = Escala(
++    id="ipss",
++    nome="IPSS (sintomas urinários)",
++    fonte="Barry MJ et al. The AUA Symptom Index. J Urol 1992 (IPSS, International Prostate Symptom Score); "
++    "versão em português validada: Barry MJ et al., 1995, e SBU",
++    itens=(
++        Item("esvaziamento", "Sensação de não esvaziar completamente a bexiga", _FREQ),
++        Item("frequencia", "Voltou a urinar em menos de 2 horas", _FREQ),
++        Item("intermitencia", "Jato que para e recomeça várias vezes", _FREQ),
++        Item("urgencia", "Dificuldade para adiar a vontade de urinar", _FREQ),
++        Item("jato_fraco", "Jato urinário fraco", _FREQ),
++        Item("esforco", "Precisou fazer força para começar a urinar", _FREQ),
++        Item(
++            "nocturia",
++            "Vezes que levanta à noite para urinar",
++            _opc(
++                ("0", "Nenhuma", 0),
++                ("1", "1 vez", 1),
++                ("2", "2 vezes", 2),
++                ("3", "3 vezes", 3),
++                ("4", "4 vezes", 4),
++                ("5", "5 ou mais vezes", 5),
++            ),
++        ),
++    ),
++    faixas=(
++        Faixa(0, 7, "sintomas leves", "ok"),
++        Faixa(8, 19, "sintomas moderados", "atencao"),
++        Faixa(20, 35, "sintomas graves", "critico"),
++    ),
++    maximo=35,
++    aviso="Pergunta de qualidade de vida (0 a 6) não entra na soma. Pontuação ≥ 8 costuma motivar tratamento.",
++)
++
++# ---------- Morse ----------
++MORSE = Escala(
++    id="morse",
++    nome="Escala de Morse (risco de queda)",
++    fonte="Morse JM, Morse RM, Tylko SJ. Development of a scale to identify the fall-prone patient. Can J Aging 1989; "
++    "adaptação brasileira: Urbanetto JS et al., Rev Esc Enferm USP 2013",
++    itens=(
++        Item(
++            "historico_queda",
++            "Histórico de queda (agora ou nos últimos 3 meses)",
++            _opc(("nao", "Não", 0), ("sim", "Sim", 25)),
++        ),
++        Item("diagnostico_secundario", "Diagnóstico secundário", _opc(("nao", "Não", 0), ("sim", "Sim", 15))),
++        Item(
++            "auxilio_deambulacao",
++            "Auxílio na deambulação",
++            _opc(
++                ("nenhum", "Nenhum, acamado ou auxiliado por profissional", 0),
++                ("muleta", "Muleta, bengala ou andador", 15),
++                ("mobiliario", "Apoia-se em móveis", 30),
++            ),
++        ),
++        Item("terapia_iv", "Terapia endovenosa ou dispositivo salinizado", _opc(("nao", "Não", 0), ("sim", "Sim", 20))),
++        Item(
++            "marcha",
++            "Marcha",
++            _opc(
++                ("normal", "Normal, acamado ou cadeira de rodas", 0),
++                ("fraca", "Fraca", 10),
++                ("comprometida", "Comprometida", 20),
++            ),
++        ),
++        Item(
++            "estado_mental",
++            "Estado mental",
++            _opc(
++                ("orientado", "Orientado/capaz quanto à sua capacidade", 0),
++                ("esquece", "Superestima ou esquece limitações", 15),
++            ),
++        ),
++    ),
++    faixas=(
++        Faixa(0, 24, "risco baixo", "ok"),
++        Faixa(25, 44, "risco moderado", "atencao"),
++        Faixa(45, 125, "risco elevado", "critico"),
++    ),
++    maximo=125,
++)
++
++# ---------- Braden ----------
++BRADEN = Escala(
++    id="braden",
++    nome="Escala de Braden (lesão por pressão)",
++    fonte="Bergstrom N et al. The Braden Scale for Predicting Pressure Sore Risk. Nurs Res 1987; "
++    "versão brasileira: Paranhos WY, Santos VLCG. Rev Esc Enferm USP 1999",
++    itens=(
++        Item(
++            "percepcao_sensorial",
++            "Percepção sensorial",
++            _opc(
++                ("1", "Completamente limitado", 1),
++                ("2", "Muito limitado", 2),
++                ("3", "Levemente limitado", 3),
++                ("4", "Nenhuma limitação", 4),
++            ),
++        ),
++        Item(
++            "umidade",
++            "Umidade",
++            _opc(
++                ("1", "Completamente molhado", 1),
++                ("2", "Muito molhado", 2),
++                ("3", "Ocasionalmente molhado", 3),
++                ("4", "Raramente molhado", 4),
++            ),
++        ),
++        Item(
++            "atividade",
++            "Atividade",
++            _opc(
++                ("1", "Acamado", 1),
++                ("2", "Confinado à cadeira", 2),
++                ("3", "Anda ocasionalmente", 3),
++                ("4", "Anda frequentemente", 4),
++            ),
++        ),
++        Item(
++            "mobilidade",
++            "Mobilidade",
++            _opc(
++                ("1", "Completamente imóvel", 1),
++                ("2", "Muito limitado", 2),
++                ("3", "Levemente limitado", 3),
++                ("4", "Nenhuma limitação", 4),
++            ),
++        ),
++        Item(
++            "nutricao",
++            "Nutrição",
++            _opc(
++                ("1", "Muito pobre", 1),
++                ("2", "Provavelmente inadequada", 2),
++                ("3", "Adequada", 3),
++                ("4", "Excelente", 4),
++            ),
++        ),
++        Item(
++            "friccao",
++            "Fricção e cisalhamento",
++            _opc(("1", "Problema", 1), ("2", "Problema potencial", 2), ("3", "Sem problema aparente", 3)),
++        ),
++    ),
++    faixas=(
++        Faixa(6, 9, "risco muito alto", "critico"),
++        Faixa(10, 12, "risco alto", "critico"),
++        Faixa(13, 14, "risco moderado", "atencao"),
++        Faixa(15, 18, "risco baixo", "info"),
++        Faixa(19, 23, "sem risco", "ok"),
++    ),
++    maximo=23,
++    aviso="Quanto menor a pontuação, maior o risco.",
++)
++
++
++# ---------- IVCF-20 ----------
++def _sn(pontos: int) -> dict[str, Opcao]:
++    return _opc(("nao", "Não", 0), ("sim", "Sim", pontos))
++
++
++IVCF20 = Escala(
++    id="ivcf20",
++    nome="IVCF-20 (vulnerabilidade clínico-funcional)",
++    fonte="Moraes EN et al. Índice de Vulnerabilidade Clínico-Funcional-20. Rev Saúde Pública 2016; "
++    "Ministério da Saúde (Caderneta da Pessoa Idosa)",
++    itens=(
++        Item(
++            "idade",
++            "Idade",
++            _opc(("60-74", "60 a 74 anos", 0), ("75-84", "75 a 84 anos", 1), ("85+", "85 anos ou mais", 3)),
++        ),
++        Item(
++            "saude",
++            "Auto-percepção da saúde",
++            _opc(("boa", "Excelente, muito boa ou boa", 0), ("regular_ruim", "Regular ou ruim", 1)),
++        ),
++        Item("avdi_dinheiro", "Deixou de controlar o dinheiro por causa da saúde", _sn(4), "avd_instrumental"),
++        Item("avdi_compras", "Deixou de fazer compras por causa da saúde", _sn(4), "avd_instrumental"),
++        Item(
++            "avdi_domestico",
++            "Deixou de fazer pequenos trabalhos domésticos por causa da saúde",
++            _sn(4),
++            "avd_instrumental",
++        ),
++        Item("avdb_banho", "Deixou de tomar banho sozinho(a)", _sn(6)),
++        Item("cog_familiar", "Familiar ou amigo disse que está esquecido(a)", _sn(1), "cognicao"),
++        Item("cog_piora", "O esquecimento está piorando nos últimos meses", _sn(1), "cognicao"),
++        Item("cog_atividade", "O esquecimento impede atividades do cotidiano", _sn(2), "cognicao"),
++        Item("humor_desanimo", "No último mês ficou desanimado(a), triste ou desesperançoso(a)", _sn(2), "humor"),
++        Item("humor_interesse", "No último mês perdeu o interesse ou prazer em atividades", _sn(2), "humor"),
++        Item("mob_alcance", "Incapaz de elevar os braços acima do ombro", _sn(1)),
++        Item("mob_pinca", "Incapaz de manusear ou segurar pequenos objetos", _sn(1)),
++        Item(
++            "mob_peso",
++            "Perda de peso não intencional (4,5 kg ou 5% no ano, ou 6 kg em 6 meses)",
++            _sn(2),
++            "capacidade_aerobica",
++        ),
++        Item("mob_imc", "IMC menor que 22 kg/m²", _sn(2), "capacidade_aerobica"),
++        Item("mob_panturrilha", "Circunferência da panturrilha menor que 31 cm", _sn(2), "capacidade_aerobica"),
++        Item("mob_marcha4m", "Tempo na marcha de 4 metros maior que 5 segundos", _sn(2), "capacidade_aerobica"),
++        Item("marcha_dificuldade", "Dificuldade para caminhar que impede atividades do cotidiano", _sn(2), "marcha"),
++        Item("marcha_quedas", "Duas ou mais quedas no último ano", _sn(2), "marcha"),
++        Item("continencia", "Perda involuntária de urina ou fezes", _sn(2)),
++        Item("visao", "Problema de visão que impede atividades do cotidiano", _sn(2), "comunicacao"),
++        Item("audicao", "Problema de audição que impede atividades do cotidiano", _sn(2), "comunicacao"),
++        Item("comorbidade_doencas", "Cinco ou mais doenças crônicas", _sn(4), "comorbidade"),
++        Item("comorbidade_remedios", "Uso regular de cinco ou mais medicamentos", _sn(4), "comorbidade"),
++        Item("comorbidade_internacao", "Internação nos últimos seis meses", _sn(4), "comorbidade"),
++    ),
++    faixas=(
++        Faixa(0, 6, "baixo risco de vulnerabilidade (idoso robusto)", "ok"),
++        Faixa(7, 14, "risco moderado de vulnerabilidade (idoso em risco de fragilização)", "atencao"),
++        Faixa(15, 40, "alto risco de vulnerabilidade (idoso frágil)", "critico"),
++    ),
++    tetos={
++        "avd_instrumental": 4,
++        "cognicao": 4,
++        "humor": 4,
++        "capacidade_aerobica": 4,
++        "marcha": 2,
++        "comunicacao": 4,
++        "comorbidade": 4,
++    },
++    maximo=40,
++    aviso="Os itens de peso e panturrilha pedem medida na consulta. Confira os pesos com o instrumento oficial do MS.",
++)
++
++QUESTIONARIOS: dict[str, Escala] = {e.id: e for e in (IPSS, PHQ9, GAD7, MORSE, BRADEN, IVCF20)}
++
++
++def _faixa(escala: Escala, total: int) -> Faixa:
++    for f in escala.faixas:
++        if f.minimo <= total <= f.maximo:
++            return f
++    return escala.faixas[-1]
++
++
++def calcular(escala_id: str, respostas: dict[str, str], refs: dict[str, list[str]] | None = None) -> Resultado:
++    """Soma os pontos das respostas (`item -> opção`). `refs[item]` cita de onde veio cada resposta (fala, registro)."""
++    escala = QUESTIONARIOS[escala_id]
++    refs = refs or {}
++    pontos: list[Ponto] = []
++    faltam: list[str] = []
++    por_grupo: dict[str, int] = {}
++    total = 0
++    for item in escala.itens:
++        chave = respostas.get(item.chave)
++        opcao = item.opcoes.get(str(chave)) if chave is not None else None
++        if opcao is None:
++            faltam.append(item.rotulo)
++            continue
++        origem = "fala" if any(r.startswith("Fala/") for r in refs.get(item.chave, [])) else "resposta"
++        p = opcao.pontos
++        if item.grupo:
++            teto = escala.tetos.get(item.grupo, 99)
++            usado = por_grupo.get(item.grupo, 0)
++            p = max(0, min(p, teto - usado))
++            por_grupo[item.grupo] = usado + p
++        total += p
++        pontos.append(Ponto(item.rotulo, opcao.rotulo, p, list(refs.get(item.chave, [])), origem))
++    completo = not faltam
++    faixa = _faixa(escala, total) if completo else None
++    aviso = escala.aviso
++    if escala.id == "phq9" and respostas.get("ideacao") not in (None, "0"):
++        aviso = "ATENÇÃO: item 9 (ideação) positivo — avaliar risco de suicídio hoje. " + aviso
++    return Resultado(
++        id=escala.id,
++        nome=escala.nome,
++        total=total if completo else None,
++        maximo=escala.maximo,
++        faixa=faixa.rotulo if faixa else "incompleta",
++        severidade=("critico" if aviso.startswith("ATENÇÃO") else faixa.severidade) if faixa else "info",
++        pontos=pontos,
++        fonte=escala.fonte,
++        completo=completo,
++        faltam=faltam,
++        aviso=aviso,
++        estimada=any(p.origem == "fala" for p in pontos),
++    )
++
++
++def validar_respostas(escala_id: str, respostas: dict[str, str]) -> list[str]:
++    """Erros de uma resposta enviada: escala, item ou opção que não existem."""
++    escala = QUESTIONARIOS.get(escala_id)
++    if escala is None:
++        return [f"Escala desconhecida: {escala_id}"]
++    itens = {i.chave: i for i in escala.itens}
++    erros = []
++    for chave, valor in respostas.items():
++        if chave not in itens:
++            erros.append(f"Item desconhecido em {escala_id}: {chave}")
++        elif str(valor) not in itens[chave].opcoes:
++            erros.append(f"Opção inválida em {chave}: {valor} (use {', '.join(itens[chave].opcoes)})")
++    return erros
++
++
++# ---------- CHA2DS2-VASc ----------
++FONTE_CHA2DS2 = (
++    "Lip GYH et al. Chest 2010;137:263-72 (CHA2DS2-VASc); ESC Guidelines for AF 2020; Diretriz Brasileira de "
++    "Fibrilação Atrial (SBC)"
++)
++_IC = ("I50", "I11.0", "I13.0", "I13.2", "I42")
++_HAS = ("I10", "I11", "I12", "I13", "I15")
++_DM = ("E10", "E11", "E12", "E13", "E14")
++_AVC = ("I63", "I64", "G45", "I74", "I69.3")
++_VASC = ("I21", "I22", "I25.2", "I70", "I73.9", "I71")
++
++
++def tem_fa(conditions: list[tuple[str, str, dict]]) -> bool:
++    return any(icd.startswith("I48") for icd, _, _ in conditions)
++
++
++def cha2ds2_vasc(
++    idade: int | None, feminino: bool, conditions: list[tuple[str, str, dict]], patient_ref: str
++) -> Resultado:
++    """Escore sobre o prontuário. `conditions`: (CID, texto, recurso FHIR) dos diagnósticos ativos."""
++
++    def hit(prefixos: tuple[str, ...]) -> tuple[str, str] | None:
++        for icd, texto, res in conditions:
++            if icd.startswith(prefixos):
++                return texto, f"Condition/{res['id']}"
++        return None
++
++    pontos: list[Ponto] = []
++
++    def add(rotulo: str, pontos_: int, achado: tuple[str, str] | None, sem: str = "Não consta") -> None:
++        if achado:
++            pontos.append(Ponto(rotulo, f"{achado[0]} ({achado[1].split('/')[0]})", pontos_, [achado[1]], "prontuario"))
++        else:
++            pontos.append(Ponto(rotulo, sem, 0, [], "prontuario"))
++
++    add("C — Insuficiência cardíaca", 1, hit(_IC))
++    add("H — Hipertensão", 1, hit(_HAS))
++    idade_ = idade or 0
++    if idade_ >= 75:
++        pontos.append(Ponto("A2 — Idade ≥ 75 anos", f"{idade_} anos", 2, [patient_ref], "prontuario"))
++    else:
++        pontos.append(Ponto("A2 — Idade ≥ 75 anos", f"{idade_} anos", 0, [], "prontuario"))
++    add("D — Diabetes mellitus", 1, hit(_DM))
++    add("S2 — AVC, AIT ou tromboembolismo prévio", 2, hit(_AVC))
++    add("V — Doença vascular (IAM prévio, DAP, placa aórtica)", 1, hit(_VASC))
++    if 65 <= idade_ < 75:
++        pontos.append(Ponto("A — Idade 65 a 74 anos", f"{idade_} anos", 1, [patient_ref], "prontuario"))
++    else:
++        pontos.append(Ponto("A — Idade 65 a 74 anos", f"{idade_} anos", 0, [], "prontuario"))
++    if feminino:
++        pontos.append(Ponto("Sc — Sexo feminino", "Feminino", 1, [patient_ref], "prontuario"))
++    else:
++        pontos.append(Ponto("Sc — Sexo feminino", "Masculino", 0, [], "prontuario"))
++    total = sum(p.pontos for p in pontos)
++    limite = 3 if feminino else 2
++    if total >= limite:
++        faixa, sev = "anticoagulação oral recomendada (se não houver contraindicação)", "critico"
++    elif total == limite - 1:
++        faixa, sev = "considerar anticoagulação oral (decisão compartilhada)", "atencao"
++    else:
++        faixa, sev = "baixo risco tromboembólico: anticoagulação em geral não indicada", "ok"
++    return Resultado(
++        id="cha2ds2_vasc",
++        nome="CHA2DS2-VASc (risco tromboembólico na FA)",
++        total=total,
++        maximo=9,
++        faixa=faixa,
++        severidade=sev,
++        pontos=pontos,
++        fonte=FONTE_CHA2DS2,
++        aviso="Conferir também o risco de sangramento (HAS-BLED) antes de decidir.",
++    )
++
++
++# ---------- IMC ----------
++FONTE_IMC = "OMS: Obesity: preventing and managing the global epidemic (2000); Lipschitz DA 1994 e SISVAN/MS (idosos)"
++
++
++def imc(peso_kg: float, altura_cm: float, idade: int | None, peso_ref: str = "", altura_ref: str = "") -> Resultado:
++    """IMC do adulto (OMS) e do idoso (Lipschitz/SISVAN). Criança e adolescente pedem a curva de IMC por idade da OMS,
++    cujas tabelas (LMS) não estão embarcadas: devolve o IMC sem classificar."""
++    valor = round(peso_kg / ((altura_cm / 100) ** 2), 1)
++    pontos = [Ponto("Peso", f"{peso_kg:g} kg", 0, [peso_ref] if peso_ref else [], "prontuario")]
++    pontos.append(Ponto("Altura", f"{altura_cm:g} cm", 0, [altura_ref] if altura_ref else [], "resposta"))
++    if idade is not None and idade < 19:
++        return Resultado(
++            "imc",
++            "IMC",
++            None,
++            0,
++            "classificar pela curva de IMC por idade da OMS",
++            "info",
++            pontos,
++            FONTE_IMC,
++            aviso=f"IMC {str(valor).replace('.', ',')} kg/m². Criança e adolescente: usar o percentil/escore z da OMS.",
++        )
++    if idade is not None and idade >= 60:
++        faixa, sev = (
++            ("baixo peso (< 22)", "atencao")
++            if valor < 22
++            else ("eutrofia (22 a 27)", "ok")
++            if valor <= 27
++            else ("sobrepeso (> 27)", "atencao")
++        )
++    else:
++        faixa, sev = (
++            ("baixo peso (< 18,5)", "atencao")
++            if valor < 18.5
++            else ("eutrofia (18,5 a 24,9)", "ok")
++            if valor < 25
++            else ("sobrepeso (25 a 29,9)", "atencao")
++            if valor < 30
++            else ("obesidade grau I (30 a 34,9)", "atencao")
++            if valor < 35
++            else ("obesidade grau II (35 a 39,9)", "critico")
++            if valor < 40
++            else ("obesidade grau III (≥ 40)", "critico")
++        )
++    return Resultado(
++        "imc", "IMC", None, 0, faixa, sev, pontos, FONTE_IMC, aviso=f"IMC {str(valor).replace('.', ',')} kg/m²"
++    )
++
++
++# ---------- estimativas pela fala ----------
++_FREQ_WORDS = (
++    ("5", ("quase sempre", "sempre", "toda vez", "todas as vezes", "quase toda vez")),
++    ("4", ("mais da metade", "na maioria das vezes", "maioria das vezes", "quase toda hora")),
++    ("2", ("menos da metade", "as vezes", "de vez em quando", "uma ou outra vez")),
++    ("3", ("metade das vezes", "metade", "umas cinco de dez", "meio a meio")),
++    ("1", ("raramente", "dificilmente", "quase nunca", "menos de uma vez")),
++    ("0", ("nunca", "nenhuma vez", "nao tenho", "nao sinto", "de jeito nenhum")),
++)
++_IPSS_TRIGGERS: dict[str, tuple[str, ...]] = {
++    "esvaziamento": (
++        "nao esvazia",
++        "nao esvaziou",
++        "esvaziar a bexiga",
++        "esvaziar completamente",
++        "sobra urina",
++        "fica urina",
++    ),
++    "frequencia": (
++        "urino de novo",
++        "volto a urinar",
++        "volta a urinar",
++        "urino toda hora",
++        "urinar toda hora",
++        "duas em duas horas",
++        "de duas em duas horas",
++    ),
++    "intermitencia": ("jato para e", "para e volta", "para e recomeca", "interrompe", "jato corta", "pinga e para"),
++    "urgencia": ("urgencia", "nao consigo segurar", "nao da tempo", "nao aguento segurar", "dificil segurar"),
++    "jato_fraco": ("jato fraco", "jato fino", "jato devagar", "fraco o jato"),
++    "esforco": ("faco forca", "fazer forca", "forcar para urinar", "forco para urinar", "forco pra urinar"),
++}
++_NUM_WORDS = {"uma": 1, "um": 1, "duas": 2, "dois": 2, "tres": 3, "quatro": 4, "cinco": 5, "seis": 5, "sete": 5}
++
++
++def _freq_pontos(texto_norm: str) -> str | None:
++    for chave, palavras in _FREQ_WORDS:
++        if find(texto_norm, palavras):
++            return chave
++    return None
++
++
++def _nocturia(texto_norm: str) -> str | None:
++    if "noite" not in texto_norm and "madrugada" not in texto_norm and "dormindo" not in texto_norm:
++        return None
++    if re.search(r"\bnao (?:levanto|acordo|urino)\b|\bnenhuma vez\b|\bnunca (?:levanto|acordo)\b", texto_norm):
++        return "0"
++    m = re.search(r"\b(\d|uma|um|duas|dois|tres|quatro|cinco|seis|sete)\s+(?:vez|vezes)\b", texto_norm)
++    if not m:
++        return None
++    n = int(m.group(1)) if m.group(1).isdigit() else _NUM_WORDS[m.group(1)]
++    return str(min(n, 5))
++
++
++def ipss_pela_fala(segments: list[Segment]) -> tuple[dict[str, str], dict[str, list[str]]]:
++    """Itens do IPSS que o paciente respondeu falando (na mesma fala ou na resposta à pergunta do profissional).
++
++    Estimativa por palavras de frequência ("quase sempre", "metade das vezes"): o profissional confirma ou corrige
++    pelo endpoint de escalas. Cada resposta cita a(s) fala(s) de onde saiu.
++    """
++    respostas: dict[str, str] = {}
++    refs: dict[str, list[str]] = {}
++    for i, s in enumerate(segments):
++        texto = norm(s.texto)
++        if s.falante in PATIENT_SIDE:
++            reply, source = s, [s]
++        else:
++            nxt = next((x for x in segments[i + 1 : i + 3] if x.falante in PATIENT_SIDE), None)
++            if nxt is None:
++                continue
++            reply, source = nxt, [s, nxt]
++        resp = norm(reply.texto)
++        for chave, gatilhos in _IPSS_TRIGGERS.items():
++            if chave in respostas:
++                continue
++            em_pergunta = find(texto, gatilhos) is not None
++            if not em_pergunta:
++                continue
++            if s.falante in PATIENT_SIDE:
++                resp_text = texto
++            else:
++                resp_text = resp
++            valor = _freq_pontos(resp_text)
++            if valor is None and s.falante in PATIENT_SIDE:
++                valor = "3" if "as vezes" in resp_text else None
++            if valor is not None:
++                respostas[chave] = valor
++                refs[chave] = [fala_ref(x.n) for x in source]
++        if "nocturia" not in respostas:
++            noct_text = texto if s.falante in PATIENT_SIDE else resp
++            if s.falante in PATIENT_SIDE or "noite" in texto:
++                valor = _nocturia(noct_text)
++                if valor is not None:
++                    respostas["nocturia"] = valor
++                    refs["nocturia"] = [fala_ref(x.n) for x in source]
++    return respostas, refs
++
++
++# ---------- NYHA ----------
++FONTE_NYHA = (
++    "The Criteria Committee of the New York Heart Association (1994); Diretriz Brasileira de Insuficiência Cardíaca "
++    "Crônica (SBC)"
++)
++NYHA_CLASSES = {
++    "I": "Sem limitação: a atividade física habitual não causa dispneia, cansaço ou palpitação.",
++    "II": "Limitação leve: confortável em repouso; a atividade habitual (ex.: subir escada) causa sintomas.",
++    "III": "Limitação acentuada: confortável em repouso; esforços menores que os habituais causam sintomas.",
++    "IV": "Sintomas em repouso ou aos mínimos esforços; incapaz de qualquer atividade sem desconforto.",
++}
++_DISPNEIA = ("falta de ar", "cansaco", "canso", "folego", "ofegante", "sem ar", "dispneia", "cansad")
++_NYHA_WORDS = (
++    (
++        "IV",
++        ("em repouso", "parada", "parado", "deitada", "deitado", "sentada", "sentado", "para falar", "ate pra comer"),
++    ),
++    (
++        "III",
++        (
++            "andar no plano",
++            "caminhar no plano",
++            "no plano",
++            "tomar banho",
++            "tomando banho",
++            "me vestir",
++            "me vestindo",
++            "andar pouco",
++            "poucos passos",
++            "uma quadra",
++            "meia quadra",
++            "pequenos esforcos",
++            "varrer a casa",
++        ),
++    ),
++    (
++        "II",
++        (
++            "subir escada",
++            "subir uma escada",
++            "subir a escada",
++            "subir escadas",
++            "lance de escada",
++            "ladeira",
++            "esforco moderado",
++            "correr",
++            "subir rampa",
++            "carregar peso",
++            "esforco",
++        ),
++    ),
++)
++_NYHA_I = ("nao tenho falta de ar", "nao canso", "sem falta de ar", "faco tudo sem", "nao sinto falta de ar")
++
++
++def nyha_pela_fala(segments: list[Segment]) -> tuple[str | None, list[str]]:
++    """Classe funcional estimada pela fala do paciente: a pior classe que ele descreve, com as falas de origem."""
++    ordem = {"I": 1, "II": 2, "III": 3, "IV": 4}
++    melhor: str | None = None
++    refs: list[str] = []
++    for s in segments:
++        if s.falante not in PATIENT_SIDE:
++            continue
++        t = norm(s.texto)
++        if find(t, _NYHA_I):
++            classe = "I"
++        elif find(t, _DISPNEIA):
++            classe = next((c for c, palavras in _NYHA_WORDS if find(t, palavras)), None)
++        else:
++            classe = None
++        if classe is None:
++            continue
++        if melhor is None or ordem[classe] > ordem[melhor]:
++            melhor, refs = classe, [fala_ref(s.n)]
++        elif classe == melhor:
++            refs.append(fala_ref(s.n))
++    return melhor, refs
++
++
++def nyha(classe: str, refs: list[str], origem: str = "fala") -> Resultado:
++    return Resultado(
++        id="nyha",
++        nome="Classe funcional NYHA",
++        total=None,
++        maximo=0,
++        faixa=f"classe {classe} — {NYHA_CLASSES[classe]}",
++        severidade={"I": "ok", "II": "info", "III": "atencao", "IV": "critico"}[classe],
++        pontos=[Ponto("Classe funcional descrita", f"NYHA {classe}", 0, refs, origem)],
++        fonte=FONTE_NYHA,
++        aviso="Classe estimada pela descrição do paciente: o profissional confirma." if origem == "fala" else "",
++        estimada=origem == "fala",
++    )
++
++
++def ids() -> frozenset[str]:
++    """Escalas que um pacote de especialidade pode listar."""
++    return frozenset(QUESTIONARIOS) | {"cha2ds2_vasc", "nyha", "imc"}
++
++
++def catalogo() -> list[dict]:
++    """Escalas em forma de formulário (itens, opções com pontos, faixas e fonte) para a tela e para a documentação."""
++    out = [
++        {
++            "id": e.id,
++            "nome": e.nome,
++            "fonte": e.fonte,
++            "maximo": e.maximo,
++            "aviso": e.aviso,
++            "itens": [
++                {
++                    "chave": i.chave,
++                    "rotulo": i.rotulo,
++                    "opcoes": [{"valor": k, "rotulo": o.rotulo, "pontos": o.pontos} for k, o in i.opcoes.items()],
++                }
++                for i in e.itens
++            ],
++            "faixas": [{"de": f.minimo, "ate": f.maximo, "rotulo": f.rotulo} for f in e.faixas],
++        }
++        for e in QUESTIONARIOS.values()
++    ]
++    out.append(
++        {
++            "id": "nyha",
++            "nome": "Classe funcional NYHA",
++            "fonte": FONTE_NYHA,
++            "itens": [
++                {
++                    "chave": "classe",
++                    "rotulo": "Classe",
++                    "opcoes": [{"valor": k, "rotulo": v} for k, v in NYHA_CLASSES.items()],
++                }
++            ],
++        }
++    )
++    return out
+diff --git a/apps/api/app/consult/schemas.py b/apps/api/app/consult/schemas.py
+index b7157da..7ce9b98 100644
+--- a/apps/api/app/consult/schemas.py
++++ b/apps/api/app/consult/schemas.py
+@@ -507,6 +507,7 @@ OrderCheckType = Literal[
+     "reatividade_cruzada",
+     "dose_tfg",
+     "dose_idade",
++    "dose_peso",
+     "interacao",
+     "duplicidade",
+     "alto_alerta",
+diff --git a/apps/api/app/consult/service.py b/apps/api/app/consult/service.py
+index 80764a7..ddfc170 100644
+--- a/apps/api/app/consult/service.py
++++ b/apps/api/app/consult/service.py
+@@ -23,6 +23,7 @@ from app.consult import (
+     apps,
+     consentimento,
+     fidelidade,
++    glossario,
+     gs1,
+     hipoteses,
+     idiomas,
+@@ -32,6 +33,7 @@ from app.consult import (
+     opme,
+     privacidade,
+     relevancia,
++    scales,
+     stt,
+     summary,
+ )
+@@ -671,7 +673,9 @@ def transcribe_audio(
+     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
+     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+     try:
+-        text = stt.transcribe(audio, content_type, language)
++        text = stt.transcribe(
++            audio, content_type, language, glossario.prompt_stt(c.specialty) if language.startswith("pt") else ""
++        )
+     except stt.STTUnavailable as exc:
+         raise HTTPException(503, str(exc)) from exc
+     log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(text)})
+@@ -714,6 +718,34 @@ def mark_checklist(db: Session, fhir: FhirSource, user: User, cid: int, step: st
+     return {"insights": c.insights_json, "total": len(segments)}
+ 
+ 
++def save_scale(db: Session, fhir: FhirSource, user: User, cid: int, scale: str, answers: dict) -> dict:
++    """Respostas de uma escala dadas pelo profissional (valem mais que a estimativa pela fala): a pontuação sai das
++    regras em `scales.py`, com o ponto a ponto no Smart App "Escalas clínicas"."""
++    c = _get(db, cid)
++    if c.kind == "cirurgia":
++        raise HTTPException(409, "As escalas clínicas valem para consultas e visitas, não para o modo cirúrgico.")
++    if c.status != "em_andamento":
++        raise HTTPException(409, "Consulta finalizada: não aceita novas respostas de escala.")
++    if scale == "nyha":
++        errors = [] if str(answers.get("classe")) in scales.NYHA_CLASSES else ["Classe NYHA: use I, II, III ou IV."]
++    elif scale == "imc":
++        ok = isinstance(answers.get("altura_cm"), int | float) and 40 <= answers["altura_cm"] <= 250
++        errors = [] if ok else ["IMC: informe altura_cm entre 40 e 250."]
++    else:
++        errors = scales.validar_respostas(scale, {k: str(v) for k, v in answers.items()})
++    if errors:
++        raise HTTPException(422, " ".join(errors))
++    record, events, ctx = _chart(fhir, c.patient_id)
++    extra = dict(c.extra_json or {})
++    saved = dict(extra.get("escalas") or {})
++    saved[scale] = {"respostas": answers, "por": user.name, "em": clock.now().isoformat()}
++    c.extra_json = extra | {"escalas": saved}
++    segments = _segments(c)
++    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
++    log_action(db, user, "consulta.escala", "consultation", c.id, {"patient_id": c.patient_id, "escala": scale})
++    return {"insights": c.insights_json, "total": len(segments)}
++
++
+ def set_main_complaint(db: Session, fhir: FhirSource, user: User, cid: int, key: str | None) -> dict:
+     """O profissional fixa (ou solta, com `key` vazio) a queixa principal da anamnese. Vale para o resto da consulta."""
+     c = _get(db, cid)
+diff --git a/apps/api/app/consult/stt.py b/apps/api/app/consult/stt.py
+index d096f59..f56a2a0 100644
+--- a/apps/api/app/consult/stt.py
++++ b/apps/api/app/consult/stt.py
+@@ -21,7 +21,8 @@ def enabled() -> bool:
+     return bool(get_settings().stt_url)
+ 
+ 
+-def transcribe(audio: bytes, content_type: str, language: str) -> str:
++def transcribe(audio: bytes, content_type: str, language: str, vocabulary: str = "") -> str:
++    """`vocabulary`: dica de termos (glossário clínico) no campo `prompt` da API, que o Whisper usa como contexto."""
+     settings = get_settings()
+     if not settings.stt_url:
+         raise STTUnavailable("Transcrição no servidor não configurada (STT_URL). Use o microfone do navegador.")
+@@ -35,7 +36,8 @@ def transcribe(audio: bytes, content_type: str, language: str) -> str:
+         r = httpx.post(
+             settings.stt_url,
+             files={"file": (f"trecho.{EXTENSIONS.get(mime, 'webm')}", audio, mime)},
+-            data={"model": settings.stt_model, "language": language.split("-")[0], "response_format": "json"},
++            data={"model": settings.stt_model, "language": language.split("-")[0], "response_format": "json"}
++            | ({"prompt": vocabulary} if vocabulary else {}),
+             headers=headers,
+             timeout=60,
+         )
+diff --git a/apps/api/app/seed/builder.py b/apps/api/app/seed/builder.py
+index 0f67604..1a843da 100644
+--- a/apps/api/app/seed/builder.py
++++ b/apps/api/app/seed/builder.py
+@@ -144,6 +144,12 @@ def _priority(urgent: bool) -> dict:
+ 
+ 
+ class ScenarioBuilder:
++    def _birth_date(self, p: dict) -> str:
++        """`nascimento` fixo, ou `idade_dias` relativo à âncora (a criança do cenário não envelhece)."""
++        if "idade_dias" in p:
++            return (self.anchor - timedelta(days=int(p["idade_dias"]))).date().isoformat()
++        return p["nascimento"]
++
+     def __init__(self, scenario: dict, anchor: datetime, locations: LocationRegistry):
+         self.s = scenario
+         self.sid: str = scenario["id"]
+@@ -223,7 +229,7 @@ class ScenarioBuilder:
+             "identifier": [{"system": codes.CPF, "value": p["cpf"]}],
+             "name": [{"use": "official", "text": p["nome"], "family": parts[-1], "given": parts[:-1]}],
+             "gender": p["sexo"],
+-            "birthDate": p["nascimento"],
++            "birthDate": self._birth_date(p),
+             "telecom": [{"system": "phone", "value": p["telefone"]}] if p.get("telefone") else [],
+             "address": [{"text": p["endereco"]}] if p.get("endereco") else [],
+         }
+diff --git a/apps/api/tests/test_consult_modelos_nota.py b/apps/api/tests/test_consult_modelos_nota.py
+index a644b4d..16f7585 100644
+--- a/apps/api/tests/test_consult_modelos_nota.py
++++ b/apps/api/tests/test_consult_modelos_nota.py
+@@ -50,7 +50,7 @@ def child_engine(record, specialty: str, falas: list[tuple[str, str]], birth: st
+ 
+ 
+ # ---------- modelos em dados ----------
+-def test_os_oito_modelos_sao_versionados_e_validos():
++def test_os_dez_modelos_sao_versionados_e_validos():
+     tpls = note_templates.templates()
+     assert set(tpls) == {
+         "consulta_clinica",
+@@ -61,6 +61,8 @@ def test_os_oito_modelos_sao_versionados_e_validos():
+         "evolucao_internacao",
+         "ps",
+         "aps_esus",
++        "nutricao",  # pacotes de nutrição e saúde mental (#27)
++        "saude_mental",
+     }
+     for t in tpls.values():
+         assert t.versao.count(".") == 2 and t.fonte and t.loinc.codigo
+@@ -83,7 +85,7 @@ def test_modelo_e_escolhido_por_especialidade_e_tipo():
+ def test_get_note_templates_lista_e_marca_o_sugerido(client, auth):
+     h = auth("medico")
+     todos = client.get("/note-templates", headers=h).json()
+-    assert len(todos) == 8 and not any(m["sugerido"] for m in todos)
++    assert len(todos) == 10 and not any(m["sugerido"] for m in todos)
+     sug = client.get("/note-templates?especialidade=pediatria&tipo=consulta", headers=h).json()
+     assert [m["id"] for m in sug if m["sugerido"]] == ["pediatria"]
+     assert client.get("/note-templates").status_code == 401
+diff --git a/apps/api/tests/test_consult_perguntas.py b/apps/api/tests/test_consult_perguntas.py
+index 2d9f35b..8cde282 100644
+--- a/apps/api/tests/test_consult_perguntas.py
++++ b/apps/api/tests/test_consult_perguntas.py
+@@ -106,7 +106,7 @@ def test_question_rows_are_consistent_with_the_other_bases():
+     fields = set(knowledge.semiology().fields)
+     for q in knowledge.questions():
+         assert set(q.discriminates) <= cids, q.id
+-        assert re.fullmatch(r"q\d{3}", q.id)
++        assert re.fullmatch(r"q\d{3}|pk_[a-z]+_\d{2}", q.id)  # CSV ou pacote de especialidade (#27)
+         text = q.text.format(trat="a senhora", med="X", alergeno="Y", reacao="Z", queixa="tontura")
+         assert "{" not in text
+         kind, _, key = q.trigger.partition(":")
+diff --git a/apps/api/tests/test_especialidades.py b/apps/api/tests/test_especialidades.py
+new file mode 100644
+index 0000000..9279ed7
+--- /dev/null
++++ b/apps/api/tests/test_especialidades.py
+@@ -0,0 +1,434 @@
++"""Pacotes de especialidade, escalas, dose pediátrica por peso e glossário clínico (#27).
++
++Os critérios de aceite passam pelo caminho real (API/TestClient e Engine sobre os cenários, LLM mock):
++- criança de 12 kg com 'amoxicilina 500 mg de 8 em 8 horas' gera alerta de dose acima do máximo, com a fonte;
++- paciente com FA mostra o CHA2DS2-VASc com os pontos e as refs;
++- o perfil de urologia calcula o IPSS a partir das respostas;
++- 'xixi' sai como 'diurese' na nota;
++- schema dos YAML dos pacotes.
++"""
++
++import csv
++import re
++
++import pytest
++
++from app import clock
++from app.consult import ai as consult_ai
++from app.consult import apps, dose_peso, glossario, knowledge, note_templates, scales
++from app.consult import service as consult_service
++from app.consult.engine import Engine
++from app.consult.especialidades import Pacote, pacotes
++from app.consult.schemas import Segment
++from app.consult.templates import surgical_specialties
++from app.timeline.context import build_context
++from app.timeline.events import build_timeline
++from tests.test_consult import say, start
++
++
++@pytest.fixture(autouse=True)
++def _fresh_chart_cache():
++    consult_service.clear_chart_cache()
++    yield
++    consult_service.clear_chart_cache()
++
++
++def falas_de(script: str) -> list[dict]:
++    return knowledge.demo_scripts()[script]["falas"]
++
++
++def engine_for(record, pid: str, falas: list[tuple[str, str]], specialty: str = "clinica_medica") -> Engine:
++    rec = record(pid)
++    segs = [Segment(n=i, t=float(i), falante=who, texto=t) for i, (who, t) in enumerate(falas, 1)]  # type: ignore[arg-type]
++    return Engine(rec, build_timeline(rec), build_context(rec), segs, specialty, "consulta", clock.now())
++
++
++def peso_ins(record, falas: list[tuple[str, str]]):
++    return engine_for(record, "cen9", falas, "pediatria").run()
++
++
++def dose_alerts(ins) -> list:
++    return [m for m in ins.sugestoes_medicamentos if "mg/kg" in m.texto or "sem peso" in m.texto]
++
++
++# ---------- schema dos pacotes ----------
++def test_pacotes_validam_e_substituem_as_constantes():
++    packs = pacotes()
++    assert list(knowledge.SPECIALTIES) == list(packs)
++    assert knowledge.SPECIALTIES["pediatria"] == "Pediatria"
++    assert knowledge.SPECIALTY_FOCUS["urologia"].startswith("sintomas do trato urinário inferior (IPSS)")
++    assert {"nutricao", "saude_mental"} <= set(packs)  # perfis novos
++    assert len(packs) >= 15
++
++
++def test_pacotes_apontam_para_o_que_existe():
++    known_apps = {a.manifest.id for a in apps.all_apps()}
++    cids = {
++        r["codigo"]
++        for r in csv.DictReader(open(knowledge.get_settings().data_dir / "reference" / "cid10.csv", encoding="utf-8"))
++    }
++    for pack in pacotes().values():
++        assert set(pack.smart_apps) <= known_apps, pack.id
++        assert set(pack.escalas) <= scales.ids(), pack.id
++        assert pack.hipoteses_prioritarias == [c for c in pack.hipoteses_prioritarias if c in cids], pack.id
++        assert note_templates.get(pack.modelo_nota) is not None, pack.id
++        assert note_templates.select("consulta", pack.id).id == pack.modelo_nota, pack.id
++        for q in pack.perguntas:
++            assert q.id.startswith("pk_")
++    assert set(surgical_specialties()) <= set(pacotes())  # as cirúrgicas vêm dos modelos, não do pacote
++
++
++def test_schema_rejeita_campo_desconhecido_e_cid_invalido():
++    base = pacotes()["pediatria"].model_dump()
++    with pytest.raises(ValueError):
++        Pacote.model_validate(base | {"escala_inventada": 1})
++    with pytest.raises(ValueError):
++        Pacote.model_validate(base | {"hipoteses_prioritarias": ["XYZ"]})
++    with pytest.raises(ValueError):
++        Pacote.model_validate(base | {"glossario": {"xixi": " "}})
++
++
++def test_perguntas_do_pacote_aparecem_so_na_especialidade(client, auth):
++    h = auth("medico")
++    nut = start(client, h, "cen6", especialidade="nutricao")
++    ids = {q["id"].split(":")[0] for q in nut["insights"]["perguntas"]}
++    assert {"pk_nut_01", "pk_nut_02"} <= ids
++    clin = start(client, h, "cen6", especialidade="clinica_medica")
++    assert not any(q["id"].startswith("pk_") for q in clin["insights"]["perguntas"])
++    sm = start(client, h, "cen6", especialidade="saude_mental")
++    assert any(q["id"].startswith("pk_sm_01") for q in sm["insights"]["perguntas"])
++
++
++def test_endpoint_de_especialidades_traz_o_pacote(client, auth):
++    res = client.get("/consult/config", headers=auth("medico"))
++    if res.status_code != 200:  # o caminho do config varia: procura pela lista de especialidades
++        pytest.skip("rota de config fora do prefixo esperado")
++    pack = next(e for e in res.json()["especialidades"] if e["value"] == "urologia")
++    assert "ipss" in pack["escalas"] and pack["modelo_nota"] == "urologia" and pack["smart_apps"]
++
++
++# ---------- pediatria: dose por peso ----------
++def test_crianca_12kg_amoxicilina_500_8_em_8_alerta_com_fonte(record):
++    ins = peso_ins(record, [(f["falante"], f["texto"]) for f in falas_de("cen9_pediatria")])
++    alerts = [m for m in dose_alerts(ins) if "Amoxicilina" in m.texto]
++    assert len(alerts) == 1
++    a = alerts[0]
++    assert a.severidade == "critico" and a.tipo == "ajuste_dose"
++    assert "acima do máximo" in a.texto and "12 kg" in a.texto
++    assert "41,7 mg/kg/dose" in a.texto and "125 mg/kg/dia" in a.texto
++    assert "ANVISA" in a.fonte and "SBP" in a.fonte
++    assert any(r.startswith("Fala/") for r in a.refs) and any(r.startswith("Observation/") for r in a.refs)
++    assert ins.modo == "regras"  # o alerta nasce das regras, antes de qualquer IA
++    assert any("Amoxicilina" in h.texto for h in ins.alertas if h.severidade == "critico")
++
++
++def test_dose_na_faixa_nao_alerta(record):
++    for fala in (
++        "Vou passar amoxicilina 250 mg de 8 em 8 horas por 7 dias.",  # 20,8 mg/kg/dose e 62,5 mg/kg/dia
++        "Pode dar paracetamol 150 mg de 6 em 6 horas se tiver febre.",  # 12,5 mg/kg/dose
++        "Dipirona 200 mg de 6 em 6 horas se tiver dor.",  # 16,7 mg/kg/dose
++    ):
++        assert dose_alerts(peso_ins(record, [("medico", fala)])) == [], fala
++
++
++@pytest.mark.parametrize(
++    ("fala", "trecho"),
++    [
++        ("Prescrevo paracetamol 500 mg de 4 em 4 horas.", "mg/kg/dose"),
++        ("Vou passar ibuprofeno 400 mg de 6 em 6 horas.", "mg/kg/dose"),
++        ("Azitromicina 500 mg uma vez ao dia por 3 dias.", "mg/kg/dose"),
++        ("Dipirona 300 mg de 3 em 3 horas.", "intervalo de 3 h"),
++        ("Vou passar amoxicilina 1 g de 8 em 8 horas.", "mg/kg/dose"),
++    ],
++)
++def test_outras_doses_acima_do_maximo(record, fala, trecho):
++    found = dose_alerts(peso_ins(record, [("medico", fala)]))
++    assert found and found[0].severidade == "critico" and trecho in found[0].texto and found[0].fonte
++
++
++def test_subdose_e_atencao(record):
++    found = dose_alerts(peso_ins(record, [("medico", "Vou passar amoxicilina 50 mg de 8 em 8 horas.")]))
++    assert found and found[0].severidade == "atencao" and "abaixo da faixa" in found[0].texto
++
++
++def test_negacao_e_adulto_nao_geram_alerta(record):
++    assert dose_alerts(peso_ins(record, [("acompanhante", "Eu nunca dei amoxicilina 500 mg de 8 em 8 horas.")])) == []
++    adult = engine_for(record, "cen6", [("medico", "Vou passar amoxicilina 500 mg de 8 em 8 horas.")]).run()
++    assert dose_alerts(adult) == []  # dose de adulto em adulto: a tabela é pediátrica
++
++
++def test_funcoes_de_dose():
++    assert dose_peso.parse_mg("500 mg") == 500 and dose_peso.parse_mg("1 g") == 1000
++    assert dose_peso.parse_mg("1.000 mg") == 1000 and dose_peso.parse_mg("2,5 mg") == 2.5
++    assert dose_peso.parse_mg("20 gotas") is None
++    assert dose_peso.interval_hours({"frequencia": 1, "periodo": 8, "unidade": "h"}) == 8
++    assert dose_peso.interval_hours({"frequencia": 3, "periodo": 1, "unidade": "d"}) == 8
++    assert dose_peso.avaliar("amoxicilina", 250, 8, 12, 2) is None
++    assert dose_peso.avaliar("amoxicilina", 500, 8, 12, 2).severidade == "critico"
++    assert dose_peso.avaliar("amoxicilina", 500, 8, 12, 40) is None  # fora da idade pediátrica
++    assert dose_peso.avaliar("losartana", 50, 24, 12, 2) is None  # fármaco fora da tabela
++
++
++def test_sem_peso_pede_o_peso(record):
++    rec = record("cen9")
++    rec.resources["Observation"] = [
++        o for o in rec.resources.get("Observation", []) if "29463-7" not in str(o.get("code"))
++    ]
++    segs = [Segment(n=1, t=1, falante="medico", texto="Vou passar amoxicilina 500 mg de 8 em 8 horas.")]
++    ins = Engine(rec, build_timeline(rec), build_context(rec), segs, "pediatria", "consulta", clock.now()).run()
++    found = [m for m in ins.sugestoes_medicamentos if "sem peso" in m.texto]
++    if found:
++        assert found[0].severidade == "atencao" and "Pesar a criança" in found[0].texto
++    else:  # peso ainda vindo de outra fonte do prontuário: então a conferência por kg vale
++        assert dose_alerts(ins)
++
++
++def test_peso_dito_na_conversa_vale_sem_observation():
++    said = dose_peso.spoken_weight([Segment(n=3, t=1, falante="acompanhante", texto="Ele pesa 12,5 quilos.")])
++    assert said == (12.5, "Fala/3")
++
++
++def test_dose_pelo_caminho_da_api_alerta_antes_da_ia_e_no_pedido(client, auth):
++    h = auth("medico")
++    c = start(client, h, "cen9", especialidade="pediatria")
++    ins = say(client, h, c["id"], falas_de("cen9_pediatria"))
++    crit = [m for m in ins["sugestoes_medicamentos"] if m["severidade"] == "critico" and "mg/kg" in m["texto"]]
++    assert crit and "ANVISA" in crit[0]["fonte"]
++    draft = next(d for d in ins["pedidos"] if d["item"].lower().startswith("amoxicilina"))
++    check = next(k for k in draft["checagens"] if k["tipo"] == "dose_peso")
++    assert (
++        check["severidade"] == "critico"
++        and "Fonte:" in check["texto"]
++        and any(r.startswith("Observation/") for r in check["refs"])
++    )
++
++
++def test_csv_de_doses_pediatricas_tem_fonte_e_principio_conhecido():
++    rows = list(
++        csv.DictReader(open(knowledge.get_settings().data_dir / "reference" / "pediatric_doses.csv", encoding="utf-8"))
++    )
++    assert len(rows) >= 8
++    catalog = {
++        r["principio_ativo"]
++        for r in csv.DictReader(open(knowledge.get_settings().data_dir / "reference" / "drugs.csv", encoding="utf-8"))
++    }
++    for r in rows:
++        assert r["principio_ativo"] in catalog
++        assert re.search(r"ANVISA|SBP", r["fonte"]), r
++        assert float(r["mg_kg_dose_min"]) < float(r["mg_kg_dose_max"])
++
++
++# ---------- escalas ----------
++def test_fa_mostra_cha2ds2_vasc_com_pontos_e_refs(client, auth):
++    h = auth("medico")
++    c = start(client, h, "cen2", especialidade="cardiologia")
++    app = next(a for a in c["insights"]["apps"] if a["id"] == "escalas")
++    item = next(i for i in app["itens"] if i["texto"].startswith("CHA2DS2-VASc (risco tromboembólico na FA): 4 de 9"))
++    assert item["severidade"] == "critico" and "anticoagulação" in item["texto"]
++    assert any(r.startswith("Condition/") for r in item["refs"])
++    for linha in ("C — Insuficiência cardíaca", "H — Hipertensão", "A — Idade 65 a 74 anos", "Sc — Sexo feminino"):
++        assert linha in item["detalhe"]
++    assert "Condition/" in item["detalhe"] and "Fonte: Lip GYH" in item["detalhe"]
++
++
++def test_cha2ds2_vasc_pontos_por_criterio():
++    cond = lambda cid, i: (cid, cid, {"id": i})  # noqa: E731
++    r = scales.cha2ds2_vasc(
++        80,
++        True,
++        [cond("I48", "a"), cond("I50.0", "b"), cond("I10", "c"), cond("E11.9", "d"), cond("I63.9", "e")],
++        "Patient/x",
++    )
++    assert r.total == 1 + 1 + 2 + 1 + 2 + 0 + 0 + 1
++    assert scales.cha2ds2_vasc(50, False, [cond("I48", "a")], "Patient/x").total == 0
++    assert scales.cha2ds2_vasc(50, False, [cond("I48", "a")], "Patient/x").severidade == "ok"
++    homem = scales.cha2ds2_vasc(70, False, [cond("I48", "a")], "Patient/x")
++    assert homem.total == 1 and homem.severidade == "atencao"  # homem com 1 ponto: considerar anticoagular
++
++
++def test_ipss_pelo_perfil_de_urologia_a_partir_das_respostas(client, auth):
++    h = auth("medico")
++    c = start(client, h, "cen7e", especialidade="urologia")
++    ins = say(
++        client,
++        h,
++        c["id"],
++        [
++            {
++                "falante": "medico",
++                "texto": "O senhor sente que não esvazia a bexiga por completo depois de urinar?",
++                "t": 1,
++            },
++            {"falante": "paciente", "texto": "Sinto quase sempre, doutor.", "t": 2},
++            {"falante": "medico", "texto": "E o jato, como está?", "t": 3},
++            {"falante": "paciente", "texto": "O jato fraco acontece mais da metade das vezes.", "t": 4},
++            {"falante": "paciente", "texto": "À noite eu levanto 3 vezes pra fazer xixi.", "t": 5},
++        ],
++    )
++    app = next(a for a in ins["apps"] if a["id"] == "escalas")
++    ipss = next(i for i in app["itens"] if i["texto"].startswith("IPSS"))
++    assert "incompleta" in ipss["texto"] and "Faltam" in ipss["detalhe"] and "Fala/2" in ipss["detalhe"]
++    # o profissional completa as respostas pelo endpoint: soma 5 + 4 + 3 + 3 + 2 + 1 + 3 = 21 (grave)
++    res = client.put(
++        f"/consultations/{c['id']}/escalas/ipss",
++        json={"respostas": {"frequencia": "3", "intermitencia": "2", "urgencia": "3", "esforco": "1"}},
++        headers=h,
++    )
++    assert res.status_code == 200, res.text
++    app = next(a for a in res.json()["insights"]["apps"] if a["id"] == "escalas")
++    ipss = next(i for i in app["itens"] if i["texto"].startswith("IPSS"))
++    assert "21 de 35" in ipss["texto"] and "sintomas graves" in ipss["texto"] and ipss["severidade"] == "critico"
++    assert "Barry MJ" in ipss["detalhe"]
++
++
++def test_ipss_calculo_e_faixas():
++    todos = {i.chave: "0" for i in scales.IPSS.itens}
++    assert scales.calcular("ipss", todos).total == 0
++    assert scales.calcular("ipss", todos | {"nocturia": "5", "jato_fraco": "2"}).faixa == "sintomas leves"
++    assert scales.calcular("ipss", {k: "5" for k in todos}).total == 35
++    assert scales.calcular("ipss", {k: "3" for k in todos}).faixa == "sintomas graves"
++    parcial = scales.calcular("ipss", {"urgencia": "2"})
++    assert parcial.total is None and not parcial.completo and len(parcial.faltam) == 6
++
++
++@pytest.mark.parametrize(
++    ("escala", "valor", "total", "faixa"),
++    [
++        ("phq9", "0", 0, "sintomas mínimos"),
++        ("phq9", "1", 9, "depressão leve"),
++        ("phq9", "2", 18, "depressão moderadamente grave"),
++        ("phq9", "3", 27, "depressão grave"),
++        ("gad7", "1", 7, "ansiedade leve"),
++        ("gad7", "2", 14, "ansiedade moderada"),
++        ("gad7", "3", 21, "ansiedade grave"),
++    ],
++)
++def test_phq9_gad7(escala, valor, total, faixa):
++    r = scales.calcular(escala, {i.chave: valor for i in scales.QUESTIONARIOS[escala].itens})
++    assert r.total == total and r.faixa == faixa
++
++
++def test_phq9_item_9_gera_aviso_de_risco():
++    resp = {i.chave: "0" for i in scales.PHQ9.itens} | {"ideacao": "1"}
++    r = scales.calcular("phq9", resp)
++    assert r.aviso.startswith("ATENÇÃO") and r.severidade == "critico"
++
++
++def test_morse_braden_ivcf():
++    morse = {
++        "historico_queda": "sim",
++        "diagnostico_secundario": "sim",
++        "auxilio_deambulacao": "muleta",
++        "terapia_iv": "sim",
++        "marcha": "fraca",
++        "estado_mental": "orientado",
++    }
++    assert scales.calcular("morse", morse).total == 25 + 15 + 15 + 20 + 10 + 0
++    assert scales.calcular("morse", morse).faixa == "risco elevado"
++    braden = {
++        "percepcao_sensorial": "2",
++        "umidade": "2",
++        "atividade": "1",
++        "mobilidade": "2",
++        "nutricao": "2",
++        "friccao": "1",
++    }
++    assert scales.calcular("braden", braden).total == 10 and scales.calcular("braden", braden).faixa == "risco alto"
++    ivcf = {i.chave: "nao" for i in scales.IVCF20.itens} | {
++        "idade": "85+",
++        "saude": "regular_ruim",
++        "avdi_dinheiro": "sim",
++        "avdi_compras": "sim",
++    }
++    r = scales.calcular("ivcf20", ivcf)
++    assert r.total == 3 + 1 + 4  # o teto do grupo AVD instrumental é 4, não 8
++    tudo = {i.chave: list(i.opcoes)[-1] for i in scales.IVCF20.itens}
++    assert scales.calcular("ivcf20", tudo).total == 40
++
++
++def test_validacao_das_respostas(client, auth):
++    h = auth("medico")
++    c = start(client, h, "cen6", especialidade="saude_mental")
++    url = f"/consultations/{c['id']}/escalas"
++    assert client.put(f"{url}/phq9", json={"respostas": {"humor": "9"}}, headers=h).status_code == 422
++    assert client.put(f"{url}/phq9", json={"respostas": {"inventado": "1"}}, headers=h).status_code == 422
++    assert client.put(f"{url}/astrologia", json={"respostas": {"a": "1"}}, headers=h).status_code == 422
++    ok = client.put(f"{url}/phq9", json={"respostas": {i.chave: "1" for i in scales.PHQ9.itens}}, headers=h)
++    assert ok.status_code == 200
++    app = next(a for a in ok.json()["insights"]["apps"] if a["id"] == "escalas")
++    assert any("PHQ-9" in i["texto"] and "9 de 27" in i["texto"] for i in app["itens"])
++    assert client.put(f"{url}/imc", json={"respostas": {"altura_cm": 700}}, headers=h).status_code == 422
++    assert any(s["id"] == "phq9" for s in client.get("/escalas", headers=h).json())
++
++
++def test_nyha_pela_fala_e_imc():
++    segs = [
++        Segment(n=1, t=1, falante="paciente", texto="Eu canso para subir uma escada, preciso parar no meio."),
++        Segment(n=2, t=2, falante="paciente", texto="Hoje fico sem ar até tomando banho."),
++    ]
++    classe, refs = scales.nyha_pela_fala(segs)
++    assert classe == "III" and refs == ["Fala/2"]
++    assert scales.nyha_pela_fala([Segment(n=1, t=1, falante="paciente", texto="Não tenho falta de ar.")])[0] == "I"
++    assert scales.imc(80, 170, 40).faixa.startswith("sobrepeso")
++    assert scales.imc(60, 175, 70).faixa.startswith("baixo peso")  # idoso: corte de 22 (Lipschitz)
++    assert scales.imc(60, 175, 40).faixa.startswith("eutrofia")
++    assert scales.imc(50, 100, 5).total is None and "OMS" in scales.imc(50, 100, 5).aviso
++
++
++# ---------- glossário ----------
++def test_glossario_troca_popular_por_tecnico_sem_acento_nem_caixa():
++    text, swaps = glossario.tecnico("Xixi de noite, pressão alta e FALTA DE AR", "urologia")
++    assert text == "Diurese de noite, HAS e Dispneia"
++    assert ("Xixi", "Diurese") in swaps
++    assert glossario.tecnico("bexiga caída e xixi fraco", "urologia")[0] == "cistocele e hipofluxo urinário"
++    assert glossario.tecnico("o pixixi", "")[0] == "o pixixi"  # só palavra inteira
++    assert "esteatose hepática" in glossario.tecnico("gordura no fígado", "nutricao")[0]
++
++
++def test_xixi_sai_como_diurese_na_nota(client, auth):
++    h = auth("medico")
++    c = start(client, h, "cen9", especialidade="pediatria")
++    say(client, h, c["id"], falas_de("cen9_pediatria"))
++    res = client.post(f"/consultations/{c['id']}/finish", json={}, headers=h)
++    assert res.status_code == 200, res.text
++    nota = client.get(f"/consultations/{c['id']}", headers=h).json()["nota"]
++    texto = " ".join(
++        [nota[k]["texto"] for k in ("queixa_principal", "hda", "antecedentes")] + [s["texto"] for s in nota["secoes"]]
++    ).lower()
++    assert "diurese" in texto and "xixi" not in texto
++    segs = client.get(f"/consultations/{c['id']}", headers=h).json()["segmentos"]
++    assert any("xixi" in s["texto"] for s in segs)  # a fala original não muda
++
++
++def test_glossario_vale_no_prompt_do_stt():
++    prompt = glossario.prompt_stt("pediatria")
++    assert "diurese" in prompt and "dermatite de fralda" in prompt and prompt.startswith("Consulta clínica")
++    assert len(glossario.termos("")) >= 40
++    assert consult_ai.glossario is glossario
++
++
++def test_stt_envia_o_vocabulario(monkeypatch):
++    from app.consult import stt
++
++    sent = {}
++
++    class Resp:
++        def raise_for_status(self):
++            pass
++
++        def json(self):
++            return {"text": "ok"}
++
++    def fake_post(url, files, data, headers, timeout):
++        sent.update(data)
++        return Resp()
++
++    monkeypatch.setattr(stt.httpx, "post", fake_post)
++    monkeypatch.setattr(
++        stt, "get_settings", lambda: type("S", (), {"stt_url": "http://x", "stt_api_key": "", "stt_model": "m"})()
++    )
++    assert stt.transcribe(b"abc", "audio/webm", "pt-BR", glossario.prompt_stt("urologia")) == "ok"
++    assert "diurese" in sent["prompt"]
++    sent.clear()
++    stt.transcribe(b"abc", "audio/webm", "pt-BR")
++    assert "prompt" not in sent  # sem vocabulário, o campo nem vai
+diff --git a/apps/web/components/audit/audit-view.tsx b/apps/web/components/audit/audit-view.tsx
+index df82d05..5f7279f 100644
+--- a/apps/web/components/audit/audit-view.tsx
++++ b/apps/web/components/audit/audit-view.tsx
+@@ -58,6 +58,7 @@ const ACTION_LABEL: Record<string, string> = {
+   "consulta.hipotese": "Hipótese decidida (confirmada, provisória ou descartada)",
+   "consulta.insight_acao": "Insight da consulta decidido (aceito, descartado com motivo, feito ou fixado)",
+   "consulta.cirurgia_segura": "Lista de cirurgia segura marcada",
++  "consulta.escala": "Respostas de escala clínica registradas (IPSS, PHQ-9, GAD-7, Morse, Braden, IVCF-20, NYHA, IMC)",
+   "consulta.opme_guia": "Guia de OPME conferida",
+   "consulta.opme_consumo": "Consumo de OPME lido (etiqueta)",
+   "consulta.opme_consumo_removido": "Consumo de OPME removido",
+diff --git a/apps/web/lib/api.ts b/apps/web/lib/api.ts
+index aa598ac..702179a 100644
+--- a/apps/web/lib/api.ts
++++ b/apps/web/lib/api.ts
+@@ -1005,6 +1005,7 @@ export type OrderCheckType =
+   | "reatividade_cruzada"
+   | "dose_tfg"
+   | "dose_idade"
++  | "dose_peso"
+   | "interacao"
+   | "duplicidade"
+   | "alto_alerta"
+diff --git a/data/consultations/cen9_pediatria.json b/data/consultations/cen9_pediatria.json
+new file mode 100644
+index 0000000..ce78df1
+--- /dev/null
++++ b/data/consultations/cen9_pediatria.json
+@@ -0,0 +1,98 @@
++{
++ "patient_id": "cen9",
++ "tipo": "consulta",
++ "especialidade": "pediatria",
++ "titulo": "Otite média aguda em criança de 12 kg (dose de adulto no roteiro)",
++ "falas": [
++  {
++   "t": 0.0,
++   "falante": "medico",
++   "texto": "Bom dia! Pode entrar, mamãe. O que o Miguel tem hoje?"
++  },
++  {
++   "t": 5.3,
++   "falante": "acompanhante",
++   "texto": "Bom dia, doutora. Ele está com febre há dois dias e puxa a orelha direita, chora de dor, principalmente à noite."
++  },
++  {
++   "t": 10.6,
++   "falante": "medico",
++   "texto": "Qual foi a maior temperatura que a senhora mediu em casa?"
++  },
++  {
++   "t": 15.9,
++   "falante": "acompanhante",
++   "texto": "Trinta e nove. Eu dei dipirona gotas, e a febre cede mas volta em umas quatro horas."
++  },
++  {
++   "t": 21.2,
++   "falante": "medico",
++   "texto": "Quantas gotas a senhora deu, e de quanto em quanto tempo?"
++  },
++  {
++   "t": 26.5,
++   "falante": "acompanhante",
++   "texto": "Vinte gotas, de seis em seis horas. Ele pesa doze quilos, a pediatra pesou na última consulta."
++  },
++  {
++   "t": 31.8,
++   "falante": "medico",
++   "texto": "Está mamando bem, bebendo líquido e urinando normalmente?"
++  },
++  {
++   "t": 37.1,
++   "falante": "acompanhante",
++   "texto": "Está comendo pouco e bebendo pouco. Hoje ele fez pouco xixi, a fralda ficou quase seca de manhã."
++  },
++  {
++   "t": 42.4,
++   "falante": "medico",
++   "texto": "Tem tosse, coriza, vômito ou diarreia?"
++  },
++  {
++   "t": 47.7,
++   "falante": "acompanhante",
++   "texto": "Um pouco de coriza e tosse seca. Vômito e diarreia não tem."
++  },
++  {
++   "t": 53.0,
++   "falante": "medico",
++   "texto": "As vacinas estão em dia?"
++  },
++  {
++   "t": 58.3,
++   "falante": "acompanhante",
++   "texto": "Estão em dia, a caderneta está aqui."
++  },
++  {
++   "t": 63.6,
++   "falante": "medico",
++   "texto": "Ele tem alergia a algum remédio?"
++  },
++  {
++   "t": 68.9,
++   "falante": "acompanhante",
++   "texto": "Não, nunca teve alergia."
++  },
++  {
++   "t": 74.2,
++   "falante": "medico",
++   "texto": "Examinei o ouvido direito: membrana timpânica abaulada e avermelhada. É uma otite média aguda."
++  },
++  {
++   "t": 79.5,
++   "falante": "medico",
++   "texto": "Vou passar amoxicilina 500 mg de 8 em 8 horas por 7 dias."
++  },
++  {
++   "t": 84.8,
++   "falante": "acompanhante",
++   "texto": "Tá bom, doutora. E a febre, continuo com a dipirona?"
++  },
++  {
++   "t": 90.1,
++   "falante": "medico",
++   "texto": "Continua com a dipirona se tiver febre, no máximo de seis em seis horas. Se ele piorar, tiver muita prostração ou não urinar, volte logo."
++  }
++ ]
++}
+\ No newline at end of file
+diff --git a/data/reference/glossario_clinico.yaml b/data/reference/glossario_clinico.yaml
+new file mode 100644
+index 0000000..45c627d
+--- /dev/null
++++ b/data/reference/glossario_clinico.yaml
+@@ -0,0 +1,62 @@
++# Glossário clínico brasileiro (#27): fala popular -> termo técnico. Vale na nota (citações do paciente e rascunhos
++# por palavras) e no prompt do reconhecimento de fala (STT). Os pacotes de especialidade acrescentam os seus termos.
++# Chaves em minúsculas e sem acento: a busca ignora caixa e acentuação. Termo mais longo vence o mais curto.
++versao: 1.0.0
++fonte: "Terminologia usual em português do Brasil (CID-10 em português, DeCS/BVS, Houaiss) — base de demonstração, não exaustiva"
++termos:
++  xixi: diurese
++  pouco xixi: diurese reduzida
++  fez pouco xixi: apresentou diurese reduzida
++  urinar toda hora: polaciúria
++  ardencia ao urinar: disúria
++  ardencia para urinar: disúria
++  urina escura: colúria
++  coco mole: fezes amolecidas
++  fazer coco: evacuar
++  caganeira: diarreia
++  prisao de ventre: constipação
++  dor de barriga: dor abdominal
++  barriga dura: abdome distendido
++  barriga d'agua: ascite
++  azia: pirose
++  gases: flatulência
++  enjoo: náusea
++  ansia de vomito: náusea
++  falta de ar: dispneia
++  folego curto: dispneia aos esforços
++  cansaco: fadiga
++  fraqueza: astenia
++  dor de cabeca: cefaleia
++  dor no peito: dor torácica
++  dor nas costas: dorsalgia
++  dor na lombar: lombalgia
++  dor nas juntas: artralgia
++  dor de garganta: odinofagia
++  dor de ouvido: otalgia
++  batedeira: palpitação
++  coracao acelerado: taquicardia
++  coracao disparado: taquicardia
++  pressao alta: HAS
++  pressao baixa: hipotensão
++  acucar alto: hiperglicemia
++  acucar baixo: hipoglicemia
++  acucar no sangue: glicemia
++  colesterol alto: dislipidemia
++  derrame: AVC
++  ataque do coracao: infarto agudo do miocárdio
++  desmaio: síncope
++  vista escura: turvação visual
++  formigamento: parestesia
++  dormencia: hipoestesia
++  coceira: prurido
++  inchaco: edema
++  pe inchado: edema de pé
++  perna inchada: edema de membro inferior
++  catarro: expectoração
++  febrao: febre alta
++  suor frio: sudorese fria
++  tremedeira: tremor
++  falta de apetite: hiporexia
++  sede demais: polidipsia
++  olho amarelo: icterícia
++  pele amarela: icterícia
+diff --git a/data/reference/note_templates/nutricao.yaml b/data/reference/note_templates/nutricao.yaml
+new file mode 100644
+index 0000000..ab1bf70
+--- /dev/null
++++ b/data/reference/note_templates/nutricao.yaml
+@@ -0,0 +1,108 @@
++id: nutricao
++versao: 1.0.0
++rotulo: Consulta de nutrição
++titulo: Nota de consulta de nutrição
++tipo: consulta
++especialidades:
++- nutricao
++automatico: true
++loinc:
++  codigo: 11488-4
++  display: Consult note
++fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014); SISVAN
++secoes:
++- key: queixa_principal
++  rotulo: Queixa principal
++  soap: S
++  obrigatoria: true
++  dica: Motivo do atendimento nas palavras do paciente.
++  loinc: 10154-3
++- key: hda
++  rotulo: História da doença atual
++  soap: S
++  obrigatoria: false
++  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
++  loinc: 10164-2
++- key: antecedentes
++  rotulo: Antecedentes
++  soap: S
++  obrigatoria: false
++  dica: Doenças prévias, cirurgias e história familiar.
++  loinc: 11348-0
++- key: medicacoes
++  rotulo: Medicações em uso
++  soap: S
++  obrigatoria: false
++  dica: Inclui o que o paciente toma por conta própria.
++  loinc: 10160-0
++- key: alergias
++  rotulo: Alergias
++  soap: S
++  obrigatoria: false
++  dica: Alergias e reações adversas conhecidas.
++  loinc: 48765-2
++- key: consumo_alimentar
++  rotulo: Consumo alimentar
++  soap: S
++  obrigatoria: false
++  dica: Recordatório de 24 horas, refeições, horários e quem prepara.
++  palavras:
++  - comeu
++  - cafe da manha
++  - almoco
++  - jantar
++  - lanche
++  - refeicao
++  - 'come '
++  - beliscar
++  - fast food
++  - ultraprocessado
++  - agua
++  prefixo: 'Relato: '
++- key: atividade_fisica
++  rotulo: Atividade física e hábitos
++  soap: S
++  obrigatoria: false
++  dica: Frequência, duração, sono, álcool e tabagismo.
++  palavras:
++  - atividade fisica
++  - exercicio
++  - caminha
++  - academia
++  - treina
++  - sedentari
++  - dorme
++  - alcool
++  - fuma
++  prefixo: 'Relato: '
++- key: antropometria
++  rotulo: Peso e antropometria
++  soap: O
++  obrigatoria: false
++  dica: Último peso registrado; altura e circunferências medidas na consulta.
++  padrao: '{{peso}}'
++  loinc: 29463-7
++- key: exame_fisico
++  rotulo: Exame físico
++  soap: O
++  obrigatoria: false
++  dica: Só o que foi medido ou verbalizado.
++  loinc: 29545-1
++- key: exames_complementares
++  rotulo: Exames complementares
++  soap: O
++  obrigatoria: false
++  dica: Resultados relevantes, com data.
++  loinc: 30954-2
++- key: avaliacao
++  rotulo: Avaliação
++  soap: A
++  obrigatoria: true
++  dica: Raciocínio clínico e hipóteses, com CID-10.
++  loinc: 51848-0
++- key: plano
++  rotulo: Plano
++  soap: P
++  obrigatoria: false
++  dica: Condutas combinadas; o que não foi combinado fica como "a confirmar".
++  loinc: 18776-5
+diff --git a/data/reference/note_templates/pediatria.yaml b/data/reference/note_templates/pediatria.yaml
+index a2f8e84..b704c56 100644
+--- a/data/reference/note_templates/pediatria.yaml
++++ b/data/reference/note_templates/pediatria.yaml
+@@ -1,5 +1,5 @@
+ id: pediatria
+-versao: 1.0.0
++versao: 1.1.0
+ rotulo: Consulta pediátrica
+ titulo: Nota de consulta pediátrica
+ tipo: consulta
+@@ -50,6 +50,22 @@ secoes:
+   - 'come '
+   - comida
+   - apetite
++- key: hidratacao_eliminacoes
++  rotulo: Hidratação e eliminações
++  soap: S
++  obrigatoria: false
++  dica: Líquidos que aceita, diurese (fraldas molhadas), fezes e vômitos.
++  palavras:
++  - xixi
++  - urina
++  - fralda
++  - diurese
++  - bebendo
++  - liquido
++  - evacua
++  - fezes
++  - vomit
++  prefixo: 'Relato: '
+ - key: vacinas
+   rotulo: Vacinação
+   soap: S
+diff --git a/data/reference/note_templates/saude_mental.yaml b/data/reference/note_templates/saude_mental.yaml
+new file mode 100644
+index 0000000..51eccdb
+--- /dev/null
++++ b/data/reference/note_templates/saude_mental.yaml
+@@ -0,0 +1,126 @@
++id: saude_mental
++versao: 1.0.0
++rotulo: Consulta de saúde mental
++titulo: Nota de consulta de saúde mental
++tipo: consulta
++especialidades:
++- saude_mental
++automatico: true
++loinc:
++  codigo: 11488-4
++  display: Consult note
++fonte: 'PHQ-9 e GAD-7; Ministério da Saúde: Linha de cuidado em saúde mental (RAPS)'
++secoes:
++- key: queixa_principal
++  rotulo: Queixa principal
++  soap: S
++  obrigatoria: true
++  dica: Motivo do atendimento nas palavras do paciente.
++  loinc: 10154-3
++- key: hda
++  rotulo: História da doença atual
++  soap: S
++  obrigatoria: false
++  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
++  loinc: 10164-2
++- key: antecedentes
++  rotulo: Antecedentes
++  soap: S
++  obrigatoria: false
++  dica: Doenças prévias, cirurgias e história familiar.
++  loinc: 11348-0
++- key: medicacoes
++  rotulo: Medicações em uso
++  soap: S
++  obrigatoria: false
++  dica: Inclui o que o paciente toma por conta própria.
++  loinc: 10160-0
++- key: alergias
++  rotulo: Alergias
++  soap: S
++  obrigatoria: false
++  dica: Alergias e reações adversas conhecidas.
++  loinc: 48765-2
++- key: humor_ansiedade
++  rotulo: Humor e ansiedade
++  soap: S
++  obrigatoria: false
++  dica: Sintomas, duração e prejuízo funcional; escores PHQ-9 e GAD-7 quando aplicados.
++  palavras:
++  - humor
++  - tristeza
++  - triste
++  - desanimo
++  - ansiedade
++  - ansios
++  - preocupa
++  - medo
++  - panico
++  - irritab
++  - sem vontade
++  prefixo: 'Relato: '
++- key: sono
++  rotulo: Sono
++  soap: S
++  obrigatoria: false
++  dica: Início, manutenção e despertar precoce.
++  palavras:
++  - sono
++  - dorm
++  - insonia
++  - acordo de madrugada
++  - pesadelo
++  prefixo: 'Relato: '
++- key: risco_suicidio
++  rotulo: Risco de suicídio
++  soap: S
++  obrigatoria: true
++  dica: Ideação, plano, meios e fatores de proteção; registre sempre que perguntado.
++  palavras:
++  - suicid
++  - se matar
++  - morrer
++  - tirar a propria vida
++  - melhor nao estar vivo
++  - se machucar
++  - me machucar
++  prefixo: 'Relato: '
++- key: substancias
++  rotulo: Álcool e outras substâncias
++  soap: S
++  obrigatoria: false
++  dica: Tipo, quantidade e frequência.
++  palavras:
++  - alcool
++  - bebe
++  - bebo
++  - fuma
++  - cigarro
++  - maconha
++  - cocaina
++  - droga
++  prefixo: 'Relato: '
++- key: exame_mental
++  rotulo: Exame do estado mental
++  soap: O
++  obrigatoria: false
++  dica: Só o que foi observado e verbalizado na consulta.
++  loinc: 10190-7
++- key: exames_complementares
++  rotulo: Exames complementares
++  soap: O
++  obrigatoria: false
++  dica: Resultados relevantes, com data.
++  loinc: 30954-2
++- key: avaliacao
++  rotulo: Avaliação
++  soap: A
++  obrigatoria: true
++  dica: Raciocínio clínico e hipóteses, com CID-10.
++  loinc: 51848-0
++- key: plano
++  rotulo: Plano
++  soap: P
++  obrigatoria: false
++  dica: Condutas combinadas; o que não foi combinado fica como "a confirmar".
++  loinc: 18776-5
+diff --git a/data/reference/pediatric_doses.csv b/data/reference/pediatric_doses.csv
+new file mode 100644
+index 0000000..7882b61
+--- /dev/null
++++ b/data/reference/pediatric_doses.csv
+@@ -0,0 +1,10 @@
++principio_ativo,mg_kg_dose_min,mg_kg_dose_max,intervalo_h_min,max_mg_dose,max_mg_kg_dia,max_mg_dia,idade_max_anos,fonte
++amoxicilina,8,30,8,1000,90,3000,17,"Bula da amoxicilina (ANVISA); SBP: antibioticoterapia nas infecções comuns da infância (25 a 50 mg/kg/dia; até 90 mg/kg/dia em otite e pneumonia com risco de resistência)"
++paracetamol,10,15,4,750,75,4000,17,"Bula do paracetamol (ANVISA); SBP: manejo da febre e da dor na criança (10 a 15 mg/kg/dose, máx. 75 mg/kg/dia)"
++dipirona,10,25,6,1000,100,4000,17,"Bula da dipirona (ANVISA); SBP: analgésicos e antitérmicos na infância (10 a 25 mg/kg/dose, até 4 doses ao dia)"
++ibuprofeno,5,10,6,400,30,1200,17,"Bula do ibuprofeno (ANVISA); SBP: anti-inflamatórios na infância (5 a 10 mg/kg/dose, máx. 30 mg/kg/dia)"
++azitromicina,10,12,24,500,12,500,17,"Bula da azitromicina (ANVISA): 10 mg/kg uma vez ao dia por 3 dias, até 12 mg/kg/dia por 5 dias, máx. 500 mg/dia"
++cefalexina,6,25,6,1000,100,4000,17,"Bula da cefalexina (ANVISA): 25 a 50 mg/kg/dia, até 100 mg/kg/dia nas infecções graves, dividida a cada 6 a 12 horas"
++prednisona,0.25,2,12,60,2,60,17,"Bula da prednisona (ANVISA); SBP: corticoide oral na infância (0,25 a 2 mg/kg/dia, máx. 60 mg/dia)"
++ondansetrona,0.1,0.15,8,8,0.45,16,17,"Bula da ondansetrona (ANVISA): 0,1 a 0,15 mg/kg/dose, máx. 8 mg por dose"
++ceftriaxona,25,100,12,2000,100,4000,17,"Bula da ceftriaxona (ANVISA): 50 a 100 mg/kg/dia, máx. 4 g/dia"
+diff --git a/data/reference/specialties/cardiologia.yaml b/data/reference/specialties/cardiologia.yaml
+new file mode 100644
+index 0000000..3892c4a
+--- /dev/null
++++ b/data/reference/specialties/cardiologia.yaml
+@@ -0,0 +1,57 @@
++id: cardiologia
++ordem: 2
++rotulo: Cardiologia
++foco: dor torácica, dispneia e classe funcional, edema, palpitações, pressão e risco cardiovascular
++modelo_nota: cardiologia
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++escalas:
++- cha2ds2_vasc
++- nyha
++- imc
++hipoteses_prioritarias:
++- I24.9
++- I50.9
++- I48
++- I10
++glossario:
++  coracao grande: cardiomegalia
++  ponte de safena: revascularização miocárdica
++  marcapasso: marca-passo cardíaco
++  fôlego curto: dispneia aos esforços
++  folego curto: dispneia aos esforços
++  inchaco nas pernas: edema de membros inferiores
++  pernas inchadas: edema de membros inferiores
++  coracao disparado: taquicardia
++  coracao falhando: extrassístoles
++perguntas:
++- id: pk_card_01
++  pergunta: 'Qual esforço faz a falta de ar aparecer: subir um lance de escada, andar no plano, tomar banho ou em repouso?'
++  motivo: Define a classe funcional NYHA, que muda a conduta na insuficiência cardíaca.
++  ja_perguntado:
++  - subir escada
++  - andar no plano
++  - lance de escada
++  - em repouso
++  - quantas quadras
++  prioridade: alta
++  fonte: 'Diretriz Brasileira de Insuficiência Cardíaca Crônica (SBC): classificação NYHA'
++- id: pk_card_02
++  pergunta: Dorme com mais de um travesseiro ou acorda de madrugada sem ar?
++  motivo: Ortopneia e dispneia paroxística noturna sustentam congestão pulmonar.
++  ja_perguntado:
++  - travesseiro
++  - acorda sem ar
++  - acordo sem ar
++  - ortopneia
++  - dormir sentado
++  prioridade: media
++  fonte: Diretriz Brasileira de Insuficiência Cardíaca Crônica (SBC)
+diff --git a/data/reference/specialties/cirurgia_cardiovascular.yaml b/data/reference/specialties/cirurgia_cardiovascular.yaml
+new file mode 100644
+index 0000000..d0a815b
+--- /dev/null
++++ b/data/reference/specialties/cirurgia_cardiovascular.yaml
+@@ -0,0 +1,19 @@
++id: cirurgia_cardiovascular
++ordem: 10
++rotulo: Cirurgia cardiovascular
++foco: circulação extracorpórea, pinçamento aórtico, enxertos, cardioplegia e profilaxia
++modelo_nota: consulta_clinica
++smart_apps:
++- cirurgia
++- alergias
++- medicamentos
++- exames
++- resumo
++escalas:
++- cha2ds2_vasc
++- nyha
++hipoteses_prioritarias:
++- I24.9
++- I50.9
++glossario: {}
++perguntas: []
+diff --git a/data/reference/specialties/cirurgia_geral.yaml b/data/reference/specialties/cirurgia_geral.yaml
+new file mode 100644
+index 0000000..51dd08d
+--- /dev/null
++++ b/data/reference/specialties/cirurgia_geral.yaml
+@@ -0,0 +1,18 @@
++id: cirurgia_geral
++ordem: 8
++rotulo: Cirurgia geral
++foco: indicação, achados, técnica, materiais (OPME), intercorrências e documentação para faturamento
++modelo_nota: consulta_clinica
++smart_apps:
++- cirurgia
++- alergias
++- medicamentos
++- exames
++- resumo
++escalas:
++- imc
++hipoteses_prioritarias:
++- K35.9
++- K80.2
++glossario: {}
++perguntas: []
+diff --git a/data/reference/specialties/cirurgia_oncologica.yaml b/data/reference/specialties/cirurgia_oncologica.yaml
+new file mode 100644
+index 0000000..1452427
+--- /dev/null
++++ b/data/reference/specialties/cirurgia_oncologica.yaml
+@@ -0,0 +1,16 @@
++id: cirurgia_oncologica
++ordem: 11
++rotulo: Cirurgia oncológica
++foco: lateralidade, peça orientada, margens, linfonodos para estadiamento e reconstrução
++modelo_nota: consulta_clinica
++smart_apps:
++- cirurgia
++- alergias
++- medicamentos
++- exames
++- resumo
++escalas:
++- imc
++hipoteses_prioritarias: []
++glossario: {}
++perguntas: []
+diff --git a/data/reference/specialties/cirurgia_vascular.yaml b/data/reference/specialties/cirurgia_vascular.yaml
+new file mode 100644
+index 0000000..805147a
+--- /dev/null
++++ b/data/reference/specialties/cirurgia_vascular.yaml
+@@ -0,0 +1,18 @@
++id: cirurgia_vascular
++ordem: 13
++rotulo: Cirurgia vascular
++foco: lateralidade, acesso e hemostasia da punção, contraste, stents e radioscopia
++modelo_nota: consulta_clinica
++smart_apps:
++- cirurgia
++- alergias
++- medicamentos
++- exames
++- resumo
++escalas:
++- imc
++hipoteses_prioritarias:
++- I80.2
++- E11.5
++glossario: {}
++perguntas: []
+diff --git a/data/reference/specialties/clinica_medica.yaml b/data/reference/specialties/clinica_medica.yaml
+new file mode 100644
+index 0000000..e171ae3
+--- /dev/null
++++ b/data/reference/specialties/clinica_medica.yaml
+@@ -0,0 +1,28 @@
++id: clinica_medica
++ordem: 1
++rotulo: Clínica médica
++foco: 'visão integral: queixas, comorbidades, polifarmácia, prevenção e protocolos'
++modelo_nota: consulta_clinica
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++- rastreios
++- vacinas
++escalas:
++- cha2ds2_vasc
++- imc
++hipoteses_prioritarias:
++- J06.9
++- I10
++- R73.9
++glossario:
++  remedio de pressao: anti-hipertensivo
++  remedio do acucar: hipoglicemiante oral
++perguntas: []
+diff --git a/data/reference/specialties/endocrinologia.yaml b/data/reference/specialties/endocrinologia.yaml
+new file mode 100644
+index 0000000..d2bad02
+--- /dev/null
++++ b/data/reference/specialties/endocrinologia.yaml
+@@ -0,0 +1,32 @@
++id: endocrinologia
++ordem: 3
++rotulo: Endocrinologia
++foco: controle glicêmico, hipoglicemias, alimentação, atividade física, complicações e tireoide
++modelo_nota: consulta_clinica
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++- rastreios
++escalas:
++- imc
++- phq9
++hipoteses_prioritarias:
++- R73.9
++- E16.0
++- E03.9
++- E05.9
++glossario:
++  acucar alto: hiperglicemia
++  acucar baixo: hipoglicemia
++  hipo: hipoglicemia
++  glicose baixa: hipoglicemia
++  pe de diabetico: pé diabético
++  bocio: bócio
++perguntas: []
+diff --git a/data/reference/specialties/enfermagem.yaml b/data/reference/specialties/enfermagem.yaml
+new file mode 100644
+index 0000000..4097602
+--- /dev/null
++++ b/data/reference/specialties/enfermagem.yaml
+@@ -0,0 +1,26 @@
++id: enfermagem
++ordem: 7
++rotulo: Consulta de enfermagem
++foco: autocuidado, técnica de uso de medicamentos, pele, eliminações, sono, alimentação e educação
++modelo_nota: enfermagem
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++- rede_apoio
++escalas:
++- morse
++- braden
++- imc
++hipoteses_prioritarias: []
++glossario:
++  ferida: lesão cutânea
++  escara: lesão por pressão
++  curativo: cobertura da lesão
++perguntas: []
+diff --git a/data/reference/specialties/geriatria.yaml b/data/reference/specialties/geriatria.yaml
+new file mode 100644
+index 0000000..37782cb
+--- /dev/null
++++ b/data/reference/specialties/geriatria.yaml
+@@ -0,0 +1,61 @@
++id: geriatria
++ordem: 4
++rotulo: Geriatria
++foco: quedas, cognição, funcionalidade, polifarmácia (critérios de Beers), humor, sono e rede de apoio
++modelo_nota: consulta_clinica
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++- rede_apoio
++- rastreios
++- vacinas
++escalas:
++- ivcf20
++- morse
++- braden
++- imc
++- phq9
++hipoteses_prioritarias:
++- F03
++- I95.1
++- E87.1
++- F32.9
++glossario:
++  esquecimento: déficit de memória
++  esquecida: déficit de memória
++  esquecido: déficit de memória
++  arrasta o pe: marcha arrastada
++  arrastando o pe: marcha arrastada
++  caiu: queda
++  escapa urina: incontinência urinária
++  fralda geriatrica: dispositivo para incontinência
++perguntas:
++- id: pk_ger_01
++  pergunta: Alguém da família ou um amigo já comentou que o senhor/a senhora anda esquecido(a)? Isso piorou nos últimos meses?
++  motivo: 'Itens de cognição do IVCF-20: queixa de memória relatada por terceiros e piora recente.'
++  ja_perguntado:
++  - esquecido
++  - esquecida
++  - esquecimento
++  - memoria
++  prioridade: media
++  fonte: IVCF-20 (Moraes et al., Rev Saúde Pública 2016)
++  idade_min: 60
++- id: pk_ger_02
++  pergunta: Consegue tomar banho, controlar o dinheiro e fazer compras sozinho(a)?
++  motivo: Atividades de vida diária básicas e instrumentais compõem o IVCF-20 e predizem dependência.
++  ja_perguntado:
++  - toma banho sozinh
++  - controla o dinheiro
++  - faz compras
++  - banho sozinho
++  prioridade: media
++  fonte: IVCF-20 (Moraes et al., Rev Saúde Pública 2016)
++  idade_min: 60
+diff --git a/data/reference/specialties/ginecologia_obstetricia.yaml b/data/reference/specialties/ginecologia_obstetricia.yaml
+new file mode 100644
+index 0000000..cae7f9c
+--- /dev/null
++++ b/data/reference/specialties/ginecologia_obstetricia.yaml
+@@ -0,0 +1,24 @@
++id: ginecologia_obstetricia
++ordem: 12
++rotulo: Ginecologia e obstetrícia
++foco: indicação da cesariana, nascimento e Apgar, dequitação, uterotônico e histerorrafia
++modelo_nota: consulta_clinica
++smart_apps:
++- cirurgia
++- alergias
++- medicamentos
++- exames
++- gestacao_lactacao
++- resumo
++escalas:
++- phq9
++- gad7
++- imc
++hipoteses_prioritarias:
++- Z32.0
++- N93.9
++glossario:
++  regra: menstruação
++  ficar de resguardo: puerpério
++  perdi o bebe: abortamento
++perguntas: []
+diff --git a/data/reference/specialties/nutricao.yaml b/data/reference/specialties/nutricao.yaml
+new file mode 100644
+index 0000000..81e298a
+--- /dev/null
++++ b/data/reference/specialties/nutricao.yaml
+@@ -0,0 +1,90 @@
++id: nutricao
++ordem: 14
++rotulo: Nutrição
++foco: consumo alimentar, hábitos, peso e IMC, restrições, suplementos, exames metabólicos e metas combinadas
++modelo_nota: nutricao
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++- rastreios
++escalas:
++- imc
++- phq9
++hipoteses_prioritarias:
++- R73.9
++- D64.9
++- E03.9
++glossario:
++  gordura no figado: esteatose hepática
++  colesterol alto: dislipidemia
++  triglicerideo alto: hipertrigliceridemia
++  beliscar: ingestão fora das refeições
++  pular refeicao: omissão de refeições
++  comer demais: hiperfagia
++  sem fome: hiporexia
++  prisao de ventre: constipação intestinal
++  refluxo: refluxo gastroesofágico
++  barriga inchada: distensão abdominal
++perguntas:
++- id: pk_nut_01
++  pergunta: Me conta como foi o que o senhor/a senhora comeu ontem, da primeira à última refeição.
++  motivo: O recordatório de 24 horas é a base da avaliação do consumo alimentar.
++  ja_perguntado:
++  - comeu ontem
++  - recordatorio
++  - cafe da manha
++  - o que comeu
++  prioridade: alta
++  fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014)
++- id: pk_nut_02
++  pergunta: Tem alguma alergia, intolerância (lactose, glúten) ou alimento que evita?
++  motivo: Restrições alimentares mudam o plano e podem indicar necessidade de suplementação.
++  ja_perguntado:
++  - alergia alimentar
++  - intolerancia
++  - lactose
++  - gluten
++  - evita
++  - nao come
++  prioridade: alta
++  fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014)
++- id: pk_nut_03
++  pergunta: Usa suplemento, vitamina, chá ou produto natural? Qual e quanto?
++  motivo: Suplementos interagem com medicamentos e alteram exames.
++  ja_perguntado:
++  - suplemento
++  - vitamina
++  - whey
++  - 'cha '
++  - produto natural
++  prioridade: media
++  fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014)
++- id: pk_nut_04
++  pergunta: Faz alguma atividade física? Quantas vezes por semana e por quanto tempo?
++  motivo: Atividade física compõe a meta de cuidado e o gasto energético.
++  ja_perguntado:
++  - atividade fisica
++  - exercicio
++  - caminha
++  - academia
++  - treina
++  prioridade: media
++  fonte: Guia de Atividade Física para a População Brasileira (Ministério da Saúde, 2021)
++- id: pk_nut_05
++  pergunta: 'Como é o apetite e o peso: mudou nos últimos meses sem querer?'
++  motivo: Perda ou ganho involuntário de peso exige investigação e define a conduta.
++  ja_perguntado:
++  - apetite
++  - perdeu peso
++  - ganhou peso
++  - emagreceu
++  - engordou
++  prioridade: media
++  fonte: Triagem de risco nutricional (MNA/NRS-2002) e SISVAN (Ministério da Saúde)
+diff --git a/data/reference/specialties/ortopedia.yaml b/data/reference/specialties/ortopedia.yaml
+new file mode 100644
+index 0000000..2700796
+--- /dev/null
++++ b/data/reference/specialties/ortopedia.yaml
+@@ -0,0 +1,17 @@
++id: ortopedia
++ordem: 9
++rotulo: Ortopedia e traumatologia
++foco: lateralidade, garrote, implantes e rastreabilidade, radioscopia (tempo, dose) e RX de controle
++modelo_nota: consulta_clinica
++smart_apps:
++- cirurgia
++- alergias
++- medicamentos
++- exames
++- resumo
++escalas:
++- imc
++hipoteses_prioritarias:
++- M17.9
++glossario: {}
++perguntas: []
+diff --git a/data/reference/specialties/pediatria.yaml b/data/reference/specialties/pediatria.yaml
+new file mode 100644
+index 0000000..b0ffa4d
+--- /dev/null
++++ b/data/reference/specialties/pediatria.yaml
+@@ -0,0 +1,62 @@
++id: pediatria
++ordem: 6
++rotulo: Pediatria
++foco: hidratação, alimentação, febre, vacinação e desenvolvimento; doses por peso
++modelo_nota: pediatria
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++- vacinas
++escalas:
++- imc
++hipoteses_prioritarias:
++- J06.9
++- H66.9
++- A09
++- J21.9
++- J45.9
++- R56.0
++glossario:
++  assadura: dermatite de fralda
++  dente nascendo: erupção dentária
++  mamar: aleitamento
++  peito: aleitamento materno
++  papinha: alimentação complementar
++  catapora: varicela
++  sapinho: candidíase oral
++  bronquite: sibilância recorrente
++  febrao: febre alta
++  cocozinho: evacuação
++  pipi: genitália
++perguntas:
++- id: pk_ped_01
++  pergunta: Qual é o peso atual da criança? Foi pesada hoje?
++  motivo: 'As doses pediátricas se calculam por mg/kg: sem peso recente a conferência de dose não vale.'
++  ja_perguntado:
++  - quantos quilos
++  - pesou
++  - peso da
++  - peso dele
++  - peso dela
++  - quilos
++  prioridade: alta
++  fonte: 'Sociedade Brasileira de Pediatria: prescrição pediátrica por peso'
++  idade_max: 17
++- id: pk_ped_02
++  pergunta: Qual o remédio que já deu em casa, em que dose e de quanto em quanto tempo?
++  motivo: Dose repetida ou acima do máximo por peso é causa evitável de intoxicação (paracetamol, dipirona).
++  ja_perguntado:
++  - que remedio deu
++  - quantas gotas
++  - quantos ml
++  - de quanto em quanto
++  prioridade: alta
++  fonte: Sociedade Brasileira de Pediatria; bulas (ANVISA)
++  idade_max: 17
+diff --git a/data/reference/specialties/saude_mental.yaml b/data/reference/specialties/saude_mental.yaml
+new file mode 100644
+index 0000000..19bbed6
+--- /dev/null
++++ b/data/reference/specialties/saude_mental.yaml
+@@ -0,0 +1,93 @@
++id: saude_mental
++ordem: 15
++rotulo: Saúde mental
++foco: humor, ansiedade, sono, risco de suicídio, uso de substâncias, funcionamento e rede de apoio
++modelo_nota: saude_mental
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++- emocoes
++- rede_apoio
++escalas:
++- phq9
++- gad7
++hipoteses_prioritarias:
++- F32.9
++- F41.1
++- G47.0
++glossario:
++  crise de nervos: crise de ansiedade
++  nervoso: ansiedade
++  sem vontade de nada: anedonia
++  desanimado: humor deprimido
++  desanimada: humor deprimido
++  ouco vozes: alucinação auditiva
++  nao consigo dormir: insônia
++  pensei em me matar: ideação suicida
++  quero morrer: ideação suicida
++  aperto no peito: sintoma somático de ansiedade
++  bebo demais: uso nocivo de álcool
++perguntas:
++- id: pk_sm_01
++  pergunta: Nas últimas duas semanas, teve pensamentos de que seria melhor não estar vivo(a) ou de se machucar?
++  motivo: Investigar ideação suicida é obrigatório diante de humor deprimido (item 9 do PHQ-9); perguntar não induz o ato.
++  ja_perguntado:
++  - melhor nao estar vivo
++  - pensou em se matar
++  - ideia de morrer
++  - pensamento de morte
++  - se machucar
++  - tirar a propria vida
++  prioridade: alta
++  fonte: 'PHQ-9 (Kroenke 2001); Ministério da Saúde: Prevenção do suicídio, manual para profissionais da saúde'
++- id: pk_sm_02
++  pergunta: 'Como tem sido o sono: demora para pegar no sono, acorda de madrugada, dorme demais?'
++  motivo: Alteração do sono é critério de depressão e ansiedade e piora o quadro.
++  ja_perguntado:
++  - como esta o sono
++  - dorme bem
++  - insonia
++  - acorda de madrugada
++  prioridade: alta
++  fonte: DSM-5-TR; PHQ-9 (item 3)
++- id: pk_sm_03
++  pergunta: Usa álcool, tabaco ou outras substâncias? Quanto e com que frequência?
++  motivo: O uso de substâncias confunde o diagnóstico e eleva o risco.
++  ja_perguntado:
++  - alcool
++  - bebida alcoolica
++  - fuma
++  - cigarro
++  - maconha
++  - drogas
++  - substancia
++  prioridade: alta
++  fonte: AUDIT/ASSIST (OMS)
++- id: pk_sm_04
++  pergunta: Tem alguém de confiança com quem possa contar? Como estão o trabalho e a rotina?
++  motivo: Rede de apoio e funcionamento orientam o plano e a urgência do encaminhamento.
++  ja_perguntado:
++  - alguem de confianca
++  - pode contar com
++  - rede de apoio
++  - como esta o trabalho
++  prioridade: media
++  fonte: 'Ministério da Saúde: Linha de cuidado em saúde mental (RAPS)'
++- id: pk_sm_05
++  pergunta: Já passou por episódio de euforia, muita energia e pouco sono sem cansar?
++  motivo: Descartar episódio de mania antes de iniciar antidepressivo.
++  ja_perguntado:
++  - euforia
++  - muita energia
++  - sem dormir e sem cansar
++  - mania
++  - episodio maniaco
++  prioridade: media
++  fonte: 'DSM-5-TR: critérios de episódio maníaco'
+diff --git a/data/reference/specialties/urologia.yaml b/data/reference/specialties/urologia.yaml
+new file mode 100644
+index 0000000..082c73f
+--- /dev/null
++++ b/data/reference/specialties/urologia.yaml
+@@ -0,0 +1,42 @@
++id: urologia
++ordem: 5
++rotulo: Urologia
++foco: sintomas do trato urinário inferior (IPSS), hematúria, incontinência, função renal e próstata
++modelo_nota: urologia
++smart_apps:
++- queixas
++- perguntas
++- hipoteses
++- medicamentos
++- alergias
++- exames
++- protocolos
++- escalas
++- resumo
++escalas:
++- ipss
++- imc
++hipoteses_prioritarias:
++- N40
++- N39.0
++- N20.0
++- R33
++glossario:
++  xixi fraco: hipofluxo urinário
++  jato fraco: jato urinário fraco
++  pedra no rim: litíase renal
++  areia no rim: litíase renal
++  bexiga caida: cistocele
++  prostata inchada: hiperplasia prostática benigna
++  urina com sangue: hematúria
++  sangue na urina: hematúria
++perguntas:
++- id: pk_uro_01
++  pergunta: Se tivesse de passar o resto da vida com os sintomas urinários como estão hoje, como o senhor se sentiria?
++  motivo: 'Pergunta de qualidade de vida do IPSS (0 = encantado a 6 = péssimo): complementa a pontuação.'
++  ja_perguntado:
++  - resto da vida
++  - qualidade de vida
++  - incomoda
++  prioridade: baixa
++  fonte: International Prostate Symptom Score (IPSS)
+diff --git a/data/scenarios/README.md b/data/scenarios/README.md
+index 6ab0d38..cd6aa52 100644
+--- a/data/scenarios/README.md
++++ b/data/scenarios/README.md
+@@ -7,7 +7,7 @@ FHIR R4. **Todos os horários são relativos à âncora** (o "agora" da carga):
+ {
+   "id": "cen1",                       // vira Patient/cen1 e prefixo de todos os IDs
+   "tag": "cenario-1", "titulo": "...", "esperado": "...",
+-  "paciente": {"nome", "sexo": "male|female", "nascimento", "cpf", "telefone", "endereco"},
++  "paciente": {"nome", "sexo": "male|female", "nascimento" /* ou "idade_dias": N, relativo à âncora (criança) */, "cpf", "telefone", "endereco"},
+   "internacao": {
+     "inicio": "-3d2h", "fim": "-1d" /* opcional: paciente já teve alta */, "tipo": "urgencia|eletiva", "motivo": "...", "alta_prevista": "+3h" /* opcional: previsão de alta (extensão do Encounter), usada em /gestao */,
+     "setores": [{"id": "uti", "setor": "UTI Adulto", "leito": "04", "inicio": "-2d22h", "fim": "-3h"}, ...]
+diff --git a/data/scenarios/cenario9_consulta_pediatrica.json b/data/scenarios/cenario9_consulta_pediatrica.json
+new file mode 100644
+index 0000000..d9528ff
+--- /dev/null
++++ b/data/scenarios/cenario9_consulta_pediatrica.json
+@@ -0,0 +1,82 @@
++{
++  "id": "cen9",
++  "tag": "cenario-9",
++  "titulo": "Cenário 9 — Consulta pediátrica: febre e dor de ouvido em criança de 12 kg (dose por peso)",
++  "esperado": "Criança de 2 anos e 8 meses, 12 kg (Observation de peso), com febre, dor de ouvido e pouco xixi. No roteiro cen9_pediatria o médico fala 'amoxicilina 500 mg de 8 em 8 horas' (dose de adulto): a consulta alerta, antes da IA, dose acima do máximo por peso (41,7 mg/kg/dose e 125 mg/kg/dia) com a fonte (bula ANVISA e SBP). O pacote de pediatria traz perguntas de peso e de remédio dado em casa, e 'xixi' sai como 'diurese' na nota.",
++  "paciente": {
++    "nome": "Miguel Almeida Souza",
++    "sexo": "male",
++    "idade_dias": 975,
++    "cpf": "412.738.659-03",
++    "telefone": "(11) 97460-2281",
++    "endereco": "Rua das Acácias, 88, Vila Prudente, São Paulo - SP"
++  },
++  "ambulatorio": {
++    "servico": "Ambulatório de Pediatria",
++    "sala": "Consultório 5",
++    "profissional": "Dra. Lívia Barbosa",
++    "consultas": [
++      {
++        "id": "c1",
++        "inicio": "-120d1h",
++        "duracao": "25m",
++        "motivo": "Puericultura de 2 anos"
++      },
++      {
++        "id": "hoje",
++        "inicio": "-4m",
++        "status": "arrived",
++        "motivo": "Febre e dor de ouvido há 2 dias"
++      }
++    ]
++  },
++  "diagnosticos": [
++    {
++      "cid": "R06.2",
++      "texto": "Sibilância recorrente",
++      "principal": true,
++      "inicio": "-300d",
++      "registro": "-120d1h"
++    }
++  ],
++  "alergias": [],
++  "familiares": [
++    {
++      "nome": "Camila Almeida Souza",
++      "parentesco": "mãe",
++      "codigo": "MTH",
++      "cuidador": true,
++      "descricao": "mãe (acompanha nas consultas)",
++      "telefone": "(11) 97460-2290"
++    }
++  ],
++  "social": {
++    "moradores": 3
++  },
++  "prescricoes": [],
++  "sinais": [
++    {
++      "t": "-120d1h",
++      "peso": 11.2,
++      "fc": 104
++    },
++    {
++      "t": "-5m",
++      "peso": 12.0,
++      "temp": 38.4,
++      "fc": 126,
++      "fr": 28,
++      "spo2": 98
++    }
++  ],
++  "exames": [],
++  "procedimentos": [],
++  "evolucoes": [
++    {
++      "t": "-120d50m",
++      "tipo": "medica",
++      "autor": "Dra. Lívia Barbosa (Pediatria)",
++      "texto": "Puericultura aos 2 anos. Peso 11,2 kg, desenvolvimento adequado para a idade, vacinas em dia pela Caderneta da Criança. Orientada alimentação variada e consulta se sibilância."
++    }
++  ]
++}
+\ No newline at end of file

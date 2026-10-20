@@ -1,0 +1,93 @@
+id: saude_mental
+ordem: 15
+rotulo: Saúde mental
+foco: humor, ansiedade, sono, risco de suicídio, uso de substâncias, funcionamento e rede de apoio
+modelo_nota: saude_mental
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+- emocoes
+- rede_apoio
+escalas:
+- phq9
+- gad7
+hipoteses_prioritarias:
+- F32.9
+- F41.1
+- G47.0
+glossario:
+  crise de nervos: crise de ansiedade
+  nervoso: ansiedade
+  sem vontade de nada: anedonia
+  desanimado: humor deprimido
+  desanimada: humor deprimido
+  ouco vozes: alucinação auditiva
+  nao consigo dormir: insônia
+  pensei em me matar: ideação suicida
+  quero morrer: ideação suicida
+  aperto no peito: sintoma somático de ansiedade
+  bebo demais: uso nocivo de álcool
+perguntas:
+- id: pk_sm_01
+  pergunta: Nas últimas duas semanas, teve pensamentos de que seria melhor não estar vivo(a) ou de se machucar?
+  motivo: Investigar ideação suicida é obrigatório diante de humor deprimido (item 9 do PHQ-9); perguntar não induz o ato.
+  ja_perguntado:
+  - melhor nao estar vivo
+  - pensou em se matar
+  - ideia de morrer
+  - pensamento de morte
+  - se machucar
+  - tirar a propria vida
+  prioridade: alta
+  fonte: 'PHQ-9 (Kroenke 2001); Ministério da Saúde: Prevenção do suicídio, manual para profissionais da saúde'
+- id: pk_sm_02
+  pergunta: 'Como tem sido o sono: demora para pegar no sono, acorda de madrugada, dorme demais?'
+  motivo: Alteração do sono é critério de depressão e ansiedade e piora o quadro.
+  ja_perguntado:
+  - como esta o sono
+  - dorme bem
+  - insonia
+  - acorda de madrugada
+  prioridade: alta
+  fonte: DSM-5-TR; PHQ-9 (item 3)
+- id: pk_sm_03
+  pergunta: Usa álcool, tabaco ou outras substâncias? Quanto e com que frequência?
+  motivo: O uso de substâncias confunde o diagnóstico e eleva o risco.
+  ja_perguntado:
+  - alcool
+  - bebida alcoolica
+  - fuma
+  - cigarro
+  - maconha
+  - drogas
+  - substancia
+  prioridade: alta
+  fonte: AUDIT/ASSIST (OMS)
+- id: pk_sm_04
+  pergunta: Tem alguém de confiança com quem possa contar? Como estão o trabalho e a rotina?
+  motivo: Rede de apoio e funcionamento orientam o plano e a urgência do encaminhamento.
+  ja_perguntado:
+  - alguem de confianca
+  - pode contar com
+  - rede de apoio
+  - como esta o trabalho
+  prioridade: media
+  fonte: 'Ministério da Saúde: Linha de cuidado em saúde mental (RAPS)'
+- id: pk_sm_05
+  pergunta: Já passou por episódio de euforia, muita energia e pouco sono sem cansar?
+  motivo: Descartar episódio de mania antes de iniciar antidepressivo.
+  ja_perguntado:
+  - euforia
+  - muita energia
+  - sem dormir e sem cansar
+  - mania
+  - episodio maniaco
+  prioridade: media
+  fonte: 'DSM-5-TR: critérios de episódio maníaco'

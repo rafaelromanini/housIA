@@ -1,0 +1,57 @@
+id: cardiologia
+ordem: 2
+rotulo: Cardiologia
+foco: dor torácica, dispneia e classe funcional, edema, palpitações, pressão e risco cardiovascular
+modelo_nota: cardiologia
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+escalas:
+- cha2ds2_vasc
+- nyha
+- imc
+hipoteses_prioritarias:
+- I24.9
+- I50.9
+- I48
+- I10
+glossario:
+  coracao grande: cardiomegalia
+  ponte de safena: revascularização miocárdica
+  marcapasso: marca-passo cardíaco
+  fôlego curto: dispneia aos esforços
+  folego curto: dispneia aos esforços
+  inchaco nas pernas: edema de membros inferiores
+  pernas inchadas: edema de membros inferiores
+  coracao disparado: taquicardia
+  coracao falhando: extrassístoles
+perguntas:
+- id: pk_card_01
+  pergunta: 'Qual esforço faz a falta de ar aparecer: subir um lance de escada, andar no plano, tomar banho ou em repouso?'
+  motivo: Define a classe funcional NYHA, que muda a conduta na insuficiência cardíaca.
+  ja_perguntado:
+  - subir escada
+  - andar no plano
+  - lance de escada
+  - em repouso
+  - quantas quadras
+  prioridade: alta
+  fonte: 'Diretriz Brasileira de Insuficiência Cardíaca Crônica (SBC): classificação NYHA'
+- id: pk_card_02
+  pergunta: Dorme com mais de um travesseiro ou acorda de madrugada sem ar?
+  motivo: Ortopneia e dispneia paroxística noturna sustentam congestão pulmonar.
+  ja_perguntado:
+  - travesseiro
+  - acorda sem ar
+  - acordo sem ar
+  - ortopneia
+  - dormir sentado
+  prioridade: media
+  fonte: Diretriz Brasileira de Insuficiência Cardíaca Crônica (SBC)

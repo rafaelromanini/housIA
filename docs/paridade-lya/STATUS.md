@@ -195,3 +195,10 @@ Cada onda com 8 entregas consome bastante da cota de uso. Rode uma onda por jane
 - Texto da interface em português do Brasil com acentos.
 - Toda afirmação da IA leva fonte (`Fala/N` e/ou referência FHIR). As regras de segurança nunca são removidas pela
   IA.
+
+## Pausa (2026-10-20, cota)
+
+- #33: branch `claude/onda3-33-multitenant` (commit 1ca67b5 = implementação, 1037 passed; commit wip = verificação
+  adversarial interrompida, testes novos em `test_multiorg_adversarial.py` não conferidos). Retomar a verificação.
+- #27: implementação interrompida (havia falhas de teste em análise), salva em
+  `docs/paridade-lya/wip/27-pacotes-especialidade.patch` e no commit wip do branch `claude/onda3-27-pacotes-especialidade`.

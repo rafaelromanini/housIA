@@ -1,0 +1,32 @@
+id: endocrinologia
+ordem: 3
+rotulo: Endocrinologia
+foco: controle glicêmico, hipoglicemias, alimentação, atividade física, complicações e tireoide
+modelo_nota: consulta_clinica
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+- rastreios
+escalas:
+- imc
+- phq9
+hipoteses_prioritarias:
+- R73.9
+- E16.0
+- E03.9
+- E05.9
+glossario:
+  acucar alto: hiperglicemia
+  acucar baixo: hipoglicemia
+  hipo: hipoglicemia
+  glicose baixa: hipoglicemia
+  pe de diabetico: pé diabético
+  bocio: bócio
+perguntas: []

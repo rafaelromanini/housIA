@@ -1,0 +1,62 @@
+id: pediatria
+ordem: 6
+rotulo: Pediatria
+foco: hidratação, alimentação, febre, vacinação e desenvolvimento; doses por peso
+modelo_nota: pediatria
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+- vacinas
+escalas:
+- imc
+hipoteses_prioritarias:
+- J06.9
+- H66.9
+- A09
+- J21.9
+- J45.9
+- R56.0
+glossario:
+  assadura: dermatite de fralda
+  dente nascendo: erupção dentária
+  mamar: aleitamento
+  peito: aleitamento materno
+  papinha: alimentação complementar
+  catapora: varicela
+  sapinho: candidíase oral
+  bronquite: sibilância recorrente
+  febrao: febre alta
+  cocozinho: evacuação
+  pipi: genitália
+perguntas:
+- id: pk_ped_01
+  pergunta: Qual é o peso atual da criança? Foi pesada hoje?
+  motivo: 'As doses pediátricas se calculam por mg/kg: sem peso recente a conferência de dose não vale.'
+  ja_perguntado:
+  - quantos quilos
+  - pesou
+  - peso da
+  - peso dele
+  - peso dela
+  - quilos
+  prioridade: alta
+  fonte: 'Sociedade Brasileira de Pediatria: prescrição pediátrica por peso'
+  idade_max: 17
+- id: pk_ped_02
+  pergunta: Qual o remédio que já deu em casa, em que dose e de quanto em quanto tempo?
+  motivo: Dose repetida ou acima do máximo por peso é causa evitável de intoxicação (paracetamol, dipirona).
+  ja_perguntado:
+  - que remedio deu
+  - quantas gotas
+  - quantos ml
+  - de quanto em quanto
+  prioridade: alta
+  fonte: Sociedade Brasileira de Pediatria; bulas (ANVISA)
+  idade_max: 17

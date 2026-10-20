@@ -1,0 +1,16 @@
+id: cirurgia_oncologica
+ordem: 11
+rotulo: Cirurgia oncológica
+foco: lateralidade, peça orientada, margens, linfonodos para estadiamento e reconstrução
+modelo_nota: consulta_clinica
+smart_apps:
+- cirurgia
+- alergias
+- medicamentos
+- exames
+- resumo
+escalas:
+- imc
+hipoteses_prioritarias: []
+glossario: {}
+perguntas: []
