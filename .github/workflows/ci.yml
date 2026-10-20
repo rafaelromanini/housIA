@@ -82,7 +82,7 @@ jobs:
           npx playwright install --with-deps chromium
           NEXT_PUBLIC_API_URL=http://localhost:8000 npm run build
           nohup npm start &
-          npx wait-on -t 120000 http://localhost:3000/healthz http://localhost:8000/health
+          npx wait-on -t 120000 http://localhost:3000/healthz http://127.0.0.1:8000/health
       - name: Playwright
         working-directory: apps/web
         run: npm run test:e2e
