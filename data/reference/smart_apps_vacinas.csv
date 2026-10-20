@@ -1,0 +1,7 @@
+id,vacina,sexo,idade_min,idade_max,intervalo_meses,termos,orientacao,fonte
+dt,Dupla adulto (difteria e tétano),,18,,120,dupla adulto|difteria|tetano|dtpa|dt,Reforço a cada 10 anos; esquema básico de 3 doses se estiver incompleto ou desconhecido.,Calendário Nacional de Vacinação (PNI/MS): resumo de demonstração
+hepatite_b,Hepatite B,,18,59,0,hepatite b,Esquema de 3 doses para quem não tem comprovação.,Calendário Nacional de Vacinação (PNI/MS): resumo de demonstração
+influenza,Influenza (gripe),,60,,12,influenza|gripe,Dose anual na campanha.,Calendário Nacional de Vacinação (PNI/MS): resumo de demonstração
+febre_amarela,Febre amarela,,5,59,0,febre amarela,Dose única; avaliar contraindicações antes de aplicar.,Calendário Nacional de Vacinação (PNI/MS): resumo de demonstração
+triplice_viral,"Tríplice viral (sarampo, caxumba e rubéola)",,12,59,0,triplice viral|sarampo|scr,Esquema de 1 ou 2 doses conforme a idade.,Calendário Nacional de Vacinação (PNI/MS): resumo de demonstração
+hpv,HPV,,9,14,0,hpv|papilomavirus,Esquema vigente do PNI para adolescentes.,Calendário Nacional de Vacinação (PNI/MS): resumo de demonstração

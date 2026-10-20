@@ -493,7 +493,9 @@ def test_alembic_chain_has_single_head_with_journey_tables(tmp_path, monkeypatch
     root = Path(__file__).resolve().parents[1]
     cfg = Config(str(root / "alembic.ini"))
     cfg.set_main_option("script_location", str(root / "app/db/migrations"))
-    assert ScriptDirectory.from_config(cfg).get_heads() == ["d402"]
+    script = ScriptDirectory.from_config(cfg)
+    assert script.get_heads() == ["c201"]  # #21 encadeada sobre d402 (#31)
+    assert {"d201", "d402"} <= {r.revision for r in script.walk_revisions()}
     url = f"sqlite:///{tmp_path / 'm.db'}"
     from app.config import get_settings
 

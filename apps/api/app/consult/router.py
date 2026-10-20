@@ -15,6 +15,7 @@ from app.consult import (
     knowledge,
     note_templates,
     opme,
+    perfis,
     privacidade,
     service,
     stt,
@@ -49,6 +50,34 @@ def config(_: User = Depends(get_current_user)) -> dict:
             for k, v in knowledge.SPECIALTIES.items()
         ],
     }
+
+
+class ProfileIn(BaseModel):
+    especialidade: str = Field("", max_length=40)
+    ocultos: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.get("/smart-apps")
+def smart_apps(
+    especialidade: str = Query("", max_length=40), db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[dict]:
+    """Catálogo de Smart Apps: o manifest de cada app e se o perfil do usuário o esconde."""
+    return perfis.listing(db, user, especialidade)
+
+
+@router.get("/smart-apps/perfil")
+def smart_apps_profile(
+    especialidade: str = Query("", max_length=40), db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """Perfil que vale para o usuário nesta especialidade (guardado no servidor, vale em qualquer aparelho)."""
+    return perfis.effective(db, user, especialidade)
+
+
+@router.put("/smart-apps/perfil")
+def save_smart_apps_profile(
+    body: ProfileIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    return perfis.save(db, user, body.especialidade, body.ocultos)
 
 
 @router.get("/consult/opme-catalog")

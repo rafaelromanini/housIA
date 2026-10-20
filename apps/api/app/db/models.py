@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -260,3 +260,19 @@ class ImpactBaseline(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class SmartAppProfile(Base):
+    """Perfil de Smart Apps no servidor (#21): quais apps o usuário esconde, por especialidade ("" = todas).
+
+    Substitui o localStorage: o que o profissional esconde vale em qualquer aparelho.
+    """
+
+    __tablename__ = "smart_app_profiles"
+    __table_args__ = (UniqueConstraint("user_id", "especialidade", name="uq_smart_app_profile"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    especialidade: Mapped[str] = mapped_column(String(40), default="")
+    ocultos: Mapped[list] = mapped_column(JsonType, default=list)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)

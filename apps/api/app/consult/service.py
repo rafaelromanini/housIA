@@ -20,6 +20,7 @@ from app.consult import (
     acoes,
     ai,
     antiglosa,
+    apps,
     consentimento,
     fidelidade,
     gs1,
@@ -157,10 +158,25 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
         merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
         ai.reconcile_ai_allergies(engine, merged)
         base = merged
-    return _decided(c, base)
+    return _decided(c, base, engine)
 
 
-def _decided(c: Consultation, ins: Insights) -> Insights:
+def _smart_apps(c: Consultation, ins: Insights, engine: Engine) -> list:
+    """Smart Apps do registro (app/consult/apps) sobre o que o engine e a IA já produziram; fontes conferidas aqui."""
+    chart = engine.chart
+    valid = _valid_refs(chart.r, chart.events, chart.ctx, engine.all_segments) | {f"Patient/{chart.r.id}"}
+    ctx = apps.AppContext(
+        ins=ins,
+        chart=chart,
+        kind=c.kind,
+        specialty=c.specialty,
+        segments=engine.segments,
+        extra=engine.extra,
+    )
+    return apps.run_all(ctx, valid)
+
+
+def _decided(c: Consultation, ins: Insights, engine: Engine) -> Insights:
     """Decisão do profissional sobre cada insight reaplicada a cada análise; críticos vão ao módulo de alertas."""
     result = _consent_filter(c, hipoteses.apply(ins, c.extra_json))
     summary.mark_new(result, c.insights_json)
@@ -169,6 +185,7 @@ def _decided(c: Consultation, ins: Insights) -> Insights:
         return result
     acoes.apply(result, c.insight_actions_json, c.insights_json)
     _sync_alerts(c, result)
+    result.apps = _smart_apps(c, result, engine)
     return result
 
 
@@ -1201,7 +1218,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         "descartados": merged.descartados,
         "saida": saida,
     }
-    final = _decided(c, merged)
+    final = _decided(c, merged, engine)
     c.insights_json = final.model_dump(mode="json")
     log_action(
         db,

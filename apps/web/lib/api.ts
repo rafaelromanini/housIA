@@ -1084,6 +1084,58 @@ export interface OrderDecisionIn {
   frequencia?: string;
   duracao?: string;
 }
+/** Um item de Smart App do registro (#21): sempre com a fonte (refs). */
+export interface AppItem {
+  texto: string;
+  detalhe: string;
+  severidade: "critico" | "atencao" | "info" | "ok";
+  refs: string[];
+  tags: string[];
+  celulas: string[];
+  quando: string | null;
+  origem: Origin;
+}
+export type AppCardType = "lista" | "tags" | "tabela" | "linha_do_tempo";
+export type SmartAppTab = "vivo" | "raciocinio" | "medicamentos" | "prontuario" | "pedidos" | "transicao";
+/** Saída de um Smart App do registro: o que a tela precisa para desenhar o card genérico. */
+export interface AppResult {
+  id: string;
+  nome: string;
+  aba: SmartAppTab;
+  card: AppCardType;
+  camada: "regra" | "ia" | "mista";
+  versao: string;
+  base_versao: string;
+  colunas: string[];
+  itens: AppItem[];
+  vazio: string;
+  erro: string;
+}
+/** Manifest de um Smart App (GET /smart-apps) com a marca do perfil do usuário. */
+export interface SmartAppManifest {
+  id: string;
+  nome: string;
+  aba: SmartAppTab;
+  ordem: number;
+  camada: "regra" | "ia" | "mista";
+  versao: string;
+  saida: { card: AppCardType; colunas: string[] };
+  base: { arquivo: string; versao: string; fonte: string } | null;
+  gatilho: { tipos: ConsultKind[]; internado: boolean | null };
+  oculto: boolean;
+}
+export interface SmartAppProfile {
+  especialidade: string;
+  ocultos: string[];
+  origem: "especialidade" | "usuario" | "padrao";
+}
+export const getSmartApps = (especialidade: string) =>
+  api<SmartAppManifest[]>(`/smart-apps?especialidade=${encodeURIComponent(especialidade)}`);
+export const getSmartAppProfile = (especialidade: string) =>
+  api<SmartAppProfile>(`/smart-apps/perfil?especialidade=${encodeURIComponent(especialidade)}`);
+export const saveSmartAppProfile = (especialidade: string, ocultos: string[]) =>
+  api<SmartAppProfile>("/smart-apps/perfil", { method: "PUT", json: { especialidade, ocultos } });
+
 export interface ConsultInsights {
   tipo: ConsultKind;
   especialidade: string;
@@ -1123,6 +1175,8 @@ export interface ConsultInsights {
   regras_ms?: number | null;
   /** itens que o profissional descartou ou marcou como não se aplica */
   ocultos?: number;
+  /** Smart Apps do registro (#21); ausente em consultas gravadas antes do registro */
+  apps?: AppResult[];
 }
 /** Uma frase da seção com a fonte: refs e quem a escreveu (ia, regra ou profissional). */
 export interface NoteSentence {

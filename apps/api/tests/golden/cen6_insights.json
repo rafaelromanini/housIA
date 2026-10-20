@@ -1,0 +1,3101 @@
+{
+ "alergias": [
+  {
+   "alergeno": "Penicilinas (amoxicilina)",
+   "alternativas": "Conforme a infecção: macrolídeos (ex.: azitromicina) ou outras classes — decisão médica; considerar teste de desalergização com alergista quando a penicilina for essencial.",
+   "chave": "@penicilina",
+   "conflitos": [],
+   "criticidade": "alta",
+   "dicas": "Leve sempre um cartão ou pulseira de alergia; avise em toda consulta, farmácia e pronto-socorro; confira a bula de qualquer antibiótico.",
+   "evitar": "Amoxicilina, ampicilina, benzilpenicilina (Benzetacil), amoxicilina + clavulanato.",
+   "fonte": "prontuario",
+   "fonte_regra": "AAAAI/ACAAI: Drug allergy practice parameter (2022)",
+   "origem": "regra",
+   "reacao": "Urticária e inchaço nos lábios (criticidade alta)",
+   "reatividade_cruzada": "Todas as penicilinas; reação cruzada com cefalosporinas é baixa (cerca de 1–2%, menor com as de 3ª geração), mas exige avaliação.",
+   "refs": [
+    "AllergyIntolerance/cen6-alg-0"
+   ]
+  },
+  {
+   "alergeno": "Camarão/crustáceos",
+   "alternativas": "—",
+   "chave": "alimento:camarao",
+   "conflitos": [],
+   "criticidade": "alta",
+   "dicas": "Avise em restaurantes; tenha um plano para reação grave se já teve inchaço de boca ou garganta.",
+   "evitar": "Crustáceos e pratos com caldo ou molho de frutos do mar.",
+   "fonte": "relatado",
+   "fonte_regra": "EAACI: Food allergy and anaphylaxis guidelines",
+   "origem": "regra",
+   "reacao": "Relatado: “Tenho alergia a camarão. Uma vez a minha boca inchou toda.”",
+   "reatividade_cruzada": "Outros crustáceos (lagosta, caranguejo, siri); às vezes moluscos.",
+   "refs": [
+    "Fala/20"
+   ]
+  }
+ ],
+ "alertas": [
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-glibenclamida-c2",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "severidade": "critico",
+   "texto": "Glibenclamida: Evitar glibenclamida com função renal reduzida: risco de hipoglicemia prolongada. Considerar gliclazida com cautela ou outra classe (iDPP-4 com ajuste; iSGLT2 se a TFG permitir, com benefício renal) — decisão médica. (TFG estimada ~40 mL/min/1,73 m²)"
+  },
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/13",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "severidade": "critico",
+   "texto": "Ibuprofeno: Evitar anti-inflamatório (AINE) na doença renal crônica: piora a função renal e eleva o potássio, sobretudo com IECA/BRA e diurético. Preferir paracetamol. (TFG estimada ~40 mL/min/1,73 m²)"
+  },
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-losartana-c1",
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+    "Fala/13"
+   ],
+   "severidade": "critico",
+   "texto": "Tríplice ameaça renal: Losartana + Hidroclorotiazida + Ibuprofeno — risco alto de lesão renal aguda. Suspender o anti-inflamatório e repetir creatinina/potássio."
+  },
+  {
+   "acao": "",
+   "categoria": "sinal_vital",
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "Observation/cen6-sv3-glicemia"
+   ],
+   "severidade": "critico",
+   "texto": "Glicemia capilar 64 mg/dL na triagem (14:55), abaixo de 70: trate e reavalie agora."
+  },
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-metformina-c1",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "severidade": "atencao",
+   "texto": "Metformina: TFG 30–44: não iniciar; se já em uso, reduzir para no máximo 1.000 mg/dia e monitorar a função renal. (TFG estimada ~40 mL/min/1,73 m²)"
+  },
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-losartana-c1",
+    "Fala/13"
+   ],
+   "severidade": "atencao",
+   "texto": "Interação Losartana + Ibuprofeno: BRA + AINE: menor efeito anti-hipertensivo e risco de lesão renal. Evitar AINE ou monitorar função renal."
+  },
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+    "Fala/13"
+   ],
+   "severidade": "atencao",
+   "texto": "Interação Hidroclorotiazida + Ibuprofeno: Tiazídico + AINE: menor efeito anti-hipertensivo e risco renal. Evitar AINE; monitorar pressão e função renal."
+  },
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/2",
+    "Fala/4",
+    "Fala/26",
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3"
+   ],
+   "severidade": "atencao",
+   "texto": "Tontura após o início de Hidroclorotiazida em 21/07/2026 (sintoma há cerca de 21 dias): Tontura/hipotensão ortostática compatível com diurético tiazídico; Hiponatremia compatível com diurético tiazídico. Avaliar a relação temporal e considerar ajustar o medicamento."
+  },
+  {
+   "acao": "",
+   "categoria": null,
+   "fixado": false,
+   "item_key": "",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/13"
+   ],
+   "severidade": "atencao",
+   "texto": "Ibuprofeno relatado na consulta e ausente da prescrição: registrar dose/frequência e avaliar."
+  }
+ ],
+ "anamnese": {
+  "alergias": [
+   "Penicilinas (amoxicilina) — Urticária e inchaço nos lábios (criticidade alta)",
+   "Camarão/crustáceos — Relatado: “Tenho alergia a camarão. Uma vez a minha boca inchou toda.”"
+  ],
+  "antecedentes": [
+   "Diabetes mellitus tipo 2 (E11.9) — desde 23/10/2015 (há 11 anos)",
+   "Hipertensão arterial sistêmica (I10) — desde 23/10/2012 (há 14 anos)",
+   "Doença renal crônica estágio 3 (N18.3) — desde 26/08/2025 (há 1 ano)",
+   "Dislipidemia (E78.5) — desde 22/10/2018 (há 8 anos)",
+   "Obesidade (E66.9) — desde 22/10/2016 (há 10 anos)",
+   "Artrose de joelho (gonartrose) (M17.1) — desde 20/10/2024 (há 2 anos)",
+   "Catarata senil em olho direito (H25.9) — desde 17/07/2026 (há 3 meses)",
+   "Cesariana — 16/10/2000 (há 26 anos)",
+   "Colecistectomia videolaparoscópica — 07/10/2017 (há 9 anos)"
+  ],
+  "campos_especialidade": [],
+  "habitos_e_contexto": [],
+  "hda": "Tontura há 3 semanas, piora ao levantar, associada a queda ou quase queda, cansaço e suor frio e tremor (falas 2, 4, 5, 7). Cansaço, é constante (falas 7, 9, 11). Suor frio e tremor, ocorre às vezes, piora antes do almoço (falas 7, 9). Falta de apetite, é constante (falas 9, 11, 13). Dor no joelho, localização: joelho direito, intensidade forte, piora ao subir escada (falas 13, 15). Urina à noite, ocorre 3 vezes à noite (fala 15). Refere uso por conta própria de ibuprofeno (fala 13).",
+  "medicacoes_em_uso": [
+   "Metformina 850 mg VO 12/12h (08:00, 20:00)",
+   "Glibenclamida 5 mg VO 12/12h (07:00, 19:00)",
+   "Losartana 50 mg VO 1x/dia (08:00)",
+   "Hidroclorotiazida 25 mg VO 1x/dia (08:00)",
+   "Sinvastatina 20 mg VO 1x/dia (20:00)",
+   "Ibuprofeno (relatado, por conta própria)"
+  ],
+  "qp_fixada": false,
+  "qp_principal": "tontura",
+  "queixa_principal": "Tontura há 3 semanas (também: queda ou quase queda, cansaço e suor frio e tremor)",
+  "queixas_detalhadas": [
+   {
+    "associados": {
+     "refs": [
+      "Fala/5",
+      "Fala/7"
+     ],
+     "valor": "queda ou quase queda, cansaço e suor frio e tremor"
+    },
+    "chave": "tontura",
+    "faltam": [
+     "intensidade",
+     "melhora",
+     "frequencia"
+    ],
+    "frequencia": {
+     "refs": [],
+     "valor": ""
+    },
+    "inicio_duracao": {
+     "refs": [
+      "Fala/4"
+     ],
+     "valor": "3 semanas"
+    },
+    "intensidade": {
+     "refs": [],
+     "valor": ""
+    },
+    "localizacao": {
+     "refs": [],
+     "valor": ""
+    },
+    "melhora": {
+     "refs": [],
+     "valor": ""
+    },
+    "nega": {
+     "refs": [],
+     "valor": ""
+    },
+    "piora": {
+     "refs": [
+      "Fala/4"
+     ],
+     "valor": "ao levantar"
+    },
+    "refs": [
+     "Fala/2",
+     "Fala/4",
+     "Fala/5",
+     "Fala/7"
+    ],
+    "rotulo": "Tontura"
+   },
+   {
+    "associados": {
+     "refs": [
+      "Fala/7",
+      "Fala/9"
+     ],
+     "valor": "cansaço, suor frio e tremor e falta de apetite"
+    },
+    "chave": "queda",
+    "faltam": [
+     "inicio_duracao",
+     "frequencia",
+     "piora"
+    ],
+    "frequencia": {
+     "refs": [],
+     "valor": ""
+    },
+    "inicio_duracao": {
+     "refs": [],
+     "valor": ""
+    },
+    "intensidade": {
+     "refs": [],
+     "valor": ""
+    },
+    "localizacao": {
+     "refs": [],
+     "valor": ""
+    },
+    "melhora": {
+     "refs": [],
+     "valor": ""
+    },
+    "nega": {
+     "refs": [],
+     "valor": ""
+    },
+    "piora": {
+     "refs": [],
+     "valor": ""
+    },
+    "refs": [
+     "Fala/5",
+     "Fala/7",
+     "Fala/9"
+    ],
+    "rotulo": "Queda ou quase queda"
+   },
+   {
+    "associados": {
+     "refs": [
+      "Fala/7",
+      "Fala/9"
+     ],
+     "valor": "suor frio e tremor e falta de apetite"
+    },
+    "chave": "cansaco",
+    "faltam": [
+     "inicio_duracao",
+     "intensidade",
+     "piora",
+     "melhora"
+    ],
+    "frequencia": {
+     "refs": [
+      "Fala/11"
+     ],
+     "valor": "constante"
+    },
+    "inicio_duracao": {
+     "refs": [],
+     "valor": ""
+    },
+    "intensidade": {
+     "refs": [],
+     "valor": ""
+    },
+    "localizacao": {
+     "refs": [],
+     "valor": ""
+    },
+    "melhora": {
+     "refs": [],
+     "valor": ""
+    },
+    "nega": {
+     "refs": [],
+     "valor": ""
+    },
+    "piora": {
+     "refs": [],
+     "valor": ""
+    },
+    "refs": [
+     "Fala/7",
+     "Fala/9",
+     "Fala/11"
+    ],
+    "rotulo": "Cansaço"
+   },
+   {
+    "associados": {
+     "refs": [
+      "Fala/7",
+      "Fala/9"
+     ],
+     "valor": "cansaço e falta de apetite"
+    },
+    "chave": "sintomas_hipoglicemia",
+    "faltam": [
+     "inicio_duracao",
+     "intensidade",
+     "melhora"
+    ],
+    "frequencia": {
+     "refs": [
+      "Fala/7"
+     ],
+     "valor": "às vezes"
+    },
+    "inicio_duracao": {
+     "refs": [],
+     "valor": ""
+    },
+    "intensidade": {
+     "refs": [],
+     "valor": ""
+    },
+    "localizacao": {
+     "refs": [],
+     "valor": ""
+    },
+    "melhora": {
+     "refs": [],
+     "valor": ""
+    },
+    "nega": {
+     "refs": [],
+     "valor": ""
+    },
+    "piora": {
+     "refs": [
+      "Fala/7"
+     ],
+     "valor": "antes do almoço"
+    },
+    "refs": [
+     "Fala/7",
+     "Fala/9"
+    ],
+    "rotulo": "Suor frio e tremor"
+   },
+   {
+    "associados": {
+     "refs": [
+      "Fala/13"
+     ],
+     "valor": "dor no joelho"
+    },
+    "chave": "sem_apetite",
+    "faltam": [
+     "inicio_duracao",
+     "intensidade",
+     "piora",
+     "melhora"
+    ],
+    "frequencia": {
+     "refs": [
+      "Fala/11"
+     ],
+     "valor": "constante"
+    },
+    "inicio_duracao": {
+     "refs": [],
+     "valor": ""
+    },
+    "intensidade": {
+     "refs": [],
+     "valor": ""
+    },
+    "localizacao": {
+     "refs": [],
+     "valor": ""
+    },
+    "melhora": {
+     "refs": [],
+     "valor": ""
+    },
+    "nega": {
+     "refs": [],
+     "valor": ""
+    },
+    "piora": {
+     "refs": [],
+     "valor": ""
+    },
+    "refs": [
+     "Fala/9",
+     "Fala/11",
+     "Fala/13"
+    ],
+    "rotulo": "Falta de apetite"
+   },
+   {
+    "associados": {
+     "refs": [
+      "Fala/15"
+     ],
+     "valor": "urina à noite"
+    },
+    "chave": "dor_joelho",
+    "faltam": [
+     "inicio_duracao",
+     "melhora",
+     "frequencia"
+    ],
+    "frequencia": {
+     "refs": [],
+     "valor": ""
+    },
+    "inicio_duracao": {
+     "refs": [],
+     "valor": ""
+    },
+    "intensidade": {
+     "refs": [
+      "Fala/13"
+     ],
+     "valor": "forte"
+    },
+    "localizacao": {
+     "refs": [
+      "Fala/13"
+     ],
+     "valor": "joelho direito"
+    },
+    "melhora": {
+     "refs": [],
+     "valor": ""
+    },
+    "nega": {
+     "refs": [],
+     "valor": ""
+    },
+    "piora": {
+     "refs": [
+      "Fala/13"
+     ],
+     "valor": "ao subir escada"
+    },
+    "refs": [
+     "Fala/13",
+     "Fala/15"
+    ],
+    "rotulo": "Dor no joelho"
+   },
+   {
+    "associados": {
+     "refs": [],
+     "valor": ""
+    },
+    "chave": "nicturia",
+    "faltam": [
+     "inicio_duracao",
+     "intensidade",
+     "piora",
+     "melhora",
+     "associados"
+    ],
+    "frequencia": {
+     "refs": [
+      "Fala/15"
+     ],
+     "valor": "3 vezes à noite"
+    },
+    "inicio_duracao": {
+     "refs": [],
+     "valor": ""
+    },
+    "intensidade": {
+     "refs": [],
+     "valor": ""
+    },
+    "localizacao": {
+     "refs": [],
+     "valor": ""
+    },
+    "melhora": {
+     "refs": [],
+     "valor": ""
+    },
+    "nega": {
+     "refs": [],
+     "valor": ""
+    },
+    "piora": {
+     "refs": [],
+     "valor": ""
+    },
+    "refs": [
+     "Fala/15"
+    ],
+    "rotulo": "Urina à noite"
+   }
+  ],
+  "refs": [
+   "Fala/2",
+   "Fala/4",
+   "Fala/5",
+   "Fala/7",
+   "Fala/9",
+   "Fala/11",
+   "Fala/13",
+   "Fala/15"
+  ],
+  "revisao_de_sistemas": [
+   "Nega dor no peito",
+   "Nega falta de ar"
+  ]
+ },
+ "cirurgia": [
+  {
+   "origem": "regra",
+   "refs": [
+    "Procedure/cen6-proc0"
+   ],
+   "texto": "Cesariana — 16/10/2000 (há 26 anos)",
+   "tipo": "historico"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "Procedure/cen6-proc1"
+   ],
+   "texto": "Colecistectomia videolaparoscópica — 07/10/2017 (há 9 anos)",
+   "tipo": "historico"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "DocumentReference/cen6-doc2"
+   ],
+   "texto": "Planejada no prontuário: Avaliação oftalmológica: catarata em olho direito, cirurgia a programar.",
+   "tipo": "planejada"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "Fala/23"
+   ],
+   "texto": "Citado na consulta: “Ah, e o oftalmologista quer operar a catarata do olho direito. Posso operar com essa diabetes?”",
+   "tipo": "planejada"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "MedicationRequest/cen6-rx-metformina-c1",
+    "MedicationRequest/cen6-rx-glibenclamida-c2",
+    "MedicationRequest/cen6-rx-losartana-c1"
+   ],
+   "texto": "Sem anticoagulante ou antiagregante na prescrição ativa.",
+   "tipo": "checagem"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "MedicationRequest/cen6-rx-glibenclamida-c2"
+   ],
+   "texto": "Hipoglicemiante com risco no jejum (Glibenclamida): orientar ajuste no dia do procedimento com o anestesista.",
+   "tipo": "checagem"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "Observation/cen6-lab2-hba1c"
+   ],
+   "texto": "Controle glicêmico recente: Hemoglobina glicada: 7,1 % em 10/10/2026.",
+   "tipo": "checagem"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "AllergyIntolerance/cen6-alg-0"
+   ],
+   "texto": "Informar à equipe cirúrgica: alergia a Penicilinas (amoxicilina).",
+   "tipo": "checagem"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "texto": "Função renal reduzida (TFG ~40 mL/min/1,73 m²): atenção a nefrotóxicos, contraste e doses.",
+   "tipo": "checagem"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "Observation/cen6-sv3-pa"
+   ],
+   "texto": "Última PA 118/72 mmHg — adequada para cirurgia eletiva.",
+   "tipo": "checagem"
+  },
+  {
+   "origem": "regra",
+   "refs": [
+    "DocumentReference/cen6-doc2",
+    "Condition/cen6-dx-0",
+    "MedicationRequest/cen6-rx-metformina-c1",
+    "MedicationRequest/cen6-rx-glibenclamida-c2",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "texto": "RCRI 0 pontos (classe I): cerca de 3,9% de risco de infarto, parada cardíaca ou morte cardíaca em 30 dias. Risco baixo: em geral não exige exame cardíaco adicional antes de cirurgia eletiva.",
+   "tipo": "checagem"
+  }
+ ],
+ "comunicacao": {
+  "falas": 30,
+  "palavras_paciente_pct": 59,
+  "palavras_profissional_pct": 41,
+  "perguntas_abertas": 1,
+  "perguntas_fechadas": 7
+ },
+ "descartados": [],
+ "emocoes": [
+  {
+   "abordagem": "Reforçar a adesão entregando a orientação escrita e marcando o retorno.",
+   "acao": "",
+   "emocao": "confianca",
+   "fixado": false,
+   "intensidade": "baixa",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/30"
+   ],
+   "rotulo": "Confiança/adesão",
+   "trecho": "“Entendi tudo. Vou fazer direitinho.”"
+  },
+  {
+   "abordagem": "Consolidar: resumir o plano combinado e confirmar a data do retorno.",
+   "acao": "",
+   "emocao": "alivio",
+   "fixado": false,
+   "intensidade": "baixa",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/28"
+   ],
+   "rotulo": "Alívio",
+   "trecho": "“Ah, que alívio, doutora. Achei que era coisa pior.”"
+  },
+  {
+   "abordagem": "Explicar de novo com palavras do dia a dia e pedir para a pessoa repetir com as próprias palavras.",
+   "acao": "",
+   "emocao": "confusao",
+   "fixado": false,
+   "intensidade": "baixa",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/26"
+   ],
+   "rotulo": "Dúvida/confusão",
+   "trecho": "“Será que é o remédio novo da pressão? Comecei aquele diurético na última consulta.”"
+  },
+  {
+   "abordagem": "Responder primeiro à dúvida principal, sem jargão, e combinar sinais claros de quando procurar ajuda.",
+   "acao": "",
+   "emocao": "preocupacao",
+   "fixado": false,
+   "intensidade": "media",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "acompanhante",
+   "refs": [
+    "Fala/5",
+    "Fala/18"
+   ],
+   "rotulo": "Preocupação",
+   "trecho": "“O que significa essa hemoglobina glicada? E o potássio alto é grave?”"
+  },
+  {
+   "abordagem": "Explicar de novo com palavras do dia a dia e pedir para a pessoa repetir com as próprias palavras.",
+   "acao": "",
+   "emocao": "confusao",
+   "fixado": false,
+   "intensidade": "baixa",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "acompanhante",
+   "refs": [
+    "Fala/18"
+   ],
+   "rotulo": "Dúvida/confusão",
+   "trecho": "“O que significa essa hemoglobina glicada? E o potássio alto é grave?”"
+  },
+  {
+   "abordagem": "Validar o medo com uma frase empática, explicar o próximo passo em linguagem simples e checar o entendimento (teach-back).",
+   "acao": "",
+   "emocao": "ansiedade",
+   "fixado": false,
+   "intensidade": "baixa",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/16"
+   ],
+   "rotulo": "Ansiedade/medo",
+   "trecho": "“Doutora, eu tenho medo de ter que tomar insulina. Minha irmã toma e passa muito mal.”"
+  },
+  {
+   "abordagem": "Abordar o controle da dor antes de seguir a conversa.",
+   "acao": "",
+   "emocao": "dor",
+   "fixado": false,
+   "intensidade": "baixa",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/13"
+   ],
+   "rotulo": "Sofrimento por dor",
+   "trecho": "“O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia…”"
+  }
+ ],
+ "especialidade": "clinica_medica",
+ "exames": [
+  {
+   "chave": "glicemia",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "20/10/2026",
+   "exame": "Glicemia capilar (ponta do dedo)",
+   "explicacao": "Medida do açúcar no sangue feita hoje: 64 mg/dL — está baixa (hipoglicemia): pode causar tremor, suor frio, tontura e confusão.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-sv3-glicemia"
+   ],
+   "status": "baixo",
+   "tendencia": null,
+   "valor": "64 mg/dL",
+   "valor_num": null
+  },
+  {
+   "chave": "hba1c",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "10/10/2026",
+   "exame": "Hemoglobina glicada",
+   "explicacao": "Hemoglobina glicada mostra a média do açúcar no sangue nos últimos 3 meses. O seu resultado (7,1 %) está acima da meta (para a maioria das pessoas com diabetes a meta fica abaixo de 7%).",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab2-hba1c",
+    "Observation/cen6-lab1-hba1c"
+   ],
+   "status": "alto",
+   "tendencia": "caiu de 8,4 (15/04/2026)",
+   "valor": "7,1 %",
+   "valor_num": null
+  },
+  {
+   "chave": "glicose",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "10/10/2026",
+   "exame": "Glicose",
+   "explicacao": "Glicose é o açúcar no sangue em jejum. O seu resultado (118 mg/dL) está acima do esperado em jejum.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab2-glicose",
+    "Observation/cen6-lab1-glicose"
+   ],
+   "status": "alto",
+   "tendencia": "caiu de 168 (15/04/2026)",
+   "valor": "118 mg/dL",
+   "valor_num": null
+  },
+  {
+   "chave": "creatinina",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "10/10/2026",
+   "exame": "Creatinina",
+   "explicacao": "Creatinina mostra como os rins estão filtrando o sangue. O seu resultado (1,5 mg/dL) está acima do normal: os rins estão filtrando menos do que deveriam. Pela idade e sexo, isso corresponde a uma filtração dos rins de cerca de 40 mL/min (o esperado é acima de 90; abaixo de 60 indica doença renal crônica).",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab2-creatinina",
+    "Observation/cen6-lab1-creatinina"
+   ],
+   "status": "alto",
+   "tendencia": "subiu de 1,3 (15/04/2026)",
+   "valor": "1,5 mg/dL",
+   "valor_num": null
+  },
+  {
+   "chave": "potassio",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "10/10/2026",
+   "exame": "Potássio",
+   "explicacao": "Potássio é um mineral que ajuda o coração a bater no ritmo certo. O seu resultado (5,3 mmol/L) está acima do normal — alguns remédios de pressão e anti-inflamatórios aumentam o potássio, e em excesso ele pode afetar o ritmo do coração.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab2-potassio",
+    "Observation/cen6-lab1-potassio"
+   ],
+   "status": "alto",
+   "tendencia": "subiu de 4,6 (15/04/2026)",
+   "valor": "5,3 mmol/L",
+   "valor_num": null
+  },
+  {
+   "chave": "sodio",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "10/10/2026",
+   "exame": "Sódio",
+   "explicacao": "Sódio é o \"sal\" do sangue, que mantém o equilíbrio de água no corpo. O seu resultado (131 mmol/L) está baixo — isso pode causar tontura, cansaço e confusão; alguns diuréticos (remédio que faz urinar) causam isso.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab2-sodio",
+    "Observation/cen6-lab1-sodio"
+   ],
+   "status": "baixo",
+   "tendencia": "caiu de 139 (15/04/2026)",
+   "valor": "131 mmol/L",
+   "valor_num": null
+  },
+  {
+   "chave": "hemoglobina",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "10/10/2026",
+   "exame": "Hemoglobina",
+   "explicacao": "Hemoglobina mostra a quantidade de sangue que leva oxigênio pelo corpo. O seu resultado (11,6 g/dL) está um pouco baixa (anemia) — pode causar cansaço; na doença dos rins isso é comum.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab2-hemoglobina"
+   ],
+   "status": "baixo",
+   "tendencia": null,
+   "valor": "11,6 g/dL",
+   "valor_num": null
+  },
+  {
+   "chave": "colesterol_total",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "15/04/2026",
+   "exame": "Colesterol total",
+   "explicacao": "Colesterol total é a soma de todas as gorduras que circulam no sangue (colesterol). O seu resultado (196 mg/dL) está acima do desejável — com o tempo as gorduras podem entupir as artérias.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab1-colesterol-total",
+    "Observation/cen6-lab0-colesterol-total"
+   ],
+   "status": "alto",
+   "tendencia": "caiu de 214 (15/10/2025)",
+   "valor": "196 mg/dL",
+   "valor_num": null
+  },
+  {
+   "chave": "ldl",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "10/10/2026",
+   "exame": "Colesterol LDL",
+   "explicacao": "Colesterol LDL é o \"colesterol ruim\", que pode entupir as artérias. O seu resultado (96 mg/dL) está dentro da meta.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab2-ldl",
+    "Observation/cen6-lab1-ldl"
+   ],
+   "status": "normal",
+   "tendencia": "caiu de 112 (15/04/2026)",
+   "valor": "96 mg/dL",
+   "valor_num": null
+  },
+  {
+   "chave": "tsh",
+   "comparacao": "",
+   "conciliacao": null,
+   "data": "15/04/2026",
+   "exame": "TSH",
+   "explicacao": "TSH mostra como a tireoide (glândula do pescoço que controla o ritmo do corpo) está trabalhando. O seu resultado (3,1 mUI/L) está dentro do esperado.",
+   "origem": "regra",
+   "origem_dado": "prontuário",
+   "refs": [
+    "Observation/cen6-lab1-tsh",
+    "Observation/cen6-lab0-tsh"
+   ],
+   "status": "normal",
+   "tendencia": "caiu de 3,4 (15/10/2025)",
+   "valor": "3,1 mUI/L",
+   "valor_num": null
+  }
+ ],
+ "falas_analisadas": 30,
+ "hipoteses": [
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Fala/7"
+     ],
+     "texto": "Relata suor frio e tremor"
+    },
+    {
+     "refs": [
+      "Observation/cen6-sv3-glicemia"
+     ],
+     "texto": "Glicemia capilar: 64 mg/dL (fora da faixa) em 20/10/2026"
+    },
+    {
+     "refs": [
+      "MedicationRequest/cen6-rx-glibenclamida-c2"
+     ],
+     "texto": "Glibenclamida (em uso)"
+    },
+    {
+     "refs": [
+      "Condition/cen6-dx-2"
+     ],
+     "texto": "Doença renal crônica estágio 3"
+    },
+    {
+     "refs": [
+      "Fala/2",
+      "Fala/4"
+     ],
+     "texto": "Relata tontura"
+    },
+    {
+     "refs": [
+      "Fala/7"
+     ],
+     "texto": "Relata cansaço"
+    }
+   ],
+   "acao": "",
+   "cid": "E16.0",
+   "cid_descricao": "Hipoglicemia induzida por droga sem coma",
+   "confianca": "alta",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "Glicemia capilar na hora do sintoma e diário de glicemias",
+   "fixado": false,
+   "fonte": "SBD: Diretrizes da Sociedade Brasileira de Diabetes (hipoglicemia)",
+   "hipotese": "Hipoglicemia induzida por sulfonilureia",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "Os sintomas aparecem antes das refeições ou depois de tomar o remédio do açúcar sem comer?",
+   "primeira_fala": 0,
+   "proximos_passos": "Glicemia capilar agora e registro domiciliar; rever sulfonilureia (suspender ou trocar por opção com menor risco de hipoglicemia); orientar regra 15/15.",
+   "refs": [
+    "Fala/7",
+    "Observation/cen6-sv3-glicemia",
+    "MedicationRequest/cen6-rx-glibenclamida-c2",
+    "Condition/cen6-dx-2",
+    "Fala/2",
+    "Fala/4"
+   ],
+   "sinais_de_alarme": "Confusão, convulsão ou desmaio: tratar como emergência."
+  },
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Fala/4"
+     ],
+     "texto": "Relata tontura ao levantar"
+    },
+    {
+     "refs": [
+      "Fala/2",
+      "Fala/4"
+     ],
+     "texto": "Relata tontura"
+    },
+    {
+     "refs": [
+      "MedicationRequest/cen6-rx-hidroclorotiazida-c3"
+     ],
+     "texto": "Hidroclorotiazida (em uso)"
+    },
+    {
+     "refs": [
+      "MedicationRequest/cen6-rx-losartana-c1"
+     ],
+     "texto": "Losartana (em uso)"
+    },
+    {
+     "refs": [
+      "DocumentReference/cen6-doc3"
+     ],
+     "texto": "Registro: “…em pe…”"
+    },
+    {
+     "refs": [
+      "Fala/5"
+     ],
+     "texto": "Relata queda ou quase queda"
+    }
+   ],
+   "acao": "",
+   "cid": "I95.1",
+   "cid_descricao": "Hipotensão ortostática",
+   "confianca": "alta",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "PA deitada e em pé (queda de 20/10 mmHg em até 3 minutos)",
+   "fixado": false,
+   "fonte": "SBC: Diretrizes Brasileiras de Hipertensão Arterial; ESC 2018: síncope",
+   "hipotese": "Hipotensão ortostática por anti-hipertensivo/diurético",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "A tontura vem ao levantar da cama ou do sofá e passa em pé parado?",
+   "primeira_fala": 0,
+   "proximos_passos": "Medir PA deitada/sentada e em pé; rever dose do diurético; hidratação e levantar devagar.",
+   "refs": [
+    "Fala/4",
+    "Fala/2",
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+    "MedicationRequest/cen6-rx-losartana-c1",
+    "DocumentReference/cen6-doc3",
+    "Fala/5"
+   ],
+   "sinais_de_alarme": "Síncope, queda com trauma ou PA sistólica < 90 mmHg."
+  },
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Fala/13"
+     ],
+     "texto": "Ibuprofeno (relatado na consulta)"
+    },
+    {
+     "refs": [
+      "MedicationRequest/cen6-rx-losartana-c1"
+     ],
+     "texto": "Losartana (em uso)"
+    },
+    {
+     "refs": [
+      "MedicationRequest/cen6-rx-hidroclorotiazida-c3"
+     ],
+     "texto": "Hidroclorotiazida (em uso)"
+    },
+    {
+     "refs": [
+      "Observation/cen6-lab2-creatinina"
+     ],
+     "texto": "Creatinina: 1,5 mg/dL (fora da faixa) em 10/10/2026"
+    },
+    {
+     "refs": [
+      "Observation/cen6-lab2-potassio"
+     ],
+     "texto": "Potássio: 5,3 mmol/L (fora da faixa) em 10/10/2026"
+    },
+    {
+     "refs": [
+      "Condition/cen6-dx-2"
+     ],
+     "texto": "Doença renal crônica estágio 3"
+    }
+   ],
+   "acao": "",
+   "cid": "N17.9",
+   "cid_descricao": "Insuficiência renal aguda não especificada",
+   "confianca": "alta",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "Creatinina, ureia, potássio e urina tipo 1",
+   "fixado": false,
+   "fonte": "KDIGO: Diretriz de lesão renal aguda (2012)",
+   "hipotese": "Piora da função renal por AINE (com BRA e diurético)",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "Está usando anti-inflamatório (inclusive comprado sem receita) junto com o remédio da pressão?",
+   "primeira_fala": 0,
+   "proximos_passos": "Suspender o anti-inflamatório; repetir creatinina e potássio em 1–2 semanas; analgesia com paracetamol.",
+   "refs": [
+    "Fala/13",
+    "MedicationRequest/cen6-rx-losartana-c1",
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+    "Observation/cen6-lab2-creatinina",
+    "Observation/cen6-lab2-potassio",
+    "Condition/cen6-dx-2"
+   ],
+   "sinais_de_alarme": "Diurese reduzida, inchaço, potássio > 6,0 mmol/L."
+  },
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Observation/cen6-lab2-sodio"
+     ],
+     "texto": "Sódio: 131 mmol/L (fora da faixa) em 10/10/2026"
+    },
+    {
+     "refs": [
+      "MedicationRequest/cen6-rx-hidroclorotiazida-c3"
+     ],
+     "texto": "Hidroclorotiazida (em uso)"
+    },
+    {
+     "refs": [
+      "Fala/2",
+      "Fala/4"
+     ],
+     "texto": "Relata tontura"
+    },
+    {
+     "refs": [
+      "Fala/7"
+     ],
+     "texto": "Relata cansaço"
+    }
+   ],
+   "acao": "",
+   "cid": "E87.1",
+   "cid_descricao": "Hiposmolaridade e hiponatremia",
+   "confianca": "alta",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "Sódio sérico e osmolaridade (repetir em 48–72 h)",
+   "fixado": false,
+   "fonte": "Sociedades europeias de endocrinologia/nefrologia: diretriz de hiponatremia (2014)",
+   "hipotese": "Hiponatremia por tiazídico",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "Está bebendo muito líquido, com náusea, confusão ou cãibras desde que começou o diurético?",
+   "primeira_fala": 0,
+   "proximos_passos": "Repetir sódio; considerar suspender/trocar o tiazídico; avaliar volemia.",
+   "refs": [
+    "Observation/cen6-lab2-sodio",
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+    "Fala/2",
+    "Fala/4",
+    "Fala/7"
+   ],
+   "sinais_de_alarme": "Sódio < 125 mmol/L, confusão ou convulsão."
+  },
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Observation/cen6-lab2-potassio"
+     ],
+     "texto": "Potássio: 5,3 mmol/L (fora da faixa) em 10/10/2026"
+    },
+    {
+     "refs": [
+      "MedicationRequest/cen6-rx-losartana-c1"
+     ],
+     "texto": "Losartana (em uso)"
+    },
+    {
+     "refs": [
+      "Fala/13"
+     ],
+     "texto": "Ibuprofeno (relatado na consulta)"
+    },
+    {
+     "refs": [
+      "Condition/cen6-dx-2"
+     ],
+     "texto": "Doença renal crônica estágio 3"
+    }
+   ],
+   "acao": "",
+   "cid": "E87.5",
+   "cid_descricao": "Hiperpotassemia",
+   "confianca": "alta",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "Potássio sérico e ECG",
+   "fixado": false,
+   "fonte": "KDIGO: Diretriz de DRC (2024) e consenso de hipercalemia",
+   "hipotese": "Hipercalemia",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "Come muito alimento rico em potássio ou usa suplemento, substituto de sal ou anti-inflamatório?",
+   "primeira_fala": 0,
+   "proximos_passos": "Repetir potássio; ECG se > 5,5; rever BRA/AINE e dieta.",
+   "refs": [
+    "Observation/cen6-lab2-potassio",
+    "MedicationRequest/cen6-rx-losartana-c1",
+    "Fala/13",
+    "Condition/cen6-dx-2"
+   ],
+   "sinais_de_alarme": "Potássio > 6,0 mmol/L ou alteração no ECG."
+  },
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Observation/cen6-lab2-hemoglobina"
+     ],
+     "texto": "Hemoglobina: 11,6 g/dL (fora da faixa) em 10/10/2026"
+    },
+    {
+     "refs": [
+      "Condition/cen6-dx-2"
+     ],
+     "texto": "Doença renal crônica estágio 3"
+    },
+    {
+     "refs": [
+      "Fala/7"
+     ],
+     "texto": "Relata cansaço"
+    }
+   ],
+   "acao": "",
+   "cid": "D63.8",
+   "cid_descricao": "Anemia em outras doenças classificadas em outra parte",
+   "confianca": "media",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "Hemograma, ferritina, saturação de transferrina, reticulócitos",
+   "fixado": false,
+   "fonte": "KDIGO: Anemia na DRC (2012)",
+   "hipotese": "Anemia da doença renal crônica",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "Notou fezes escuras, sangramento ou cansaço que piorou nas últimas semanas?",
+   "primeira_fala": 0,
+   "proximos_passos": "Hemograma completo, ferritina e saturação de transferrina.",
+   "refs": [
+    "Observation/cen6-lab2-hemoglobina",
+    "Condition/cen6-dx-2",
+    "Fala/7"
+   ],
+   "sinais_de_alarme": "Hemoglobina < 8 g/dL ou sangramento."
+  },
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Fala/13"
+     ],
+     "texto": "Relata dor no joelho"
+    },
+    {
+     "refs": [
+      "Condition/cen6-dx-5"
+     ],
+     "texto": "Artrose de joelho (gonartrose)"
+    },
+    {
+     "refs": [
+      "Fala/5"
+     ],
+     "texto": "Relata queda ou quase queda"
+    }
+   ],
+   "acao": "",
+   "cid": "M17.9",
+   "cid_descricao": "Gonartrose não especificada",
+   "confianca": "media",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "Radiografia de joelho em carga",
+   "fixado": false,
+   "fonte": "ACR/OARSI: Guideline for osteoarthritis; SBR/SBOT",
+   "hipotese": "Osteoartrite de joelho",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "A dor piora ao subir escada e melhora em repouso? Há rigidez de manhã curta (< 30 min) e estalos?",
+   "primeira_fala": 0,
+   "proximos_passos": "Exercício, perda de peso, analgesia e AINE tópico/oral por curto prazo se função renal permitir; infiltração ou cirurgia conforme falha.",
+   "refs": [
+    "Fala/13",
+    "Condition/cen6-dx-5",
+    "Fala/5"
+   ],
+   "sinais_de_alarme": "Joelho quente, vermelho e febre (artrite séptica), bloqueio articular ou trauma recente."
+  },
+  {
+   "a_favor": [
+    {
+     "refs": [
+      "Fala/7"
+     ],
+     "texto": "Relata cansaço"
+    },
+    {
+     "refs": [
+      "Fala/2",
+      "Fala/4"
+     ],
+     "texto": "Relata tontura"
+    },
+    {
+     "refs": [
+      "Observation/cen6-lab2-hemoglobina"
+     ],
+     "texto": "Hemoglobina: 11,6 g/dL (fora da faixa) em 10/10/2026"
+    }
+   ],
+   "acao": "",
+   "cid": "D64.9",
+   "cid_descricao": "Anemia não especificada",
+   "confianca": "media",
+   "contra": [],
+   "decisao": "pendente",
+   "decisao_motivo": "",
+   "exame_discriminante": "Hemograma, ferritina, B12, folato e reticulócitos",
+   "fixado": false,
+   "fonte": "OMS: critérios de anemia; MS: Manual de condutas gerais — anemia",
+   "hipotese": "Anemia",
+   "item_key": "",
+   "origem": "regra",
+   "pergunta_discriminante": "Notou sangramento (fezes escuras, menstruação intensa), dieta pobre em ferro ou perda de peso?",
+   "primeira_fala": 0,
+   "proximos_passos": "Hemograma, reticulócitos, ferritina, B12 e folato; procurar sangramento e causa; tratar conforme etiologia.",
+   "refs": [
+    "Fala/7",
+    "Fala/2",
+    "Fala/4",
+    "Observation/cen6-lab2-hemoglobina"
+   ],
+   "sinais_de_alarme": "Hemoglobina < 7 g/dL, sangramento ativo, dor torácica ou dispneia aos mínimos esforços."
+  }
+ ],
+ "historico": [
+  {
+   "ano": null,
+   "cid": "H25.9",
+   "conciliacao": "prontuario",
+   "condicao": "Catarata",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "Consta no prontuário (desde 2026).",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": null,
+   "refs": [
+    "Fala/23",
+    "Condition/cen6-dx-6"
+   ],
+   "texto": "Catarata senil em olho direito (H25.9) — relatado; consta no prontuário (desde 2026)",
+   "tipo": "diagnostico"
+  },
+  {
+   "ano": null,
+   "cid": "E11.9",
+   "conciliacao": "prontuario",
+   "condicao": "Diabetes mellitus tipo 2",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "Consta no prontuário (desde 2015).",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": null,
+   "refs": [
+    "Fala/23",
+    "Condition/cen6-dx-0"
+   ],
+   "texto": "Diabetes mellitus tipo 2 (E11.9) — relatado; consta no prontuário (desde 2015)",
+   "tipo": "diagnostico"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "23/10/2012",
+   "refs": [
+    "Condition/cen6-dx-1"
+   ],
+   "texto": "Hipertensão arterial sistêmica (I10) — desde 23/10/2012 (há 14 anos)",
+   "tipo": "diagnostico"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "26/08/2025",
+   "refs": [
+    "Condition/cen6-dx-2"
+   ],
+   "texto": "Doença renal crônica estágio 3 (N18.3) — desde 26/08/2025 (há 1 ano)",
+   "tipo": "diagnostico"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "22/10/2018",
+   "refs": [
+    "Condition/cen6-dx-3"
+   ],
+   "texto": "Dislipidemia (E78.5) — desde 22/10/2018 (há 8 anos)",
+   "tipo": "diagnostico"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "22/10/2016",
+   "refs": [
+    "Condition/cen6-dx-4"
+   ],
+   "texto": "Obesidade (E66.9) — desde 22/10/2016 (há 10 anos)",
+   "tipo": "diagnostico"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "20/10/2024",
+   "refs": [
+    "Condition/cen6-dx-5"
+   ],
+   "texto": "Artrose de joelho (gonartrose) (M17.1) — desde 20/10/2024 (há 2 anos)",
+   "tipo": "diagnostico"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "16/10/2000",
+   "refs": [
+    "Procedure/cen6-proc0"
+   ],
+   "texto": "Cesariana — 16/10/2000 (há 26 anos)",
+   "tipo": "cirurgia"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "07/10/2017",
+   "refs": [
+    "Procedure/cen6-proc1"
+   ],
+   "texto": "Colecistectomia videolaparoscópica — 07/10/2017 (há 9 anos)",
+   "tipo": "cirurgia"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "21/10/2025",
+   "refs": [
+    "Encounter/cen6-amb-c1"
+   ],
+   "texto": "Consulta: Acompanhamento de diabetes e hipertensão — 21/10/2025 (há 12 meses)",
+   "tipo": "consulta"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "21/04/2026",
+   "refs": [
+    "Encounter/cen6-amb-c2"
+   ],
+   "texto": "Consulta: Retorno — glicemia acima da meta — 21/04/2026 (há 6 meses)",
+   "tipo": "consulta"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": "21/07/2026",
+   "refs": [
+    "Encounter/cen6-amb-c3"
+   ],
+   "texto": "Consulta: Retorno — pressão alta e inchaço nos tornozelos — 21/07/2026 (há 3 meses)",
+   "tipo": "consulta"
+  },
+  {
+   "ano": null,
+   "cid": "",
+   "conciliacao": null,
+   "condicao": "",
+   "inicio_aprox": null,
+   "intercorrencia": "",
+   "observacao": "",
+   "origem": "regra",
+   "procedimento": "",
+   "quando": null,
+   "refs": [
+    "Fala/16"
+   ],
+   "texto": "Antecedente familiar relatado: “Doutora, eu tenho medo de ter que tomar insulina. Minha irmã toma e passa muito mal.”",
+   "tipo": "familiar"
+  }
+ ],
+ "lembretes": [
+  {
+   "chave": "protocolo:Diabetes tipo 2:Albuminúria (relação albumina/creatinina)",
+   "fonte": "care_protocols.csv",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "severidade": "info",
+   "texto": "Diabetes tipo 2: Albuminúria (relação albumina/creatinina) sem registro. Anual.",
+   "tipo": "protocolo"
+  },
+  {
+   "chave": "protocolo:Diabetes tipo 2:Exame dos pés (monofilamento)",
+   "fonte": "care_protocols.csv",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "severidade": "info",
+   "texto": "Diabetes tipo 2: Exame dos pés (monofilamento) sem registro. Anual (mais vezes se risco).",
+   "tipo": "protocolo"
+  },
+  {
+   "chave": "protocolo:Diabetes tipo 2:Vacina contra influenza",
+   "fonte": "care_protocols.csv",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "severidade": "info",
+   "texto": "Diabetes tipo 2: Vacina contra influenza sem registro. Anual.",
+   "tipo": "protocolo"
+  },
+  {
+   "chave": "protocolo:Hipertensão:Eletrocardiograma",
+   "fonte": "care_protocols.csv",
+   "refs": [
+    "Condition/cen6-dx-1"
+   ],
+   "severidade": "info",
+   "texto": "Hipertensão: Eletrocardiograma sem registro. Anual.",
+   "tipo": "protocolo"
+  },
+  {
+   "chave": "sinais_vitais",
+   "fonte": "Triagem do atendimento (últimas 12 h)",
+   "refs": [
+    "Observation/cen6-sv3-fc",
+    "Observation/cen6-sv3-glicemia",
+    "Observation/cen6-sv3-pa"
+   ],
+   "severidade": "info",
+   "texto": "Não aferidos na triagem: saturação de oxigênio, temperatura.",
+   "tipo": "sinais_vitais"
+  }
+ ],
+ "linha_emocional": [
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 2
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 4
+  },
+  {
+   "emocoes": [
+    "preocupacao"
+   ],
+   "falante": "acompanhante",
+   "n": 5
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 7
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 9
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 11
+  },
+  {
+   "emocoes": [
+    "dor"
+   ],
+   "falante": "paciente",
+   "n": 13
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 15
+  },
+  {
+   "emocoes": [
+    "ansiedade"
+   ],
+   "falante": "paciente",
+   "n": 16
+  },
+  {
+   "emocoes": [
+    "preocupacao",
+    "confusao"
+   ],
+   "falante": "acompanhante",
+   "n": 18
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 20
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 22
+  },
+  {
+   "emocoes": [],
+   "falante": "paciente",
+   "n": 23
+  },
+  {
+   "emocoes": [
+    "confusao"
+   ],
+   "falante": "paciente",
+   "n": 26
+  },
+  {
+   "emocoes": [
+    "alivio"
+   ],
+   "falante": "paciente",
+   "n": 28
+  },
+  {
+   "emocoes": [],
+   "falante": "acompanhante",
+   "n": 29
+  },
+  {
+   "emocoes": [
+    "confianca"
+   ],
+   "falante": "paciente",
+   "n": 30
+  }
+ ],
+ "medicamentos": [
+  {
+   "desde": "15/11/2021",
+   "medicamento": "Metformina",
+   "observacao": null,
+   "posologia": "Metformina 850 mg VO 12/12h (08:00, 20:00)",
+   "refs": [
+    "MedicationRequest/cen6-rx-metformina-c1"
+   ],
+   "status": "em_uso"
+  },
+  {
+   "desde": "21/04/2026",
+   "medicamento": "Glibenclamida",
+   "observacao": null,
+   "posologia": "Glibenclamida 5 mg VO 12/12h (07:00, 19:00)",
+   "refs": [
+    "MedicationRequest/cen6-rx-glibenclamida-c2"
+   ],
+   "status": "em_uso"
+  },
+  {
+   "desde": "29/04/2021",
+   "medicamento": "Losartana",
+   "observacao": null,
+   "posologia": "Losartana 50 mg VO 1x/dia (08:00)",
+   "refs": [
+    "MedicationRequest/cen6-rx-losartana-c1"
+   ],
+   "status": "em_uso"
+  },
+  {
+   "desde": "21/07/2026",
+   "medicamento": "Hidroclorotiazida",
+   "observacao": "Substituiu Anlodipino 5 mg VO 1x/dia (08:00)",
+   "posologia": "Hidroclorotiazida 25 mg VO 1x/dia (08:00)",
+   "refs": [
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3"
+   ],
+   "status": "em_uso"
+  },
+  {
+   "desde": "11/11/2018",
+   "medicamento": "Sinvastatina",
+   "observacao": null,
+   "posologia": "Sinvastatina 20 mg VO 1x/dia (20:00)",
+   "refs": [
+    "MedicationRequest/cen6-rx-sinvastatina-c1"
+   ],
+   "status": "em_uso"
+  },
+  {
+   "desde": "11/09/2022",
+   "medicamento": "Anlodipino",
+   "observacao": "Suspenso em 21/07/2026: Edema de tornozelos",
+   "posologia": "Anlodipino 5 mg VO 1x/dia (08:00)",
+   "refs": [
+    "MedicationRequest/cen6-rx-anlodipino-c1"
+   ],
+   "status": "suspenso"
+  },
+  {
+   "desde": null,
+   "medicamento": "Ibuprofeno",
+   "observacao": "Uso por conta própria — confirmar dose e frequência e registrar.",
+   "posologia": "Relatado na consulta (sem prescrição no prontuário)",
+   "refs": [
+    "Fala/13"
+   ],
+   "status": "relatado"
+  }
+ ],
+ "modo": "regras",
+ "ocultos": 0,
+ "pedidos": [
+  {
+   "acao": "solicitar",
+   "atc": "",
+   "categoria": "imagem",
+   "chave": "ecg",
+   "checagens": [],
+   "decisao": {
+    "aviso": "",
+    "editado": false,
+    "em": null,
+    "estado": "pendente",
+    "justificativa": "",
+    "por": null
+   },
+   "dose": "",
+   "dose_anterior": "",
+   "duracao": "",
+   "duracao_dias": null,
+   "fonte_pedido": "protocolo",
+   "frequencia": "",
+   "gravidade": "info",
+   "id": "sug-ecg",
+   "item": "Eletrocardiograma",
+   "justificativa": "Protocolo Hipertensão — Eletrocardiograma (sem registro). Anual.",
+   "loinc": "11524-6",
+   "loinc_nome": "EKG study",
+   "origem": "regra",
+   "periodicidade": null,
+   "preparo": "Sem preparo; manter o tórax acessível.",
+   "prescricao_ref": "",
+   "refs": [
+    "Condition/cen6-dx-1"
+   ],
+   "tipo": "exame",
+   "via": ""
+  },
+  {
+   "acao": "solicitar",
+   "atc": "",
+   "categoria": "laboratorio",
+   "chave": "ferritina",
+   "checagens": [],
+   "decisao": {
+    "aviso": "",
+    "editado": false,
+    "em": null,
+    "estado": "pendente",
+    "justificativa": "",
+    "por": null
+   },
+   "dose": "",
+   "dose_anterior": "",
+   "duracao": "",
+   "duracao_dias": null,
+   "fonte_pedido": "hipotese",
+   "frequencia": "",
+   "gravidade": "info",
+   "id": "sug-ferritina",
+   "item": "Ferritina",
+   "justificativa": "Próximo passo de «Anemia da doença renal crônica» (D63.8).",
+   "loinc": "2276-4",
+   "loinc_nome": "Ferritin [Mass/volume] in Serum or Plasma",
+   "origem": "regra",
+   "periodicidade": null,
+   "preparo": "Jejum de 4 horas.",
+   "prescricao_ref": "",
+   "refs": [
+    "Observation/cen6-lab2-hemoglobina",
+    "Condition/cen6-dx-2",
+    "Fala/7"
+   ],
+   "tipo": "exame",
+   "via": ""
+  },
+  {
+   "acao": "solicitar",
+   "atc": "",
+   "categoria": "laboratorio",
+   "chave": "vitamina_b12",
+   "checagens": [],
+   "decisao": {
+    "aviso": "",
+    "editado": false,
+    "em": null,
+    "estado": "pendente",
+    "justificativa": "",
+    "por": null
+   },
+   "dose": "",
+   "dose_anterior": "",
+   "duracao": "",
+   "duracao_dias": null,
+   "fonte_pedido": "hipotese",
+   "frequencia": "",
+   "gravidade": "info",
+   "id": "sug-vitamina_b12",
+   "item": "Vitamina B12",
+   "justificativa": "Próximo passo de «Anemia» (D64.9).",
+   "loinc": "2132-9",
+   "loinc_nome": "Vitamin B12 [Mass/volume] in Serum or Plasma",
+   "origem": "regra",
+   "periodicidade": null,
+   "preparo": "Jejum de 8 horas.",
+   "prescricao_ref": "",
+   "refs": [
+    "Fala/7",
+    "Fala/2",
+    "Fala/4",
+    "Observation/cen6-lab2-hemoglobina"
+   ],
+   "tipo": "exame",
+   "via": ""
+  }
+ ],
+ "perguntas": [
+  {
+   "acao": "",
+   "discrimina": [
+    "Hipoglicemia induzida por sulfonilureia",
+    "Hipotensão ortostática por anti-hipertensivo/diurético"
+   ],
+   "fixado": false,
+   "fonte": "ESC 2018: diretriz de síncope",
+   "id": "q001",
+   "item_key": "",
+   "motivo": "Síncope ou queda mudam a urgência e a conduta.",
+   "origem": "regra",
+   "pergunta": "Já chegou a desmaiar, perder a consciência ou cair por causa da tontura?",
+   "primeira_fala": 0,
+   "prioridade": "alta",
+   "refs": [
+    "Fala/2",
+    "Fala/4"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [
+    "Hipoglicemia induzida por sulfonilureia"
+   ],
+   "fixado": false,
+   "fonte": "Diretriz da Sociedade Brasileira de Diabetes",
+   "id": "q005",
+   "item_key": "",
+   "motivo": "Confirma hipoglicemia (< 70 mg/dL) e a gravidade.",
+   "origem": "regra",
+   "pergunta": "Conseguiu medir a glicemia na hora do suor frio ou do tremor? Quanto deu?",
+   "primeira_fala": 0,
+   "prioridade": "alta",
+   "refs": [
+    "Fala/7"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "KDIGO 2024: doença renal crônica",
+   "id": "q011",
+   "item_key": "",
+   "motivo": "AINE com DRC, BRA e diurético piora a função renal.",
+   "origem": "regra",
+   "pergunta": "Está tomando algum remédio por conta própria para a dor, como anti-inflamatório?",
+   "primeira_fala": 0,
+   "prioridade": "alta",
+   "refs": [
+    "Fala/13"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "World Guidelines for Falls Prevention (Montero-Odasso et al., 2022)",
+   "id": "q023",
+   "item_key": "",
+   "motivo": "Queda em idoso/diabético exige avaliar trauma e medicações.",
+   "origem": "regra",
+   "pergunta": "Bateu a cabeça na queda? Está usando algum remédio que dá sono?",
+   "primeira_fala": 0,
+   "prioridade": "alta",
+   "refs": [
+    "Fala/5"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "KDIGO 2024: doença renal crônica",
+   "id": "q027:cen6-dx-2",
+   "item_key": "",
+   "motivo": "Nefrotóxicos pioram a doença renal crônica.",
+   "origem": "regra",
+   "pergunta": "Tem usado anti-inflamatório, chá ou suplemento sem orientação médica?",
+   "primeira_fala": 0,
+   "prioridade": "alta",
+   "refs": [
+    "Condition/cen6-dx-2"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [
+    "Hipotensão ortostática por anti-hipertensivo/diurético"
+   ],
+   "fixado": false,
+   "fonte": "Diretrizes Brasileiras de Hipertensão Arterial 2020 (SBC)",
+   "id": "q003",
+   "item_key": "",
+   "motivo": "Hipotensão ortostática com diurético/anti-hipertensivo.",
+   "origem": "regra",
+   "pergunta": "Mediu a pressão em pé e deitada (ou sentada) em casa?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/4"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica",
+   "id": "q008",
+   "item_key": "",
+   "motivo": "O padrão do cansaço separa causa clínica de sono, humor e anemia.",
+   "origem": "regra",
+   "pergunta": "Dorme bem e acorda descansada? O cansaço piorou nas últimas semanas ou veio de repente?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/7"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Diretriz da Sociedade Brasileira de Diabetes",
+   "id": "q009",
+   "item_key": "",
+   "motivo": "Hiperglicemia ou infecção urinária.",
+   "origem": "regra",
+   "pergunta": "Está com mais sede que o normal ou ardência ao urinar?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/15"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Diretriz de Avaliação Cardiovascular Perioperatória (SBC, 2017)",
+   "id": "q035",
+   "item_key": "",
+   "motivo": "Histórico anestésico para o pré-operatório.",
+   "origem": "regra",
+   "pergunta": "Já teve algum problema com anestesia em cirurgias anteriores?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "DocumentReference/cen6-doc2",
+    "Fala/23"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "World Guidelines for Falls Prevention (Montero-Odasso et al., 2022)",
+   "id": "q038",
+   "item_key": "",
+   "motivo": "Prevenção de quedas no domicílio.",
+   "origem": "regra",
+   "pergunta": "Tem tapetes soltos, escadas ou pouca luz em casa? Alguém ajuda à noite?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/5"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
+   "id": "q079:tontura",
+   "item_key": "",
+   "motivo": "A intensidade (0 a 10) permite acompanhar a evolução e decidir a conduta.",
+   "origem": "regra",
+   "pergunta": "Sobre tontura: de 0 a 10, qual a intensidade?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/2",
+    "Fala/4",
+    "Fala/5"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
+   "id": "q081:tontura",
+   "item_key": "",
+   "motivo": "Fatores de melhora ajudam a distinguir causas e mostram o que o paciente já tentou.",
+   "origem": "regra",
+   "pergunta": "Sobre tontura: o que alivia ou melhora (repouso, remédio, posição)?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/2",
+    "Fala/4",
+    "Fala/5"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
+   "id": "q082:tontura",
+   "item_key": "",
+   "motivo": "Frequência e duração dos episódios diferenciam causas e a gravidade.",
+   "origem": "regra",
+   "pergunta": "Sobre tontura: com que frequência acontece e quanto tempo dura cada vez?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/2",
+    "Fala/4",
+    "Fala/5"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
+   "id": "q078:queda",
+   "item_key": "",
+   "motivo": "Início e duração separam quadro agudo de crônico e orientam a urgência.",
+   "origem": "regra",
+   "pergunta": "Sobre queda ou quase queda: desde quando e como começou (de repente ou aos poucos)?",
+   "primeira_fala": 0,
+   "prioridade": "baixa",
+   "refs": [
+    "Fala/5",
+    "Fala/7",
+    "Fala/9"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
+   "id": "q078:cansaco",
+   "item_key": "",
+   "motivo": "Início e duração separam quadro agudo de crônico e orientam a urgência.",
+   "origem": "regra",
+   "pergunta": "Sobre cansaço: desde quando e como começou (de repente ou aos poucos)?",
+   "primeira_fala": 0,
+   "prioridade": "baixa",
+   "refs": [
+    "Fala/7",
+    "Fala/9",
+    "Fala/11"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  }
+ ],
+ "perguntas_abordadas": [
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
+   "id": "q078:tontura",
+   "item_key": "",
+   "motivo": "Início e duração separam quadro agudo de crônico e orientam a urgência.",
+   "origem": "regra",
+   "pergunta": "Sobre tontura: desde quando e como começou (de repente ou aos poucos)?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/3"
+   ],
+   "resposta": "Faz umas três semanas. Quando eu levanto da cama ou do sofá, tudo escurece e fico zonza.",
+   "resposta_refs": [
+    "Fala/4"
+   ]
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
+   "id": "q084:tontura",
+   "item_key": "",
+   "motivo": "Sintomas associados mudam a hipótese e podem indicar gravidade.",
+   "origem": "regra",
+   "pergunta": "Sobre tontura: sente mais alguma coisa junto (náusea, falta de ar, suor, febre)?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/6"
+   ],
+   "resposta": "Um cansaço, uma fraqueza... E às vezes, antes do almoço, me dá um suor frio e uma tremedeira.",
+   "resposta_refs": [
+    "Fala/7"
+   ]
+  },
+  {
+   "acao": "",
+   "discrimina": [
+    "Hipoglicemia induzida por sulfonilureia"
+   ],
+   "fixado": false,
+   "fonte": "Diretriz da Sociedade Brasileira de Diabetes",
+   "id": "q029:Glibenclamida",
+   "item_key": "",
+   "motivo": "Sulfonilureia sem refeição causa hipoglicemia.",
+   "origem": "regra",
+   "pergunta": "Toma a Glibenclamida mesmo nos dias em que pula ou atrasa uma refeição?",
+   "primeira_fala": 0,
+   "prioridade": "alta",
+   "refs": [
+    "Fala/8"
+   ],
+   "resposta": "Às vezes eu tomo o remédio do açúcar cedo e só como mais tarde, porque não tenho fome.",
+   "resposta_refs": [
+    "Fala/9"
+   ]
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Protocolo de Segurança na Prescrição, Uso e Administração de Medicamentos (MS/Anvisa/Fiocruz, 2013)",
+   "id": "q034:Penicilinas (amoxicilina)",
+   "item_key": "",
+   "motivo": "Alergias atualizadas evitam prescrição perigosa.",
+   "origem": "regra",
+   "pergunta": "Confirmando a alergia a Penicilinas (amoxicilina): a reação foi urticária e inchaço nos lábios? Teve reação a outro remédio ou alimento?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/19"
+   ],
+   "resposta": "Tenho alergia a camarão. Uma vez a minha boca inchou toda.",
+   "resposta_refs": [
+    "Fala/20"
+   ]
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Porto, Semiologia Médica",
+   "id": "q007",
+   "item_key": "",
+   "motivo": "Rastreia causa cardíaca, anemia e distúrbios eletrolíticos.",
+   "origem": "regra",
+   "pergunta": "O cansaço vem com falta de ar, inchaço nas pernas ou palpitação?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Fala/21"
+   ],
+   "resposta": "Não, dor no peito eu não tenho. Falta de ar também não.",
+   "resposta_refs": [
+    "Fala/22"
+   ]
+  }
+ ],
+ "protocolos": [
+  {
+   "item": "Hemoglobina glicada (HbA1c)",
+   "orientacao": "A cada 3–6 meses; meta individualizada (em geral < 7%).",
+   "protocolo": "Diabetes tipo 2",
+   "refs": [
+    "Condition/cen6-dx-0",
+    "Observation/cen6-lab2-hba1c"
+   ],
+   "status": "em_dia",
+   "ultimo": "10/10/2026: 7,1 % (fora da faixa)"
+  },
+  {
+   "item": "Creatinina e TFG estimada",
+   "orientacao": "Pelo menos 1x/ano (mais vezes se DRC).",
+   "protocolo": "Diabetes tipo 2",
+   "refs": [
+    "Condition/cen6-dx-0",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "status": "em_dia",
+   "ultimo": "10/10/2026: 1,5 mg/dL (fora da faixa)"
+  },
+  {
+   "item": "Albuminúria (relação albumina/creatinina)",
+   "orientacao": "Anual.",
+   "protocolo": "Diabetes tipo 2",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "status": "sem_registro",
+   "ultimo": null
+  },
+  {
+   "item": "Perfil lipídico (LDL)",
+   "orientacao": "Anual.",
+   "protocolo": "Diabetes tipo 2",
+   "refs": [
+    "Condition/cen6-dx-0",
+    "Observation/cen6-lab2-ldl"
+   ],
+   "status": "em_dia",
+   "ultimo": "10/10/2026: 96 mg/dL"
+  },
+  {
+   "item": "Exame dos pés (monofilamento)",
+   "orientacao": "Anual (mais vezes se risco).",
+   "protocolo": "Diabetes tipo 2",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "status": "sem_registro",
+   "ultimo": null
+  },
+  {
+   "item": "Avaliação oftalmológica (fundo de olho)",
+   "orientacao": "Anual.",
+   "protocolo": "Diabetes tipo 2",
+   "refs": [
+    "Condition/cen6-dx-0",
+    "DocumentReference/cen6-doc2"
+   ],
+   "status": "em_dia",
+   "ultimo": "21/07/2026 (evolução)"
+  },
+  {
+   "item": "Vacina contra influenza",
+   "orientacao": "Anual.",
+   "protocolo": "Diabetes tipo 2",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "status": "sem_registro",
+   "ultimo": null
+  },
+  {
+   "item": "PA no alvo na última medida",
+   "orientacao": "Alvo usual < 140/90 mmHg (< 130/80 em alto risco).",
+   "protocolo": "Hipertensão",
+   "refs": [
+    "Condition/cen6-dx-1",
+    "Observation/cen6-sv3-pa"
+   ],
+   "status": "no_alvo",
+   "ultimo": "20/10/2026: 118/72 mmHg"
+  },
+  {
+   "item": "Potássio",
+   "orientacao": "Anual e após iniciar/ajustar IECA, BRA ou diurético.",
+   "protocolo": "Hipertensão",
+   "refs": [
+    "Condition/cen6-dx-1",
+    "Observation/cen6-lab2-potassio"
+   ],
+   "status": "em_dia",
+   "ultimo": "10/10/2026: 5,3 mmol/L (fora da faixa)"
+  },
+  {
+   "item": "Eletrocardiograma",
+   "orientacao": "Anual.",
+   "protocolo": "Hipertensão",
+   "refs": [
+    "Condition/cen6-dx-1"
+   ],
+   "status": "sem_registro",
+   "ultimo": null
+  },
+  {
+   "item": "Creatinina e TFG estimada",
+   "orientacao": "A cada 3–6 meses no estágio 3.",
+   "protocolo": "Doença renal crônica",
+   "refs": [
+    "Condition/cen6-dx-2",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "status": "em_dia",
+   "ultimo": "10/10/2026: 1,5 mg/dL (fora da faixa)"
+  },
+  {
+   "item": "Potássio",
+   "orientacao": "A cada 3–6 meses.",
+   "protocolo": "Doença renal crônica",
+   "refs": [
+    "Condition/cen6-dx-2",
+    "Observation/cen6-lab2-potassio"
+   ],
+   "status": "em_dia",
+   "ultimo": "10/10/2026: 5,3 mmol/L (fora da faixa)"
+  },
+  {
+   "item": "Hemoglobina (anemia da DRC)",
+   "orientacao": "Anual no estágio 3.",
+   "protocolo": "Doença renal crônica",
+   "refs": [
+    "Condition/cen6-dx-2",
+    "Observation/cen6-lab2-hemoglobina"
+   ],
+   "status": "em_dia",
+   "ultimo": "10/10/2026: 11,6 g/dL (fora da faixa)"
+  }
+ ],
+ "queixas": [
+  {
+   "acao": "",
+   "detalhe": "3 sem · ao levantar",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/2",
+    "Fala/4"
+   ],
+   "rotulo": "Tontura",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/4"
+   ],
+   "rotulo": "Tontura ao levantar",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/5"
+   ],
+   "rotulo": "Queda ou quase queda",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "constante",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/7"
+   ],
+   "rotulo": "Cansaço",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "antes do almoço · às vezes",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/7"
+   ],
+   "rotulo": "Suor frio e tremor",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "constante",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/9"
+   ],
+   "rotulo": "Falta de apetite",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "forte · ao subir escada",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/13"
+   ],
+   "rotulo": "Dor no joelho",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "3 vezes à noite",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/15"
+   ],
+   "rotulo": "Urina à noite",
+   "status": "presente"
+  },
+  {
+   "acao": "",
+   "detalhe": "",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/22"
+   ],
+   "rotulo": "Dor no peito",
+   "status": "negado"
+  },
+  {
+   "acao": "",
+   "detalhe": "",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/22"
+   ],
+   "rotulo": "Falta de ar",
+   "status": "negado"
+  }
+ ],
+ "rcri": {
+  "cirurgia": "Ah, e o oftalmologista quer operar a catarata do olho direito. Posso operar com essa diabetes?",
+  "classe": "I",
+  "fonte": "Lee et al., Circulation 1999 (índice de risco cardíaco revisado, RCRI); taxas de eventos cardíacos maiores de Duceppe et al., Can J Cardiol 2017 (diretriz canadense de avaliação cardiovascular perioperatória)",
+  "interpretacao": "RCRI 0 pontos (classe I): cerca de 3,9% de risco de infarto, parada cardíaca ou morte cardíaca em 30 dias. Risco baixo: em geral não exige exame cardíaco adicional antes de cirurgia eletiva.",
+  "itens": [
+   {
+    "criterio": "Cirurgia de alto risco (intraperitoneal, intratorácica ou vascular suprainguinal)",
+    "evidencia": "Cirurgia planejada de baixo risco para o índice (nem intraperitoneal, nem intratorácica, nem vascular)",
+    "pontos": 0,
+    "presente": false,
+    "refs": [
+     "DocumentReference/cen6-doc2",
+     "Fala/23"
+    ],
+    "sem_dado": false
+   },
+   {
+    "criterio": "Cardiopatia isquêmica (infarto, angina ou revascularização)",
+    "evidencia": "Sem cardiopatia isquêmica no prontuário nem na conversa",
+    "pontos": 0,
+    "presente": false,
+    "refs": [],
+    "sem_dado": false
+   },
+   {
+    "criterio": "Insuficiência cardíaca",
+    "evidencia": "Sem insuficiência cardíaca no prontuário nem na conversa",
+    "pontos": 0,
+    "presente": false,
+    "refs": [],
+    "sem_dado": false
+   },
+   {
+    "criterio": "Doença cerebrovascular (AVC ou ataque isquêmico transitório)",
+    "evidencia": "Sem AVC ou AIT no prontuário nem na conversa",
+    "pontos": 0,
+    "presente": false,
+    "refs": [],
+    "sem_dado": false
+   },
+   {
+    "criterio": "Diabetes tratado com insulina",
+    "evidencia": "Diabetes mellitus tipo 2 (E11.9) no prontuário, sem insulina na prescrição ativa (não pontua)",
+    "pontos": 0,
+    "presente": false,
+    "refs": [
+     "Condition/cen6-dx-0",
+     "MedicationRequest/cen6-rx-metformina-c1",
+     "MedicationRequest/cen6-rx-glibenclamida-c2"
+    ],
+    "sem_dado": false
+   },
+   {
+    "criterio": "Creatinina acima de 2,0 mg/dL",
+    "evidencia": "Creatinina 1,5 mg/dL em 10/10/2026 (até 2,0: não pontua)",
+    "pontos": 0,
+    "presente": false,
+    "refs": [
+     "Observation/cen6-lab2-creatinina"
+    ],
+    "sem_dado": false
+   }
+  ],
+  "pontos": 0,
+  "refs": [
+   "DocumentReference/cen6-doc2",
+   "Fala/23",
+   "Condition/cen6-dx-0",
+   "MedicationRequest/cen6-rx-metformina-c1",
+   "MedicationRequest/cen6-rx-glibenclamida-c2",
+   "Observation/cen6-lab2-creatinina"
+  ],
+  "risco_pct": 3.9
+ },
+ "relatorio_cirurgico": null,
+ "resumo": {
+  "destaques": [
+   {
+    "acao": "",
+    "categoria": null,
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "MedicationRequest/cen6-rx-glibenclamida-c2",
+     "Observation/cen6-lab2-creatinina"
+    ],
+    "severidade": "critico",
+    "texto": "Glibenclamida: Evitar glibenclamida com função renal reduzida: risco de hipoglicemia prolongada. Considerar gliclazida com cautela ou outra classe (iDPP-4 com ajuste; iSGLT2 se a TFG permitir, com benefício renal) — decisão médica. (TFG estimada ~40 mL/min/1,73 m²)"
+   },
+   {
+    "acao": "",
+    "categoria": null,
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "Fala/13",
+     "Observation/cen6-lab2-creatinina"
+    ],
+    "severidade": "critico",
+    "texto": "Ibuprofeno: Evitar anti-inflamatório (AINE) na doença renal crônica: piora a função renal e eleva o potássio, sobretudo com IECA/BRA e diurético. Preferir paracetamol. (TFG estimada ~40 mL/min/1,73 m²)"
+   },
+   {
+    "acao": "",
+    "categoria": null,
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "MedicationRequest/cen6-rx-losartana-c1",
+     "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+     "Fala/13"
+    ],
+    "severidade": "critico",
+    "texto": "Tríplice ameaça renal: Losartana + Hidroclorotiazida + Ibuprofeno — risco alto de lesão renal aguda. Suspender o anti-inflamatório e repetir creatinina/potássio."
+   },
+   {
+    "acao": "",
+    "categoria": "sinal_vital",
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "Observation/cen6-sv3-glicemia"
+    ],
+    "severidade": "critico",
+    "texto": "Glicemia capilar 64 mg/dL na triagem (14:55), abaixo de 70: trate e reavalie agora."
+   },
+   {
+    "acao": "",
+    "categoria": null,
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "Observation/cen6-sv3-glicemia"
+    ],
+    "severidade": "atencao",
+    "texto": "Glicemia capilar (ponta do dedo): 64 mg/dL (20/10/2026)"
+   },
+   {
+    "acao": "",
+    "categoria": null,
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "Observation/cen6-lab2-potassio",
+     "Observation/cen6-lab1-potassio"
+    ],
+    "severidade": "atencao",
+    "texto": "Potássio: 5,3 mmol/L (10/10/2026)"
+   },
+   {
+    "acao": "",
+    "categoria": null,
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "Observation/cen6-lab2-sodio",
+     "Observation/cen6-lab1-sodio"
+    ],
+    "severidade": "atencao",
+    "texto": "Sódio: 131 mmol/L (10/10/2026)"
+   },
+   {
+    "acao": "",
+    "categoria": null,
+    "fixado": false,
+    "item_key": "",
+    "primeira_fala": 0,
+    "refs": [
+     "Fala/5"
+    ],
+    "severidade": "atencao",
+    "texto": "Relata: queda ou quase queda"
+   }
+  ],
+  "frases": [
+   {
+    "chave": "comorbidades",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Condition/cen6-dx-0",
+     "Condition/cen6-dx-1",
+     "Condition/cen6-dx-2",
+     "Condition/cen6-dx-3",
+     "Condition/cen6-dx-4",
+     "Observation/cen6-lab2-creatinina"
+    ],
+    "texto": "[PACIENTE], 60 anos, com diabetes mellitus tipo 2, hipertensão arterial sistêmica, doença renal crônica estágio 3, dislipidemia, obesidade (TFG estimada ~40 mL/min)"
+   },
+   {
+    "chave": "queixa:Tontura",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/2",
+     "Fala/4"
+    ],
+    "texto": "Queixa de tontura (3 sem · ao levantar)"
+   },
+   {
+    "chave": "queixa:Queda ou quase queda",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/5"
+    ],
+    "texto": "Queixa de queda ou quase queda"
+   },
+   {
+    "chave": "queixa:Cansaço",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/7"
+    ],
+    "texto": "Queixa de cansaço (constante)"
+   },
+   {
+    "chave": "queixa:Suor frio e tremor",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/7"
+    ],
+    "texto": "Queixa de suor frio e tremor (antes do almoço · às vezes)"
+   },
+   {
+    "chave": "queixas_outras",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/9",
+     "Fala/13",
+     "Fala/15"
+    ],
+    "texto": "Também relata falta de apetite, dor no joelho e urina à noite"
+   },
+   {
+    "chave": "nega",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/22"
+    ],
+    "texto": "Nega dor no peito e falta de ar"
+   },
+   {
+    "chave": "jejum:glibenclamida",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/9",
+     "Fala/11",
+     "Observation/cen6-sv3-glicemia",
+     "MedicationRequest/cen6-rx-glibenclamida-c2"
+    ],
+    "texto": "Toma glibenclamida em jejum ou sem comer em seguida: “Às vezes eu tomo o remédio do açúcar cedo e só como mais tarde, porque não tenho fome.”; “Não tomei, doutora. Tomei a glibenclamida e vim direto.”; glicemia capilar de hoje 64 mg/dL"
+   },
+   {
+    "chave": "uso:ibuprofeno",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/13"
+    ],
+    "texto": "Toma ibuprofeno por conta própria (sem prescrição no prontuário): “O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia…”"
+   },
+   {
+    "chave": "mudanca:hidroclorotiazida",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+     "Fala/26"
+    ],
+    "texto": "Mudança recente de medicamento: Hidroclorotiazida iniciado em 21/07/2026 (há 91 dias), no lugar de Anlodipino; relato: “Será que é o remédio novo da pressão? Comecei aquele diurético na última consulta.”"
+   },
+   {
+    "chave": "emocao:preocupacao:acompanhante",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/5",
+     "Fala/18"
+    ],
+    "texto": "Emoção principal (acompanhante): preocupação, “O que significa essa hemoglobina glicada? E o potássio alto é grave?”"
+   },
+   {
+    "chave": "exames",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Observation/cen6-sv3-glicemia",
+     "Observation/cen6-lab2-hba1c",
+     "Observation/cen6-lab2-glicose",
+     "Observation/cen6-lab2-creatinina"
+    ],
+    "texto": "Exames alterados: glicemia capilar (ponta do dedo) 64 mg/dL; hemoglobina glicada 7,1 %; glicose 118 mg/dL; creatinina 1,5 mg/dL"
+   },
+   {
+    "chave": "hipoteses",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/7",
+     "Observation/cen6-sv3-glicemia",
+     "Fala/4",
+     "Fala/2",
+     "Fala/13",
+     "MedicationRequest/cen6-rx-losartana-c1"
+    ],
+    "texto": "Hipóteses principais: hipoglicemia induzida por sulfonilureia; hipotensão ortostática por anti-hipertensivo/diurético; piora da função renal por aine (com bra e diurético)"
+   },
+   {
+    "chave": "plano",
+    "nova": false,
+    "origem": "regra",
+    "refs": [
+     "Fala/17",
+     "Fala/24",
+     "Fala/27"
+    ],
+    "texto": "Plano dito pelo médico: “Vamos olhar os exames juntas antes de decidir qualquer coisa.”; “Pode, sim, mas a gente precisa deixar a glicemia e a pressão bem controladas antes.”; “Vamos ajustar.”"
+   }
+  ],
+  "texto": "[PACIENTE], 60 anos, com diabetes mellitus tipo 2, hipertensão arterial sistêmica, doença renal crônica estágio 3, dislipidemia, obesidade (TFG estimada ~40 mL/min). Queixa de tontura (3 sem · ao levantar). Queixa de queda ou quase queda. Queixa de cansaço (constante). Queixa de suor frio e tremor (antes do almoço · às vezes). Também relata falta de apetite, dor no joelho e urina à noite. Nega dor no peito e falta de ar. Toma glibenclamida em jejum ou sem comer em seguida: “Às vezes eu tomo o remédio do açúcar cedo e só como mais tarde, porque não tenho fome.”; “Não tomei, doutora. Tomei a glibenclamida e vim direto.”; glicemia capilar de hoje 64 mg/dL. Toma ibuprofeno por conta própria (sem prescrição no prontuário): “O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia…”. Mudança recente de medicamento: Hidroclorotiazida iniciado em 21/07/2026 (há 91 dias), no lugar de Anlodipino; relato: “Será que é o remédio novo da pressão? Comecei aquele diurético na última consulta.”. Emoção principal (acompanhante): preocupação, “O que significa essa hemoglobina glicada? E o potássio alto é grave?”. Exames alterados: glicemia capilar (ponta do dedo) 64 mg/dL; hemoglobina glicada 7,1 %; glicose 118 mg/dL; creatinina 1,5 mg/dL. Hipóteses principais: hipoglicemia induzida por sulfonilureia; hipotensão ortostática por anti-hipertensivo/diurético; piora da função renal por aine (com bra e diurético). Plano dito pelo médico: “Vamos olhar os exames juntas antes de decidir qualquer coisa.”; “Pode, sim, mas a gente precisa deixar a glicemia e a pressão bem controladas antes.”; “Vamos ajustar.”."
+ },
+ "sugestoes_medicamentos": [
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "SBD: Diretrizes; KDIGO: Diabetes in CKD (2022)",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-glibenclamida-c2",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "severidade": "critico",
+   "texto": "Glibenclamida: Evitar glibenclamida com função renal reduzida: risco de hipoglicemia prolongada. Considerar gliclazida com cautela ou outra classe (iDPP-4 com ajuste; iSGLT2 se a TFG permitir, com benefício renal) — decisão médica. (TFG estimada ~40 mL/min/1,73 m²)",
+   "tipo": "suspender"
+  },
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "KDIGO: CKD guideline (2024); bulas dos AINE (ANVISA)",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/13",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "severidade": "critico",
+   "texto": "Ibuprofeno: Evitar anti-inflamatório (AINE) na doença renal crônica: piora a função renal e eleva o potássio, sobretudo com IECA/BRA e diurético. Preferir paracetamol. (TFG estimada ~40 mL/min/1,73 m²)",
+   "tipo": "suspender"
+  },
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "KDIGO: CKD guideline (2024); bulas dos AINE (ANVISA)",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-losartana-c1",
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+    "Fala/13"
+   ],
+   "severidade": "critico",
+   "texto": "Tríplice ameaça renal: Losartana + Hidroclorotiazida + Ibuprofeno — risco alto de lesão renal aguda. Suspender o anti-inflamatório e repetir creatinina/potássio.",
+   "tipo": "suspender"
+  },
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "Bula da metformina (ANVISA); KDIGO: Diabetes in CKD (2022)",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-metformina-c1",
+    "Observation/cen6-lab2-creatinina"
+   ],
+   "severidade": "atencao",
+   "texto": "Metformina: TFG 30–44: não iniciar; se já em uso, reduzir para no máximo 1.000 mg/dia e monitorar a função renal. (TFG estimada ~40 mL/min/1,73 m²)",
+   "tipo": "ajuste_dose"
+  },
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "KDIGO: CKD guideline (2024); bulas (ANVISA)",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-losartana-c1",
+    "Fala/13"
+   ],
+   "severidade": "atencao",
+   "texto": "Interação Losartana + Ibuprofeno: BRA + AINE: menor efeito anti-hipertensivo e risco de lesão renal. Evitar AINE ou monitorar função renal.",
+   "tipo": "interacao"
+  },
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "KDIGO: CKD guideline (2024); bulas (ANVISA)",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3",
+    "Fala/13"
+   ],
+   "severidade": "atencao",
+   "texto": "Interação Hidroclorotiazida + Ibuprofeno: Tiazídico + AINE: menor efeito anti-hipertensivo e risco renal. Evitar AINE; monitorar pressão e função renal.",
+   "tipo": "interacao"
+  },
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "Padrões de efeito adverso curados (adverse_patterns.csv)",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/2",
+    "Fala/4",
+    "Fala/26",
+    "MedicationRequest/cen6-rx-hidroclorotiazida-c3"
+   ],
+   "severidade": "atencao",
+   "texto": "Tontura após o início de Hidroclorotiazida em 21/07/2026 (sintoma há cerca de 21 dias): Tontura/hipotensão ortostática compatível com diurético tiazídico; Hiponatremia compatível com diurético tiazídico. Avaliar a relação temporal e considerar ajustar o medicamento.",
+   "tipo": "efeito_adverso"
+  },
+  {
+   "acao": "",
+   "fixado": false,
+   "fonte": "",
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "refs": [
+    "Fala/13"
+   ],
+   "severidade": "atencao",
+   "texto": "Ibuprofeno relatado na consulta e ausente da prescrição: registrar dose/frequência e avaliar.",
+   "tipo": "registrar"
+  }
+ ],
+ "tfg": 39.6,
+ "tipo": "consulta"
+}

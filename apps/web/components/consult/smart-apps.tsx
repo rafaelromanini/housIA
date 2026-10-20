@@ -36,8 +36,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { getSmartAppProfile, getSmartApps, saveSmartAppProfile } from "@/lib/api";
 import type {
   Anamnese,
+  AppResult,
   Conciliation,
   ConsultInsights,
   HypothesisDecision,
@@ -46,50 +48,42 @@ import type {
   QueixaDetalhada,
   Rcri,
   SemioField,
+  SmartAppTab,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type AppKey =
-  | "perguntas"
-  | "alertas"
-  | "lembretes"
-  | "queixas"
-  | "emocoes"
-  | "resumo"
-  | "hipoteses"
-  | "anamnese"
-  | "cirurgia"
-  | "medicamentos"
-  | "alergias"
-  | "historico"
-  | "exames"
-  | "protocolos"
-  | "pedidos";
+/** id de um Smart App do registro (GET /smart-apps); os de painel próprio têm o card escrito abaixo */
+type AppKey = string;
 
-const APPS: { key: AppKey; label: string; tab: TabKey }[] = [
-  { key: "perguntas", label: "Sugestão de perguntas", tab: "vivo" },
-  { key: "alertas", label: "Alertas de segurança", tab: "vivo" },
-  { key: "lembretes", label: "Lembretes", tab: "vivo" },
-  { key: "queixas", label: "Queixa principal", tab: "vivo" },
-  { key: "emocoes", label: "Análise multidimensional", tab: "vivo" },
-  { key: "resumo", label: "Sumarizador", tab: "vivo" },
-  { key: "hipoteses", label: "Hipóteses diagnósticas", tab: "raciocinio" },
-  { key: "anamnese", label: "Anamnese estruturada", tab: "raciocinio" },
-  { key: "cirurgia", label: "Cirurgia", tab: "raciocinio" },
-  { key: "medicamentos", label: "Histórico de medicamentos", tab: "medicamentos" },
-  { key: "alergias", label: "Alergias", tab: "medicamentos" },
-  { key: "historico", label: "Histórico médico", tab: "prontuario" },
-  { key: "exames", label: "Exames", tab: "prontuario" },
-  { key: "protocolos", label: "Protocolos (atenção primária)", tab: "prontuario" },
-  { key: "pedidos", label: "Pedidos em rascunho", tab: "pedidos" },
+/** Catálogo de reserva: vale só se o servidor não responder. A fonte de verdade é o registro (GET /smart-apps). */
+const FALLBACK_APPS: CatalogApp[] = [
+  { id: "perguntas", nome: "Sugestão de perguntas", aba: "vivo" },
+  { id: "alertas", nome: "Alertas de segurança", aba: "vivo" },
+  { id: "lembretes", nome: "Lembretes", aba: "vivo" },
+  { id: "queixas", nome: "Queixa principal", aba: "vivo" },
+  { id: "emocoes", nome: "Análise multidimensional", aba: "vivo" },
+  { id: "resumo", nome: "Sumarizador", aba: "vivo" },
+  { id: "hipoteses", nome: "Hipóteses diagnósticas", aba: "raciocinio" },
+  { id: "anamnese", nome: "Anamnese estruturada", aba: "raciocinio" },
+  { id: "cirurgia", nome: "Cirurgia", aba: "raciocinio" },
+  { id: "medicamentos", nome: "Histórico de medicamentos", aba: "medicamentos" },
+  { id: "alergias", nome: "Alergias", aba: "medicamentos" },
+  { id: "historico", nome: "Histórico médico", aba: "prontuario" },
+  { id: "exames", nome: "Exames", aba: "prontuario" },
+  { id: "protocolos", nome: "Protocolos (atenção primária)", aba: "prontuario" },
+  { id: "pedidos", nome: "Pedidos em rascunho", aba: "pedidos" },
 ];
+/** apps com card próprio (ações, semiologia, RCRI...); os demais são desenhados pelo tipo de card do manifest */
+const OWN_CARD = new Set(FALLBACK_APPS.map((a) => a.id));
 
-type TabKey = "vivo" | "raciocinio" | "medicamentos" | "prontuario" | "pedidos";
+type TabKey = SmartAppTab;
+type CatalogApp = { id: AppKey; nome: string; aba: TabKey };
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "vivo", label: "Ao vivo", short: "Ao vivo" },
   { key: "raciocinio", label: "Raciocínio clínico", short: "Raciocínio" },
   { key: "medicamentos", label: "Medicamentos e alergias", short: "Medicamentos" },
   { key: "prontuario", label: "Prontuário e exames", short: "Prontuário" },
+  { key: "transicao", label: "Transição de cuidado", short: "Transição" },
   { key: "pedidos", label: "Pedidos e receitas", short: "Pedidos" },
 ];
 const STORAGE = "housia.smartapps.ocultos";
@@ -282,31 +276,51 @@ export function SmartAppsPanel({
   const r = (t: string) => reidentify(t, patient.nome);
   const [tab, setTab] = useState<TabKey>("vivo");
   const [hidden, setHidden] = useState<Set<AppKey>>(new Set());
+  const [catalog, setCatalog] = useState<CatalogApp[]>(FALLBACK_APPS);
+  const specialty = ins.especialidade;
 
+  // catálogo e perfil vêm do servidor (valem em qualquer aparelho); o localStorage antigo é migrado uma única vez
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(STORAGE);
-      if (saved) setHidden(new Set(JSON.parse(saved) as AppKey[]));
-    } catch {
-      /* sem armazenamento local */
-    }
-  }, []);
+    let alive = true;
+    (async () => {
+      try {
+        const [list, profile] = await Promise.all([getSmartApps(specialty), getSmartAppProfile(specialty)]);
+        if (!alive) return;
+        setCatalog(list.map((a) => ({ id: a.id, nome: a.nome, aba: a.aba })));
+        let ocultos = profile.ocultos;
+        if (profile.origem === "padrao") {
+          try {
+            const saved = window.localStorage.getItem(STORAGE);
+            const legacy = saved ? (JSON.parse(saved) as string[]).filter((id) => list.some((a) => a.id === id)) : [];
+            if (legacy.length > 0) ocultos = (await saveSmartAppProfile(specialty, legacy)).ocultos;
+            window.localStorage.removeItem(STORAGE);
+          } catch {
+            /* sem armazenamento local */
+          }
+        }
+        if (alive) setHidden(new Set(ocultos));
+      } catch {
+        /* sem o servidor, o catálogo de reserva mostra tudo */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [specialty]);
 
   function toggle(key: AppKey) {
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      try {
-        window.localStorage.setItem(STORAGE, JSON.stringify([...next]));
-      } catch {
-        /* sem armazenamento local */
-      }
-      return next;
-    });
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setHidden(next);
+    saveSmartAppProfile(specialty, [...next]).catch(() => setHidden(hidden));
   }
 
-  const show = (key: AppKey) => !hidden.has(key) && APPS.find((a) => a.key === key)?.tab === tab;
+  const show = (key: AppKey) => !hidden.has(key) && catalog.find((a) => a.id === key)?.aba === tab;
+  // apps do registro sem card próprio: o servidor manda os itens e a tela desenha pelo tipo de card
+  const results = new Map((ins.apps ?? []).map((a) => [a.id, a]));
+  const generic = catalog.filter((a) => !OWN_CARD.has(a.id) && results.has(a.id));
+  const tabHasApps = (t: TabKey) => catalog.some((a) => a.aba === t && (OWN_CARD.has(a.id) || results.has(a.id)));
   const pid = patient.id;
 
   // uma pergunta sugerida: o texto, o motivo, o que ajuda a decidir, a diretriz de origem e a prioridade
@@ -339,7 +353,7 @@ export function SmartAppsPanel({
     <section aria-label="Smart Apps" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div role="tablist" aria-label="Grupos de Smart Apps" className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
-          {TABS.filter((t) => orders || t.key !== "pedidos").map((t) => (
+          {TABS.filter((t) => (orders || t.key !== "pedidos") && tabHasApps(t.key)).map((t) => (
             <button
               key={t.key}
               role="tab"
@@ -368,13 +382,15 @@ export function SmartAppsPanel({
             <Settings2 aria-hidden className="size-4" /> Smart Apps
           </summary>
           <div className="absolute right-0 z-20 mt-1 w-72 space-y-1 rounded-md border bg-card p-3 shadow-lg">
-            <p className="mb-1 text-xs text-muted-foreground">Escolha o que aparece durante a consulta.</p>
-            {APPS.map((a) => (
-              <label key={a.key} className="flex min-h-9 items-center gap-2 text-sm">
-                <Checkbox checked={!hidden.has(a.key)} onCheckedChange={() => toggle(a.key)} />
-                {a.label}
-              </label>
-            ))}
+            <p className="mb-1 text-xs text-muted-foreground">Escolha o que aparece durante a consulta. Fica salvo na sua conta, em qualquer aparelho.</p>
+            {catalog
+              .filter((a) => OWN_CARD.has(a.id) || results.has(a.id))
+              .map((a) => (
+                <label key={a.id} className="flex min-h-9 items-center gap-2 text-sm">
+                  <Checkbox checked={!hidden.has(a.id)} onCheckedChange={() => toggle(a.id)} />
+                  {a.nome}
+                </label>
+              ))}
           </div>
         </details>
       </div>
@@ -998,7 +1014,96 @@ export function SmartAppsPanel({
           <OrdersCard consultId={orders.consultId} orders={ins.pedidos ?? []} editable onInsights={orders.onInsights} />
         </AppCard>
       )}
+
+      {generic
+        .filter((a) => a.aba === tab && !hidden.has(a.id))
+        .map((a) => (
+          <GenericAppCard key={a.id} result={results.get(a.id) as AppResult} pid={pid} r={r} />
+        ))}
     </section>
+  );
+}
+
+const SEVERITY_BADGE = { critico: "critico", atencao: "atencao", info: "info", ok: "ok" } as const;
+const SEVERITY_LABEL = { critico: "Crítico", atencao: "Atenção", info: "Informação", ok: "Em ordem" } as const;
+
+/** Card genérico de um Smart App do registro: lista, tags, tabela ou linha do tempo, conforme o manifest. */
+function GenericAppCard({ result, pid, r }: { result: AppResult; pid: string; r: (t: string) => string }) {
+  const hint = `Regras sobre o prontuário · v${result.versao}${result.base_versao ? ` · base v${result.base_versao}` : ""}`;
+  const itens = result.itens;
+  return (
+    <AppCard title={result.nome} Icon={ListChecks} hint={hint} count={itens.length}>
+      {result.erro ? (
+        <p role="alert" className="text-sm text-critico">
+          {result.erro}
+        </p>
+      ) : itens.length === 0 ? (
+        <Empty>{result.vazio || "Nada a apontar por enquanto."}</Empty>
+      ) : result.card === "tabela" ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <caption className="sr-only">{result.nome}</caption>
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                {result.colunas.map((c) => (
+                  <th key={c} scope="col" className="px-2 py-1.5 font-bold">
+                    {c}
+                  </th>
+                ))}
+                <th scope="col" className="px-2 py-1.5 font-bold">
+                  Fonte
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {itens.map((i, n) => (
+                <tr key={`${i.texto}-${n}`} className="border-b last:border-0 align-top">
+                  {i.celulas.map((c, k) => (
+                    <td key={k} className="px-2 py-1.5">
+                      {result.colunas[k] === "Situação" ? (
+                        <Badge variant={SEVERITY_BADGE[i.severidade]} className="text-[11px]">
+                          <span className="sr-only">{SEVERITY_LABEL[i.severidade]}: </span>
+                          {r(c)}
+                        </Badge>
+                      ) : (
+                        r(c)
+                      )}
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5">
+                    <SourceRefs patientId={pid} refs={i.refs} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : result.card === "tags" ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {itens.map((i, n) => (
+            <li key={`${i.texto}-${n}`}>
+              <Badge variant={SEVERITY_BADGE[i.severidade]} className="min-h-9 text-sm">
+                {r(i.texto)}
+              </Badge>
+              <SourceRefs patientId={pid} refs={i.refs} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className={cn("space-y-2", result.card === "linha_do_tempo" && "border-l-2 pl-3")}>
+          {itens.map((i, n) => (
+            <li key={`${i.texto}-${n}`} className="flex gap-2 text-sm">
+              {i.severidade !== "ok" && <SeverityIcon severity={i.severidade} className="mt-0.5 size-4 shrink-0" />}
+              <span className="flex-1">
+                {i.quando && <span className="mr-1.5 text-xs font-bold text-primary">{i.quando}</span>}
+                <span className="font-bold">{r(i.texto)}</span> <SourceRefs patientId={pid} refs={i.refs} />
+                {i.detalhe && <span className="block text-xs text-muted-foreground">{r(i.detalhe)}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </AppCard>
   );
 }
 

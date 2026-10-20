@@ -103,9 +103,7 @@ exclusão pelo titular, rekey; migrações d401 e d402; verificado com esforço 
 (após o merge do #31) não teve o resumo capturado: rode-o primeiro. e2e ainda não rodados depois do #22 e do #31.
 
 1. **Confirmar pytest em 2a9f4bd e rodar os e2e** (stack: `scripts/sandbox-stack.sh up -d --build`).
-2. **#21 (Smart Apps como plug-ins, frente A, migração c2):** implementação parcial NÃO verificada em
-   `docs/paridade-lya/wip/21-implementacao-parcial.patch` (diff sobre 60780b6, 41 arquivos; aplicar com
-   `git apply --3way`). Terminar, verificar (esforço médio) e juntar.
+2. **#21 (Smart Apps como plug-ins):** feito e verificado (migração c201, cabeça do Alembic = c201 sobre d402).
 3. **#32 (frente B):** implementação parcial NÃO verificada em `docs/paridade-lya/wip/32-implementacao-parcial.patch`
    (diff sobre 9fc3504 = conteúdo de 2a9f4bd na frente B; migrações d403+). Terminar, verificar e juntar. Apagar a pasta
    wip no fim.

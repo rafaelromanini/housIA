@@ -606,6 +606,36 @@ class Reminder(BaseModel):
     fonte: str = ""
 
 
+class AppItem(BaseModel):
+    """Um item devolvido por um Smart App do registro (app/consult/apps): sempre com a fonte (refs)."""
+
+    texto: str
+    detalhe: str = ""
+    severidade: Literal["critico", "atencao", "info", "ok"] = "info"
+    refs: list[str] = []
+    tags: list[str] = []  # card "tags"
+    celulas: list[str] = []  # card "tabela": uma célula por coluna do manifest
+    quando: str | None = None  # card "linha_do_tempo": data ou rótulo de tempo
+    origem: Origin = "regra"
+
+
+class AppResult(BaseModel):
+    """Saída de um Smart App: o manifest (o que a tela precisa para desenhar) e os itens."""
+
+    id: str
+    nome: str
+    aba: str
+    card: Literal["lista", "tags", "tabela", "linha_do_tempo"]
+    camada: Literal["regra", "ia", "mista"] = "regra"
+    versao: str
+    base_versao: str = ""
+    colunas: list[str] = []
+    itens: list[AppItem] = []
+    vazio: str = ""  # texto do card quando não há itens
+    descartados: list[dict] = []  # itens sem referência válida (nunca chegam à tela)
+    erro: str = ""
+
+
 class Insights(BaseModel):
     tipo: ConsultKind
     especialidade: str
@@ -636,6 +666,7 @@ class Insights(BaseModel):
     descartados: list[dict] = []
     regras_ms: int | None = None  # tempo das regras na última fala (chip de latência da tela)
     ocultos: int = 0  # itens que o profissional descartou ou marcou como não se aplica
+    apps: list[AppResult] = []  # Smart Apps do registro; preenchido pelo serviço (o engine não o altera)
 
 
 # ---------- nota final ----------
