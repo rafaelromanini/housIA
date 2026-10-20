@@ -158,8 +158,16 @@ PRIORITY = {"alta": 0, "media": 1, "baixa": 2}
 RELATIVE_ALLERGY = re.compile(
     r"(?<!\w)(minha|meu|a|o|do|da) (mae|pai|irma|irmao|filha|filho|avo|avos|marido|esposa|tia|tio|neta|neto|sobrinha"
     r"|sobrinho|prima|primo|genro|nora|sogra|sogro|vizinha|vizinho|amiga|amigo)(?!\w)"
+    # parentes citados em espanhol e inglês (fala ainda sem tradução)
+    r"|(?<!\w)(mi|mis|su|sus|el|la|my|her|his|our) (madre|mama|padre|papa|hermana|hermano|hija|hijo|abuela|abuelo"
+    r"|esposo|esposa|marido|tia|tio|nieta|nieto|sobrina|sobrino|prima|primo|yerno|nuera|suegra|suegro|vecina|vecino"
+    r"|amiga|amigo|mother|mom|father|dad|sister|brother|daughter|son|wife|husband|aunt|uncle|grandmother|grandma"
+    r"|grandfather|grandpa|cousin|neighbou?r|friend)(?!\w)"
 )
-SELF_ALLERGY = re.compile(r"(?<!\w)(eu tambem|tambem tenho|eu tenho|eu sou|sou alergic|eu tb|comigo tambem)(?!\w)")
+SELF_ALLERGY = re.compile(
+    r"(?<!\w)(eu tambem|tambem tenho|eu tenho|eu sou|sou alergic|eu tb|comigo tambem"
+    r"|yo tambien|tambien soy|yo soy|soy alergic|yo tengo|i am allergic|i'?m allergic|i also|me too|so am i)(?!\w)"
+)
 HIGH_ALERT_SOURCE = "Lista de medicamentos potencialmente perigosos (high_alert_meds.csv; conceito do ISMP)"
 PLANNED_SUFFIX = " (a prescrever)"  # medicamento que o profissional disse que vai passar: ainda não está no prontuário
 MAX_HYPOTHESES = 8
@@ -1057,7 +1065,7 @@ class Engine:
         for s in self.patient_segments:
             for clause in self.norm[s.n].split("."):
                 # "não tenho alergia a dipirona", "alergia a dipirona não", "tem alergia a algum remédio" (pergunta)
-                if keyword_status(clause, ("alergi",), skip_questions=True) != "presente":
+                if keyword_status(clause, ("alergi", "allergi"), skip_questions=True) != "presente":
                     continue
                 if s.falante == "paciente" and RELATIVE_ALLERGY.search(clause) and not SELF_ALLERGY.search(clause):
                     continue  # "minha mãe tem alergia a sulfa" é da mãe, não do paciente

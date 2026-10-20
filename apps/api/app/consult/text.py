@@ -31,7 +31,7 @@ LIGHT_WORDS = set(
         "ha necessario necessaria necessidade indicacao "
         # espanhol e inglês (fala estrangeira sem tradução): auxiliares e artigos que não interrompem a negação
         "me te se el la los las en mi mis he has tengo tienes tiene tenido tuve tenia siento sentido estoy "
-        "i have had having do does did feel felt any my the an got am im ive"
+        "i have had having do does did feel felt any my the an got am im ive i'm i've soy es eres al lo su sus"
     ).split()
 )
 # "não vai ter que operar": o "que" de "ter que" não interrompe o alcance; "nada de dor no peito" é negativa

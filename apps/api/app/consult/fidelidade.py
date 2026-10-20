@@ -19,6 +19,9 @@ _EXTENSO = {
     "dois": "2", "duas": "2", "two": "2", "tres": "3", "three": "3", "quatro": "4", "cuatro": "4", "four": "4",
     "cinco": "5", "five": "5", "seis": "6", "six": "6", "sete": "7", "siete": "7", "seven": "7", "oito": "8",
     "ocho": "8", "eight": "8", "nove": "9", "nueve": "9", "nine": "9", "dez": "10", "diez": "10", "ten": "10",
+    "twice": "2", "vinte": "20", "veinte": "20", "twenty": "20", "trinta": "30", "treinta": "30", "thirty": "30",
+    "quarenta": "40", "cuarenta": "40", "forty": "40", "cinquenta": "50", "cincuenta": "50", "fifty": "50",
+    "quinhentos": "500", "quinientos": "500",
 }  # fmt: skip
 _EXTENSO_RE = re.compile(r"(?<!\w)(" + "|".join(_EXTENSO) + r")(?!\w)")
 # "dos" é o 2 do espanhol, mas em português é "de os": só conta diante de unidade de tempo ou de dose
@@ -26,6 +29,9 @@ _DOS = re.compile(r"(?<!\w)dos(?= (dias|horas|semanas|meses|anos|veces|pastillas
 
 
 def _valor(txt: str) -> str:
+    # "1.000 mg" (pt/es) e "1,000 mg" (en) são mil, não um: separador de milhar = 1 a 3 dígitos (sem zero à frente) + 3
+    if re.fullmatch(r"[1-9]\d{0,2}[.,]\d{3}", txt):
+        return txt[:-4] + txt[-3:]
     v = txt.replace(",", ".")
     if "." in v:
         v = v.rstrip("0").rstrip(".")
@@ -38,6 +44,17 @@ def numeros(texto: str) -> set[tuple[str, str]]:
     return {(_valor(m.group(1)), (m.group(2) or "").lower()) for m in NUMERO.finditer(t)}
 
 
+# nomes em inglês (ou grafias do espanhol) que não são o radical do nome em português do drugs.csv
+_ALIAS = {
+    "warfarin": "varfarina", "warfarina": "varfarina", "acetaminophen": "paracetamol", "acetaminofen": "paracetamol",
+    "aspirin": "aas", "dipyrone": "dipirona", "metamizol": "dipirona", "morphine": "morfina",
+    "simvastatin": "sinvastatina", "levothyroxine": "levotiroxina", "dexamethasone": "dexametasona",
+    "amoxicillin": "amoxicilina", "ampicillin": "ampicilina", "furosemide": "furosemida",
+    "spironolactone": "espironolactona", "hydrochlorothiazide": "hidroclorotiazida", "atorvastatin": "atorvastatina",
+    "rivaroxaban": "rivaroxabana", "apixaban": "apixabana", "enoxaparin": "enoxaparina", "gabapentin": "gabapentina",
+}  # fmt: skip
+
+
 @lru_cache
 def _radicais() -> tuple[tuple[str, str], ...]:
     """(radical, princípio ativo): 'losartan' acha 'losartana' (pt) e 'losartán' (es); 'metformin' acha o inglês."""
@@ -47,12 +64,29 @@ def _radicais() -> tuple[tuple[str, str], ...]:
             stem = name.rstrip("aeo")
             if len(stem) >= 6:
                 out.append((stem, ing))
+    out += [(alias, ing) for alias, ing in _ALIAS.items() if ing in drugs()]
     return tuple(out)
 
 
 def medicamentos(texto: str) -> set[str]:
     t = norm(texto)
     return {ing for stem, ing in _radicais() if re.search(rf"(?<!\w){re.escape(stem)}", t)}
+
+
+# período/frequência: "por día" → "por semana" ou "de noche" → "de dia" muda a posologia sem mudar nenhum número
+_PERIODOS = {
+    "dia": r"dias?|days?|diari[oa]s?|diariamente|daily",
+    "semana": r"semanas?|weeks?|semanal(?:mente)?|weekly",
+    "mes": r"mes(?:es)?|months?|mensal(?:mente)?|mensual(?:mente)?|monthly",
+    "hora": r"horas?|hours?|hourly",
+    "noite": r"noche|noite|night|nocturn[oa]|noturn[oa]",
+}
+_PERIODOS_RE = {k: re.compile(rf"(?<!\w)(?:{v})(?!\w)") for k, v in _PERIODOS.items()}
+
+
+def periodos(texto: str) -> set[str]:
+    t = norm(texto)
+    return {k for k, rx in _PERIODOS_RE.items() if rx.search(t)}
 
 
 def divergencias(original: str, traducao: str) -> list[str]:
@@ -72,4 +106,7 @@ def divergencias(original: str, traducao: str) -> list[str]:
     da, db = medicamentos(original), medicamentos(traducao)
     if da != db:
         out.append("medicamentos diferentes entre original e tradução: " + ", ".join(sorted(da ^ db)))
+    pa, pb = periodos(original), periodos(traducao)
+    if pa != pb:
+        out.append("período ou frequência diferente (dia, semana, mês, hora, noite): " + ", ".join(sorted(pa ^ pb)))
     return out

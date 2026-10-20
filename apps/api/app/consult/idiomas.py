@@ -92,10 +92,24 @@ _NEGA = {
 }
 
 
+# O chip de idioma segue o falante (paciente = idioma do cadastro), mas o acompanhante pode falar português: nesse caso
+# o "no" de "dor no peito" não é negação. Marcas inequívocas de português (e "ã/õ/ç") desligam a troca.
+_PT = re.compile(
+    r"(?<!\w)(nao|dor|dores|estou|tenho|minha|meu|sinto|ontem|voce|senhora|doutor|doutora|sim|muito|faz|ficou|passou"
+    r"|piorou|melhorou)(?!\w)"
+)
+
+
+def parece_portugues(texto: str) -> bool:
+    if re.search("[ãõç]", texto.lower()):
+        return True
+    return bool(_PT.search(normalize(texto)))
+
+
 def texto_para_regras(texto: str, idioma: str) -> str:
     """Texto que o motor lê numa fala estrangeira sem tradução; em pt-BR (ou outro idioma) devolve o texto como está."""
     base = (resolver(idioma) or idioma).split("-")[0]
     pattern = _NEGA.get(base)
-    if pattern is None:
+    if pattern is None or parece_portugues(texto):
         return texto
     return pattern.sub(" nao ", normalize(texto))
