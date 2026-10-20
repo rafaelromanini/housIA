@@ -217,7 +217,7 @@ Plano completo em [`docs/paridade-lya/backlog.json`](docs/paridade-lya/backlog.j
 CID-10 e diagnósticos diferenciais (#5, #6), pedidos e prescrições (#19), tradução (#22), privacidade (#31) e Smart Apps
 como plug-ins (#21), entre outros itens das Ondas 1 e 2.
 
-**Em andamento**: #32 (implementação parcial ainda não verificada).
+**Feito nesta etapa**: #32 (prontidão de produção: compose com Caddy, chart Helm, cookie httpOnly com CSRF, tela Ambiente).
 
 **O que falta**
 - **Resto da Onda 3**:
