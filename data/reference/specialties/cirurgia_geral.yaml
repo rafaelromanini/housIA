@@ -1,0 +1,18 @@
+id: cirurgia_geral
+ordem: 8
+rotulo: Cirurgia geral
+foco: indicação, achados, técnica, materiais (OPME), intercorrências e documentação para faturamento
+modelo_nota: consulta_clinica
+smart_apps:
+- cirurgia
+- alergias
+- medicamentos
+- exames
+- resumo
+escalas:
+- imc
+hipoteses_prioritarias:
+- K35.9
+- K80.2
+glossario: {}
+perguntas: []

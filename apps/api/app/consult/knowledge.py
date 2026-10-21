@@ -11,6 +11,7 @@ from functools import lru_cache
 import yaml
 
 from app.config import get_settings
+from app.consult import especialidades
 from app.reference import _read_csv
 
 
@@ -53,6 +54,21 @@ class QuestionDef:
     age_max: int | None = None
     sex: str = ""
     discriminates: tuple[str, ...] = ()  # CID-10 das hipóteses que a resposta ajuda a separar
+
+
+@dataclass(frozen=True)
+class PediatricDose:
+    """Faixa de dose pediátrica de um fármaco (pediatric_doses.csv): por kg, por dose e por dia, com a fonte."""
+
+    ingredient: str
+    kg_min: float  # mg/kg/dose
+    kg_max: float
+    interval_h: float  # intervalo mínimo entre doses
+    max_dose: float | None  # mg por dose, qualquer que seja o peso
+    max_kg_day: float | None  # mg/kg/dia
+    max_day: float | None  # mg/dia
+    age_max: int
+    source: str
 
 
 @dataclass(frozen=True)
@@ -207,6 +223,22 @@ def questions() -> tuple[QuestionDef, ...]:
                 _words(r.get("discrimina", "")),
             )
         )
+    for pack in especialidades.pacotes().values():  # perguntas extras do pacote da especialidade (#27)
+        for q in pack.perguntas:
+            out.append(
+                QuestionDef(
+                    q.id,
+                    "especialidade:*",
+                    q.pergunta,
+                    q.motivo,
+                    tuple(q.ja_perguntado),
+                    q.prioridade,
+                    pack.id,
+                    q.fonte,
+                    q.idade_min,
+                    q.idade_max,
+                )
+            )
     return tuple(out)
 
 
@@ -443,6 +475,29 @@ def dose_alerts() -> tuple[DoseAlertDef, ...]:
     )
 
 
+def _float(cell: str | None) -> float | None:
+    return float(cell) if cell not in (None, "") else None
+
+
+@lru_cache
+def pediatric_doses() -> dict[str, PediatricDose]:
+    """Doses pediátricas por peso (data/reference/pediatric_doses.csv), por princípio ativo de drugs.csv."""
+    return {
+        r["principio_ativo"]: PediatricDose(
+            r["principio_ativo"],
+            float(r["mg_kg_dose_min"]),
+            float(r["mg_kg_dose_max"]),
+            float(r["intervalo_h_min"]),
+            _float(r["max_mg_dose"]),
+            _float(r["max_mg_kg_dia"]),
+            _float(r["max_mg_dia"]),
+            int(r["idade_max_anos"]),
+            r["fonte"],
+        )
+        for r in _read_csv("pediatric_doses.csv")
+    }
+
+
 @lru_cache
 def protocols() -> tuple[ProtocolDef, ...]:
     return tuple(
@@ -569,34 +624,10 @@ def regression_corpus() -> dict:
         return json.load(fh)
 
 
-SPECIALTIES: dict[str, str] = {
-    "clinica_medica": "Clínica médica",
-    "cardiologia": "Cardiologia",
-    "endocrinologia": "Endocrinologia",
-    "geriatria": "Geriatria",
-    "urologia": "Urologia",
-    "pediatria": "Pediatria",
-    "enfermagem": "Consulta de enfermagem",
-    "cirurgia_geral": "Cirurgia geral",
-    "ortopedia": "Ortopedia e traumatologia",
-    "cirurgia_cardiovascular": "Cirurgia cardiovascular",
-    "cirurgia_oncologica": "Cirurgia oncológica",
-    "ginecologia_obstetricia": "Ginecologia e obstetrícia",
-    "cirurgia_vascular": "Cirurgia vascular",
-}
+SPECIALTIES: dict[str, str] = {k: p.rotulo for k, p in especialidades.pacotes().items()}
+SPECIALTY_FOCUS: dict[str, str] = {k: p.foco for k, p in especialidades.pacotes().items()}
 
-SPECIALTY_FOCUS: dict[str, str] = {
-    "clinica_medica": "visão integral: queixas, comorbidades, polifarmácia, prevenção e protocolos",
-    "cardiologia": "dor torácica, dispneia e classe funcional, edema, palpitações, pressão e risco cardiovascular",
-    "endocrinologia": "controle glicêmico, hipoglicemias, alimentação, atividade física, complicações e tireoide",
-    "geriatria": "quedas, cognição, funcionalidade, polifarmácia (critérios de Beers), humor, sono e rede de apoio",
-    "urologia": "sintomas do trato urinário inferior (IPSS), hematúria, incontinência, função renal e próstata",
-    "pediatria": "hidratação, alimentação, febre, vacinação e desenvolvimento; doses por peso",
-    "enfermagem": "autocuidado, técnica de uso de medicamentos, pele, eliminações, sono, alimentação e educação",
-    "cirurgia_geral": "indicação, achados, técnica, materiais (OPME), intercorrências e documentação para faturamento",
-    "ortopedia": "lateralidade, garrote, implantes e rastreabilidade, radioscopia (tempo, dose) e RX de controle",
-    "cirurgia_cardiovascular": "circulação extracorpórea, pinçamento aórtico, enxertos, cardioplegia e profilaxia",
-    "cirurgia_oncologica": "lateralidade, peça orientada, margens, linfonodos para estadiamento e reconstrução",
-    "ginecologia_obstetricia": "indicação da cesariana, nascimento e Apgar, dequitação, uterotônico e histerorrafia",
-    "cirurgia_vascular": "lateralidade, acesso e hemostasia da punção, contraste, stents e radioscopia",
-}
+
+def specialty_pack(specialty: str) -> especialidades.Pacote:
+    """Pacote da especialidade (KeyError se não existir: quem chama já validou contra SPECIALTIES)."""
+    return especialidades.pacotes()[specialty]

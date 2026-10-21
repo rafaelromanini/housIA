@@ -1,0 +1,42 @@
+id: urologia
+ordem: 5
+rotulo: Urologia
+foco: sintomas do trato urinário inferior (IPSS), hematúria, incontinência, função renal e próstata
+modelo_nota: urologia
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+escalas:
+- ipss
+- imc
+hipoteses_prioritarias:
+- N40
+- N39.0
+- N20.0
+- R33
+glossario:
+  xixi fraco: hipofluxo urinário
+  jato fraco: jato urinário fraco
+  pedra no rim: litíase renal
+  areia no rim: litíase renal
+  bexiga caida: cistocele
+  prostata inchada: hiperplasia prostática benigna
+  urina com sangue: hematúria
+  sangue na urina: hematúria
+perguntas:
+- id: pk_uro_01
+  pergunta: Se tivesse de passar o resto da vida com os sintomas urinários como estão hoje, como o senhor se sentiria?
+  motivo: 'Pergunta de qualidade de vida do IPSS (0 = encantado a 6 = péssimo): complementa a pontuação.'
+  ja_perguntado:
+  - resto da vida
+  - qualidade de vida
+  - incomoda
+  prioridade: baixa
+  fonte: International Prostate Symptom Score (IPSS)

@@ -1,0 +1,82 @@
+{
+  "id": "cen9",
+  "tag": "cenario-9",
+  "titulo": "Cenário 9 — Consulta pediátrica: febre e dor de ouvido em criança de 12 kg (dose por peso)",
+  "esperado": "Criança de 2 anos e 8 meses, 12 kg (Observation de peso), com febre, dor de ouvido e pouco xixi. No roteiro cen9_pediatria o médico fala 'amoxicilina 500 mg de 8 em 8 horas' (dose de adulto): a consulta alerta, antes da IA, dose acima do máximo por peso (41,7 mg/kg/dose e 125 mg/kg/dia) com a fonte (bula ANVISA e SBP). O pacote de pediatria traz perguntas de peso e de remédio dado em casa, e 'xixi' sai como 'diurese' na nota.",
+  "paciente": {
+    "nome": "Miguel Almeida Souza",
+    "sexo": "male",
+    "idade_dias": 975,
+    "cpf": "412.738.659-03",
+    "telefone": "(11) 97460-2281",
+    "endereco": "Rua das Acácias, 88, Vila Prudente, São Paulo - SP"
+  },
+  "ambulatorio": {
+    "servico": "Ambulatório de Pediatria",
+    "sala": "Consultório 5",
+    "profissional": "Dra. Lívia Barbosa",
+    "consultas": [
+      {
+        "id": "c1",
+        "inicio": "-120d1h",
+        "duracao": "25m",
+        "motivo": "Puericultura de 2 anos"
+      },
+      {
+        "id": "hoje",
+        "inicio": "-4m",
+        "status": "arrived",
+        "motivo": "Febre e dor de ouvido há 2 dias"
+      }
+    ]
+  },
+  "diagnosticos": [
+    {
+      "cid": "R06.2",
+      "texto": "Sibilância recorrente",
+      "principal": true,
+      "inicio": "-300d",
+      "registro": "-120d1h"
+    }
+  ],
+  "alergias": [],
+  "familiares": [
+    {
+      "nome": "Camila Almeida Souza",
+      "parentesco": "mãe",
+      "codigo": "MTH",
+      "cuidador": true,
+      "descricao": "mãe (acompanha nas consultas)",
+      "telefone": "(11) 97460-2290"
+    }
+  ],
+  "social": {
+    "moradores": 3
+  },
+  "prescricoes": [],
+  "sinais": [
+    {
+      "t": "-120d1h",
+      "peso": 11.2,
+      "fc": 104
+    },
+    {
+      "t": "-5m",
+      "peso": 12.0,
+      "temp": 38.4,
+      "fc": 126,
+      "fr": 28,
+      "spo2": 98
+    }
+  ],
+  "exames": [],
+  "procedimentos": [],
+  "evolucoes": [
+    {
+      "t": "-120d50m",
+      "tipo": "medica",
+      "autor": "Dra. Lívia Barbosa (Pediatria)",
+      "texto": "Puericultura aos 2 anos. Peso 11,2 kg, desenvolvimento adequado para a idade, vacinas em dia pela Caderneta da Criança. Orientada alimentação variada e consulta se sibilância."
+    }
+  ]
+}

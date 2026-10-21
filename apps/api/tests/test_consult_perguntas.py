@@ -106,7 +106,7 @@ def test_question_rows_are_consistent_with_the_other_bases():
     fields = set(knowledge.semiology().fields)
     for q in knowledge.questions():
         assert set(q.discriminates) <= cids, q.id
-        assert re.fullmatch(r"q\d{3}", q.id)
+        assert re.fullmatch(r"q\d{3}|pk_[a-z]+_\d{2}", q.id)  # CSV ou pacote de especialidade (#27)
         text = q.text.format(trat="a senhora", med="X", alergeno="Y", reacao="Z", queixa="tontura")
         assert "{" not in text
         kind, _, key = q.trigger.partition(":")

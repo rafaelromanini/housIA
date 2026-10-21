@@ -1,0 +1,19 @@
+id: cirurgia_cardiovascular
+ordem: 10
+rotulo: Cirurgia cardiovascular
+foco: circulação extracorpórea, pinçamento aórtico, enxertos, cardioplegia e profilaxia
+modelo_nota: consulta_clinica
+smart_apps:
+- cirurgia
+- alergias
+- medicamentos
+- exames
+- resumo
+escalas:
+- cha2ds2_vasc
+- nyha
+hipoteses_prioritarias:
+- I24.9
+- I50.9
+glossario: {}
+perguntas: []

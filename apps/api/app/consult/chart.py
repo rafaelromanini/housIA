@@ -90,10 +90,22 @@ class ChartView:
         items = [e for e in self.vitals.get(key, []) if self.now - e.timestamp <= timedelta(hours=max_hours)]
         return items[-1] if items else None
 
+    def weight_event(self) -> ClinicalEvent | None:
+        """Último peso utilizável (até 1 ano): ignora valor zerado, absurdo (fora de 0,3 a 400 kg) ou em unidade
+        desconhecida, que lidos como kg dariam dose errada; sem peso utilizável, a conferência por kg pede pesagem."""
+        items = [
+            e
+            for e in self.vitals.get("peso", [])
+            if (self.now - e.timestamp).days <= 365
+            and not e.value.get("unidade_invalida")
+            and 0.3 <= float(e.value["valor"]) <= 400
+        ]
+        return items[-1] if items else None
+
     def weight(self) -> tuple[float, str] | None:
         """Último peso registrado (kg) e a fonte, para conferir doses por peso."""
-        items = [e for e in self.vitals.get("peso", []) if (self.now - e.timestamp).days <= 365]
-        return (float(items[-1].value["valor"]), items[-1].source_ref) if items else None
+        e = self.weight_event()
+        return (float(e.value["valor"]), e.source_ref) if e else None
 
     @property
     def conditions(self) -> list[tuple[str, str, dict]]:

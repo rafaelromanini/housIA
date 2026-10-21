@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import cronologia, extract, idiomas, knowledge, orders, reminders, semiology, summary
+from app.consult import cronologia, dose_peso, extract, idiomas, knowledge, orders, reminders, semiology, summary
 from app.consult.chart import ChartView, fmt_date
 from app.consult.cid import screen
 from app.consult.schemas import (
@@ -739,7 +739,13 @@ class Engine:
                 )
             )
         rank = {"alta": 0, "media": 1, "baixa": 2}
-        out.sort(key=lambda h: (rank[h.confianca], -len(h.a_favor), len(h.contra)))
+        # o pacote da especialidade (#27) prioriza hipóteses típicas dela quando a confiança empata
+        first = (
+            set(knowledge.specialty_pack(self.specialty).hipoteses_prioritarias)
+            if self.specialty in knowledge.SPECIALTIES
+            else set()
+        )
+        out.sort(key=lambda h: (rank[h.confianca], h.cid not in first, -len(h.a_favor), len(h.contra)))
         return out[:MAX_HYPOTHESES]
 
     # ---------- Segurança de medicamentos ----------
@@ -981,6 +987,7 @@ class Engine:
                 )
             )
         out += self._allergy_alerts(self._allergy_matches(allergies, reported, planned))
+        out += dose_peso.alerts(self)  # criança: dose citada ou prescrita contra o último peso (mg/kg)
         out += self.adverse_effects(present or {})
         active = {m.ingredient for m in self.chart.active_meds}
         for ing, term, ref in reported:

@@ -1,0 +1,98 @@
+{
+ "patient_id": "cen9",
+ "tipo": "consulta",
+ "especialidade": "pediatria",
+ "titulo": "Otite média aguda em criança de 12 kg (dose de adulto no roteiro)",
+ "falas": [
+  {
+   "t": 0.0,
+   "falante": "medico",
+   "texto": "Bom dia! Pode entrar, mamãe. O que o Miguel tem hoje?"
+  },
+  {
+   "t": 5.3,
+   "falante": "acompanhante",
+   "texto": "Bom dia, doutora. Ele está com febre há dois dias e puxa a orelha direita, chora de dor, principalmente à noite."
+  },
+  {
+   "t": 10.6,
+   "falante": "medico",
+   "texto": "Qual foi a maior temperatura que a senhora mediu em casa?"
+  },
+  {
+   "t": 15.9,
+   "falante": "acompanhante",
+   "texto": "Trinta e nove. Eu dei dipirona gotas, e a febre cede mas volta em umas quatro horas."
+  },
+  {
+   "t": 21.2,
+   "falante": "medico",
+   "texto": "Quantas gotas a senhora deu, e de quanto em quanto tempo?"
+  },
+  {
+   "t": 26.5,
+   "falante": "acompanhante",
+   "texto": "Vinte gotas, de seis em seis horas. Ele pesa doze quilos, a pediatra pesou na última consulta."
+  },
+  {
+   "t": 31.8,
+   "falante": "medico",
+   "texto": "Está mamando bem, bebendo líquido e urinando normalmente?"
+  },
+  {
+   "t": 37.1,
+   "falante": "acompanhante",
+   "texto": "Está comendo pouco e bebendo pouco. Hoje ele fez pouco xixi, a fralda ficou quase seca de manhã."
+  },
+  {
+   "t": 42.4,
+   "falante": "medico",
+   "texto": "Tem tosse, coriza, vômito ou diarreia?"
+  },
+  {
+   "t": 47.7,
+   "falante": "acompanhante",
+   "texto": "Um pouco de coriza e tosse seca. Vômito e diarreia não tem."
+  },
+  {
+   "t": 53.0,
+   "falante": "medico",
+   "texto": "As vacinas estão em dia?"
+  },
+  {
+   "t": 58.3,
+   "falante": "acompanhante",
+   "texto": "Estão em dia, a caderneta está aqui."
+  },
+  {
+   "t": 63.6,
+   "falante": "medico",
+   "texto": "Ele tem alergia a algum remédio?"
+  },
+  {
+   "t": 68.9,
+   "falante": "acompanhante",
+   "texto": "Não, nunca teve alergia."
+  },
+  {
+   "t": 74.2,
+   "falante": "medico",
+   "texto": "Examinei o ouvido direito: membrana timpânica abaulada e avermelhada. É uma otite média aguda."
+  },
+  {
+   "t": 79.5,
+   "falante": "medico",
+   "texto": "Vou passar amoxicilina 500 mg de 8 em 8 horas por 7 dias."
+  },
+  {
+   "t": 84.8,
+   "falante": "acompanhante",
+   "texto": "Tá bom, doutora. E a febre, continuo com a dipirona?"
+  },
+  {
+   "t": 90.1,
+   "falante": "medico",
+   "texto": "Continua com a dipirona se tiver febre, no máximo de seis em seis horas. Se ele piorar, tiver muita prostração ou não urinar, volte logo."
+  }
+ ]
+}

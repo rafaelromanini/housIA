@@ -144,6 +144,12 @@ def _priority(urgent: bool) -> dict:
 
 
 class ScenarioBuilder:
+    def _birth_date(self, p: dict) -> str:
+        """`nascimento` fixo, ou `idade_dias` relativo à âncora (a criança do cenário não envelhece)."""
+        if "idade_dias" in p:
+            return (self.anchor - timedelta(days=int(p["idade_dias"]))).date().isoformat()
+        return p["nascimento"]
+
     def __init__(self, scenario: dict, anchor: datetime, locations: LocationRegistry):
         self.s = scenario
         self.sid: str = scenario["id"]
@@ -223,7 +229,7 @@ class ScenarioBuilder:
             "identifier": [{"system": codes.CPF, "value": p["cpf"]}],
             "name": [{"use": "official", "text": p["nome"], "family": parts[-1], "given": parts[:-1]}],
             "gender": p["sexo"],
-            "birthDate": p["nascimento"],
+            "birthDate": self._birth_date(p),
             "telecom": [{"system": "phone", "value": p["telefone"]}] if p.get("telefone") else [],
             "address": [{"text": p["endereco"]}] if p.get("endereco") else [],
         }

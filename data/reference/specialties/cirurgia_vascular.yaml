@@ -1,0 +1,18 @@
+id: cirurgia_vascular
+ordem: 13
+rotulo: Cirurgia vascular
+foco: lateralidade, acesso e hemostasia da punção, contraste, stents e radioscopia
+modelo_nota: consulta_clinica
+smart_apps:
+- cirurgia
+- alergias
+- medicamentos
+- exames
+- resumo
+escalas:
+- imc
+hipoteses_prioritarias:
+- I80.2
+- E11.5
+glossario: {}
+perguntas: []

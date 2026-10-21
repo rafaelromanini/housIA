@@ -17,6 +17,7 @@ from app.consult import (
     opme,
     perfis,
     privacidade,
+    scales,
     service,
     stt,
 )
@@ -48,7 +49,15 @@ def config(_: User = Depends(get_current_user)) -> dict:
         "aviso_consentimento": consentimento.NOTICES,
         "finalidades": [{"value": k, "label": v} for k, v in consentimento.PURPOSES.items()],
         "especialidades": [
-            {"value": k, "label": v, "foco": knowledge.SPECIALTY_FOCUS.get(k, ""), "cirurgica": k in surgical}
+            {
+                "value": k,
+                "label": v,
+                "foco": knowledge.SPECIALTY_FOCUS.get(k, ""),
+                "cirurgica": k in surgical,
+                "smart_apps": knowledge.specialty_pack(k).smart_apps,
+                "escalas": knowledge.specialty_pack(k).escalas,
+                "modelo_nota": knowledge.specialty_pack(k).modelo_nota,
+            }
             for k, v in knowledge.SPECIALTIES.items()
         ],
     }
@@ -230,6 +239,29 @@ def checklist(
 ) -> dict:
     """Cirurgia Segura (OMS) por botão: sign-in, time-out ou sign-out (o ditado também marca, por voz)."""
     return service.mark_checklist(db, fhir, user, cid, body.etapa, body.feito)
+
+
+class ScaleIn(BaseModel):
+    respostas: dict[str, str | int | float] = Field(..., min_length=1, max_length=40)
+
+
+@router.put("/consultations/{cid}/escalas/{escala}")
+def scale_answers(
+    cid: int,
+    escala: str,
+    body: ScaleIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Respostas de uma escala (IPSS, PHQ-9, GAD-7, Morse, Braden, IVCF-20, NYHA ou IMC): o servidor soma os pontos."""
+    return service.save_scale(db, fhir, user, cid, escala, body.respostas)
+
+
+@router.get("/escalas")
+def scale_catalog(_: User = Depends(clinician)) -> list[dict]:
+    """Escalas disponíveis, com itens, opções e fonte (a tela monta o formulário por aqui)."""
+    return scales.catalogo()
 
 
 class MainComplaintIn(BaseModel):
