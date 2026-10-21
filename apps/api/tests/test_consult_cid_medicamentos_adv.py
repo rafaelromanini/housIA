@@ -19,9 +19,9 @@ def cids(*codes: str, tipo: str = "hipotese") -> list[CidSuggestion]:
 
 # ---------- CID: o caminho "confiável" ----------
 def test_trusted_path_only_lets_through_codes_the_professional_registered_in_the_chart():
-    kept, dropped = screen(cids("N18.3", "n183", "J99.9", "K35.8"), "cids", trusted=frozenset({"N18.3"}))
+    kept, dropped = screen(cids("N18.3", "n183", "J99.9", "K35.5"), "cids", trusted=frozenset({"N18.3"}))
     assert [c.codigo for c in kept] == ["N18.3", "N18.3"]  # normalizado, e só o que consta no prontuário
-    assert {d["cid"] for d in dropped} == {"J99.9", "K35.8"}
+    assert {d["cid"] for d in dropped} == {"J99.9", "K35.5"}
 
 
 def test_malformed_chart_code_does_not_open_the_trusted_path_to_garbage(record, monkeypatch):
@@ -50,11 +50,11 @@ def test_malformed_chart_code_does_not_open_the_trusted_path_to_garbage(record, 
 
 
 def test_ai_cannot_invent_the_seed_codes_it_is_not_registered_for(record):
-    """N18.3 só passa quando o profissional o registrou (o cen6 registrou); K35.8 não consta em lugar nenhum."""
+    """N18.3 só passa quando o profissional o registrou (o cen6 registrou); K35.5 não existe em tabela alguma."""
     e = cen6_engine(record, [("paciente", "Doutora, estou com tontura.")])
-    assert "N18.3" in e.chart.icd_codes and "K35.8" not in e.chart.icd_codes
-    kept, dropped = screen(cids("N18.3", "K35.8"), "cids", trusted=e.chart.icd_codes)
-    assert [c.codigo for c in kept] == ["N18.3"] and [d["cid"] for d in dropped] == ["K35.8"]
+    assert "N18.3" in e.chart.icd_codes and "K35.5" not in e.chart.icd_codes
+    kept, dropped = screen(cids("N18.3", "K35.5"), "cids", trusted=e.chart.icd_codes)
+    assert [c.codigo for c in kept] == ["N18.3"] and [d["cid"] for d in dropped] == ["K35.5"]
 
 
 def test_cid_descriptions_of_the_two_bronchitis_codes_are_not_swapped():

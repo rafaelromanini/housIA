@@ -84,7 +84,8 @@ def cid10() -> dict[str, Cid10Entry]:
 
     Montada por scripts/build_cid10.py a partir dos arquivos públicos do DATASUS.
     """
-    return {r["codigo"]: Cid10Entry(r["codigo"], r["descricao"], r["tipo"], r["sexo"]) for r in _read_csv("cid10.csv")}
+    rows = _read_csv("cid10.csv") + _read_csv("cid10_revisoes_oms.csv")  # K35.2, K35.3 e K35.8 vêm das revisões da OMS
+    return {r["codigo"]: Cid10Entry(r["codigo"], r["descricao"], r["tipo"], r["sexo"]) for r in rows}
 
 
 def norm_icd(code: str | None) -> str:

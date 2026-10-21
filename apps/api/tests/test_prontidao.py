@@ -141,6 +141,8 @@ def test_logout_apaga_a_sessao(client):
 
 def test_cookie_de_outro_usuario_adulterado_e_recusado(client):
     _entrar(client)
+    # troca o cookie da sessão (sem limpar, o jar fica com dois e a ordem de envio varia)
+    client.cookies.clear()
     client.cookies.set("housia_session", "eyJ.adulterado.x")
     assert client.get("/auth/me").status_code == 401
 

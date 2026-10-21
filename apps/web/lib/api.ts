@@ -996,6 +996,23 @@ export interface CidSuggestion {
   descricao: string;
   tipo: "principal" | "secundario" | "hipotese";
   refs: string[];
+  /** a fala (ou o registro do prontuário) que justifica o código; some no expurgo da conversa */
+  frase?: string;
+  /** códigos mais específicos que o ditado sustenta, cada um com a frase */
+  mais_especificos?: { codigo: string; descricao: string; frase: string; refs: string[] }[];
+  /** o que falta para fechar a especificidade */
+  lacunas?: string[];
+  /** CIAP-2 mapeado (APS), ex.: "K86 Hipertensão sem complicações" */
+  ciap2?: string;
+}
+export interface ProcedimentoSus {
+  codigo: string;
+  descricao: string;
+  compativel: boolean;
+  motivo: string;
+  competencia: string;
+  fonte: string;
+  refs: string[];
 }
 export interface SurgicalTemplateInfo {
   id: string;
@@ -1031,6 +1048,7 @@ export interface SurgicalReport {
   opme: OpmeLine[];
   pendencias: Highlight[];
   cids: CidSuggestion[];
+  procedimento_sus?: ProcedimentoSus | null;
   modelo?: SurgicalTemplateInfo | null;
   agendado?: { procedimento: string; sitio: string | null; lado: string | null; refs: string[] } | null;
   verificacoes?: SafetyCheck[];

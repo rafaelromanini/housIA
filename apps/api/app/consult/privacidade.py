@@ -96,7 +96,7 @@ def _scrub_quotes(node, texts: list[str]):
 
 
 def _scrub_extra(extra: dict, texts: list[str]) -> dict:
-    out = {k: (v if k in KEEP_IN_EXTRA else _scrub_quotes(v, texts)) for k, v in extra.items()}
+    out = {k: _scrub_frases(v if k in KEEP_IN_EXTRA else _scrub_quotes(v, texts)) for k, v in extra.items()}
     cop = out.get("copiloto")
     if isinstance(cop, dict):  # a pergunta é texto livre sobre a conversa; as respostas já passaram pelo scrub
         out["copiloto"] = cop | {
@@ -109,6 +109,19 @@ def _reference_date(c: Consultation):
     if c.sent_at:
         return c.sent_at
     return c.finished_at if c.status in ("finalizada", "enviada") else None
+
+
+def _scrub_frases(obj):
+    """A frase literal que justifica um CID (#18) é cópia da fala: sai no expurgo; código e refs (com hash) ficam."""
+    if isinstance(obj, list):
+        return [_scrub_frases(x) for x in obj]
+    if isinstance(obj, dict):
+        out = {k: _scrub_frases(v) for k, v in obj.items()}
+        frase = out.get("frase")
+        if isinstance(frase, str) and frase and not frase.startswith("Prontuário:"):  # "Prontuário:" não é fala
+            out["frase"] = ""
+        return out
+    return obj
 
 
 def purge_consultation(db: Session, c: Consultation, days: int) -> None:
@@ -136,14 +149,16 @@ def purge_consultation(db: Session, c: Consultation, days: int) -> None:
             }
         )
     c.segments_json = segments
-    c.insights_json = _scrub_quotes(c.insights_json, texts) if c.insights_json else c.insights_json
+    if c.note_json:
+        c.note_json = _scrub_frases(c.note_json)
+    c.insights_json = _scrub_frases(_scrub_quotes(c.insights_json, texts)) if c.insights_json else c.insights_json
     if c.note_meta_json:  # "fora" lista falas inteiras; o rascunho da IA espelha a nota, que fica
         c.note_meta_json = {
-            k: v if k == "rascunho_ia" else _scrub_quotes(v, texts) for k, v in c.note_meta_json.items()
+            k: _scrub_frases(v if k == "rascunho_ia" else _scrub_quotes(v, texts)) for k, v in c.note_meta_json.items()
         }
     meta = dict(c.ai_meta_json or {})
     meta.pop("saida", None)
-    c.ai_meta_json = _scrub_quotes(meta, texts) or None
+    c.ai_meta_json = _scrub_frases(_scrub_quotes(meta, texts)) or None
     c.extra_json = _scrub_extra(c.extra_json or {}, texts) | {
         "expurgada_em": clock.now().isoformat(),
         "falas_hash": hashes,

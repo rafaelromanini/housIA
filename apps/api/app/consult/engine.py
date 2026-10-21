@@ -11,6 +11,7 @@ import re
 from datetime import datetime
 
 from app.consult import (
+    coding,
     cronologia,
     dose_peso,
     encaminhamento,
@@ -1355,6 +1356,8 @@ class Engine:
             report.cids, self.dropped = screen(
                 report.cids, "cids", self.r.sex, primary=lambda c: c.tipo != "secundario", trusted=self.chart.icd_codes
             )
+            report.cids = coding.enrich(report.cids, self.segments, self.chart)
+            coding.attach_sigtap(report, self.r.sex, self.r.age)
             return Insights(
                 tipo="cirurgia",
                 especialidade=self.specialty,
@@ -1399,6 +1402,11 @@ class Engine:
         alerts = sorted(
             [*self.translation_alerts(), *self.protocol_alerts(protocols), *alerts],
             key=lambda h: SEVERITY[h.severidade],
+        )
+        alerts += coding.compat_alerts(  # diagnóstico do prontuário que não combina com o sexo ou a idade do paciente
+            [(icd, label, [f"Condition/{c['id']}"]) for icd, label, c in self.chart.conditions if icd],
+            self.r.sex,
+            self.r.age,
         )
         return Insights(
             tipo=self.kind,

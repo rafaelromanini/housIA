@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult import acoes, cronologia, glossario, idiomas, notas, note_templates
+from app.consult import acoes, coding, cronologia, glossario, idiomas, notas, note_templates
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -833,10 +833,10 @@ def mock_note(engine: Engine, ins: Insights, language: str) -> dict:
     plan = [m for m in ins.sugestoes_medicamentos if m.severidade in ("critico", "atencao") and m.acao != "aceitar"]
     planned_meds = [m for m in ins.medicamentos if m.status == "planejado"]
     pending_protocol = [p for p in ins.protocolos if p.status in ("sem_registro", "pendente")]
+    # secundário = comorbidade citada na consulta ou que muda a conduta (#18); as demais ficam só no prontuário
     cids = [{"codigo": h.cid, "descricao": h.hipotese, "tipo": "hipotese", "refs": h.refs[:3]} for h in hyps] + [
-        {"codigo": icd, "descricao": text, "tipo": "secundario", "refs": [f"Condition/{c['id']}"]}
-        for icd, text, c in engine.chart.conditions
-        if icd
+        s.model_dump(include={"codigo", "descricao", "tipo", "refs"})
+        for s in coding.secondaries(engine.chart, ins, engine.segments, {h.cid[:3] for h in hyps})
     ]
     events = engine.timeline_events(ins)
     chrono = [{k: e[k] for k in ("quando", "texto", "refs", "tipo", "falante")} for e in events]
@@ -1042,12 +1042,27 @@ def run_note(
         trusted=engine.chart.icd_codes,
     )
     v.dropped += bad_cids
+    # só é secundária a comorbidade citada ou que muda a conduta; cada código leva frase, especificidade e CIAP-2 (APS)
+    hyp_prefixes = {h.cid[:3] for h in ins.hipoteses}
+    note.cids, bad_secondary = coding.drop_unsupported_secondaries(
+        note.cids, coding.allowed_secondary(engine.chart, ins, engine.segments, hyp_prefixes)
+    )
+    v.dropped += bad_secondary
+    note.cids = coding.enrich(
+        note.cids, engine.segments, engine.chart, ciap=any(s.key == "ciap2" for s in template.secoes)
+    )
     note.cronologia = [c for c in note.cronologia if c.refs and all(r in valid for r in c.refs)]
     by_n = {s.n: s for s in engine.segments}
     for c in note.cronologia:  # o falante vem da fala citada, não do que o LLM escreveu
         first = by_n.get(int(c.refs[0].split("/")[1])) if c.refs[0].startswith("Fala/") else None
         c.falante = first.falante if first else None
     note.pendencias = v.keep(note.pendencias, "pendencias")
+    for alert in coding.compat_alerts(
+        [(c.codigo, c.descricao, c.refs) for c in note.cids], engine.r.sex, engine.r.age
+    ):  # CID que não combina com o sexo ou a idade do paciente (registro do prontuário, edição ou IA)
+        note.pendencias.append(
+            NoteSection(texto=alert.texto, refs=alert.refs, frases=notas.derive(alert.texto, alert.refs))
+        )
     return note, result, v.dropped
 
 
@@ -1137,9 +1152,10 @@ def run_surgical(engine: Engine, ins: Insights, pseudo: Pseudonymizer, valid: se
         trusted=engine.chart.icd_codes,
     )
     v.dropped += bad_cids
-    cids = proposed or report.cids
+    cids = coding.enrich(proposed or report.cids, engine.segments, engine.chart)
     out = ins.model_copy(deep=True)
     out.relatorio_cirurgico = report.model_copy(update={"campos": new_fields, "cids": cids})
+    coding.attach_sigtap(out.relatorio_cirurgico, engine.r.sex, engine.r.age)
     out.modo = "ia" if result.mode == "real" else "regras"
     out.descartados = v.dropped
     return out, result

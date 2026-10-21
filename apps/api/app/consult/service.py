@@ -22,6 +22,7 @@ from app.consult import (
     ai,
     antiglosa,
     apps,
+    coding,
     consentimento,
     consultorio,
     encaminhamento,
@@ -1640,7 +1641,10 @@ def update_note(db: Session, user: User, cid: int, note: dict, fhir: FhirSource 
                 )
             }
             report, changes = _review_opme(c, report)
-            note = note | {"relatorio_cirurgico": report}
+            sus = SurgicalReport.model_validate(report)
+            patient = _chart(fhir, c.patient_id)[0] if fhir is not None else None
+            coding.attach_sigtap(sus, sex, patient.age if patient else None)
+            note = note | {"relatorio_cirurgico": sus.model_dump(mode="json")}
         else:
             ConsultNote.model_validate(note)
             # o modelo da nota é o que o servidor guarda (só muda por PUT /note-template); as seções obrigatórias
@@ -1735,6 +1739,11 @@ def switch_note_template(db: Session, fhir: FhirSource, user: User, cid: int, te
     filled = {s["key"] for s in note["secoes"] if not note_templates.is_empty(s["texto"])}
     news = note_templates.fill_dynamic(tpl, engine, ins, only={s.key for s in tpl.secoes} - filled)
     model = note_templates.snapshot(tpl)
+    if any(s.key == "ciap2" for s in tpl.secoes):  # APS: cada CID da nota passa a mostrar o CIAP-2 mapeado
+        note["cids"] = [
+            c | {"ciap2": f"{row['ciap2']} {row['descricao']}" if (row := coding.ciap2_for(c["codigo"])) else ""}
+            for c in note.get("cids", [])
+        ]
     kept = [s for s in note["secoes"] if s["key"] in filled]
     note = note | {"modelo": model, "secoes": note_templates.complete_sections(kept + news, model)}
     previous = c.note_json
@@ -1755,7 +1764,7 @@ def switch_note_template(db: Session, fhir: FhirSource, user: User, cid: int, te
     return out(c)
 
 
-def recompute_surgical(db: Session, user: User, cid: int, note: dict) -> dict:
+def recompute_surgical(db: Session, user: User, cid: int, note: dict, fhir: FhirSource | None = None) -> dict:
     """Recalcula o relatório cirúrgico editado (ainda não salvo): OPME conferido com guia, fala e etiquetas, pendências
     de campo obrigatório e de OPME, e a prontidão para faturamento. Não grava nada: a revisão grava ao salvar."""
     c = _get(db, cid)
@@ -1783,6 +1792,8 @@ def recompute_surgical(db: Session, user: User, cid: int, note: dict) -> dict:
     ]
     kept.sort(key=lambda h: {"critico": 0, "atencao": 1, "info": 2}[h["severidade"]])
     model = SurgicalReport.model_validate(report | {"pendencias": kept})
+    patient = _chart(fhir, c.patient_id)[0] if fhir is not None else None
+    coding.attach_sigtap(model, patient.sex if patient else "", patient.age if patient else None)
     model.prontidao = antiglosa.evaluate(model, segments=_segments(c), **billing_params(c.extra_json or {}))
     return {"relatorio_cirurgico": model.model_dump(mode="json")}
 
