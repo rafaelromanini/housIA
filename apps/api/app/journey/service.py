@@ -132,6 +132,7 @@ def worklist(
     now = clock.now()
     facts = load_facts(db, now)
     if patient_id:
+        avulso.ensure_visible(db, patient_id)  # id vindo da query não passa pela guarda de caminho
         patient_ids = [load_record(fhir, patient_id).id]
     else:
         confirmed = {pid for pid, rows in facts.assessments.items() if any(a.confirmed_at for a in rows)}
@@ -210,6 +211,7 @@ def create_task(
     """Cria a tarefa a partir do item que está na lista agora (o texto e as fontes vêm do servidor, não do cliente)."""
     if rule not in reference.config()["regras"]:
         raise HTTPException(422, "Regra desconhecida.")
+    avulso.ensure_visible(db, patient_id)  # id vindo do corpo não passa pela guarda de caminho
     now = clock.now()
     facts = load_facts(db, now)
     record = load_record(fhir, patient_id)

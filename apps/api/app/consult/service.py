@@ -324,7 +324,7 @@ def _consent_record(fhir: FhirSource, user: User, patient_id: str, record: Patie
     when = clock.now().isoformat()
     resource = consentimento.build_consent(patient_id, cons, who_name, when)
     ref = None
-    if get_settings().ehr_writeback:
+    if get_settings().ehr_writeback and not body.sandbox:  # sandbox nunca grava no FHIR (#34)
         resource = fhir.create(resource)
         ref = f"Consent/{resource['id']}"
         clear_chart_cache()  # o Consent entra na linha do tempo do paciente

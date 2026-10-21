@@ -20,10 +20,11 @@ from app.audit.service import log_action
 from app.auth.deps import _bearer, get_current_user
 from app.db.models import User
 from app.db.session import get_db
+from app.db.tenancy import current_org
 from app.fhir_client import codes
 from app.fhir_client.client import FhirSource
 
-ID_RE = re.compile(r"^av(\d+)-[0-9a-f]{12}$")
+ID_RE = re.compile(r"av([0-9]+)-[0-9a-f]{12}")
 TAG = "avulso"
 CLINICAL = "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical"
 VERIFICATION = "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification"
@@ -81,11 +82,11 @@ class PacienteIn(BaseModel):
 
 
 def is_avulso(patient_id: str) -> bool:
-    return ID_RE.match(patient_id) is not None
+    return ID_RE.fullmatch(patient_id) is not None
 
 
 def owner_org(patient_id: str) -> int | None:
-    m = ID_RE.match(patient_id)
+    m = ID_RE.fullmatch(patient_id)  # fullmatch: "$" aceitaria uma quebra de linha no fim do id
     return int(m.group(1)) if m else None
 
 
@@ -93,6 +94,12 @@ def visible(patient_id: str, org_id: int | None) -> bool:
     """Paciente avulso de outra organização não aparece em varreduras do FHIR (jornada, gestão)."""
     owner = owner_org(patient_id)
     return owner is None or org_id is None or owner == org_id
+
+
+def ensure_visible(db: Session, patient_id: str) -> None:
+    """Para id de paciente que chega fora do caminho da rota (query ou corpo): avulso de outra organização é 404."""
+    if not visible(patient_id, current_org(db)):
+        raise HTTPException(404, "Paciente não encontrado")
 
 
 def guard_path_patient(

@@ -422,7 +422,7 @@ def cids_frequentes(c: Ctx) -> dict:
     linhas, contagem, nomes = [], defaultdict(int), {}
     for cid, _ in sorted(sent.items()):
         cons = c.db.get(Consultation, cid)
-        if cons is None or cons.kind == "cirurgia":
+        if cons is None or cons.kind == "cirurgia" or cons.sandbox:  # sandbox é teste (#34)
             continue
         for item in (cons.note_json or {}).get("cids") or []:
             if item.get("tipo") == "hipotese":

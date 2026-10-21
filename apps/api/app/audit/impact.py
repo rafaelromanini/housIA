@@ -17,11 +17,12 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.consult import knowledge
-from app.db.models import AIFeedback, AuditLog, ImpactBaseline, User
+from app.db.models import AIFeedback, AuditLog, Consultation, ImpactBaseline, User
 
 EXPEDIENTE = (8, 18)  # seg-sex, das 8h às 18h; fora disso a documentação conta como "fora do expediente"
 USO_REGULAR_MIN = 3  # consultas por semana para contar como uso regular
 NPS_PROMOTOR, NPS_DETRATOR = 9, 6
+SANDBOX_ENTITIES = {"consultation", "consulta", "consulta_nota"}  # entidades do audit_log que apontam para uma consulta
 
 GRUPOS = [
     ("volume", "Volume e adoção"),
@@ -121,6 +122,9 @@ def compute(db: Session, start: datetime, end: datetime, uso_regular_min: int = 
             .order_by(AuditLog.id)
         )
     )
+    # consulta de sandbox (#34) é teste com cenário sintético: não entra em adoção, tempo nem qualidade
+    sandbox = {str(i) for i in db.scalars(select(Consultation.id).where(Consultation.sandbox.is_(True)))}
+    rows = [a for a in rows if not (a.entity in SANDBOX_ENTITIES and a.entity_id in sandbox)]
     by_action: dict[str, list[AuditLog]] = defaultdict(list)
     for a in rows:
         by_action[a.action].append(a)
