@@ -108,6 +108,30 @@ export function CidEditor({
           </li>
         ))}
       </ul>
+      {cids.some((c) => c.frase || c.ciap2 || c.lacunas?.length || c.mais_especificos?.length) && (
+        <ul className="space-y-1.5 text-xs" aria-label="Justificativa e especificidade dos CID">
+          {cids.map((cid, i) => (
+            <li key={cid.codigo + i} className="rounded-md border bg-muted/30 p-2">
+              <p>
+                <span className="font-mono font-bold">{cid.codigo}</span>
+                {cid.ciap2 && <span className="ml-2 text-muted-foreground">CIAP-2: {cid.ciap2}</span>}
+              </p>
+              {cid.frase && <p className="break-words italic">“{reid(cid.frase)}”</p>}
+              {cid.mais_especificos?.map((m) => (
+                <p key={m.codigo} className="break-words">
+                  Mais específico: <span className="font-mono font-bold">{m.codigo}</span> {m.descricao}
+                  {m.frase && <span className="italic"> “{reid(m.frase)}”</span>}
+                </p>
+              ))}
+              {cid.lacunas?.map((l) => (
+                <p key={l} className="break-words text-atencao">
+                  Falta: {l}
+                </p>
+              ))}
+            </li>
+          ))}
+        </ul>
+      )}
       {!disabled && (
         <div className="grid gap-2 sm:grid-cols-[1fr_14rem]">
           <div className="space-y-1">

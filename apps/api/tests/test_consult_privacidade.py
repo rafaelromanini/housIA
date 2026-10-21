@@ -465,3 +465,21 @@ def test_exclusao_so_o_gestor_com_login_e_so_do_paciente_pedido(client, auth):
 def test_painel_avisa_quando_o_log_de_prompts_esta_ligado(monkeypatch):
     monkeypatch.setattr(get_settings(), "log_prompts", True)
     assert "LOG_PROMPTS" in privacidade.panel()["ia"]
+
+
+def test_purge_nao_deixa_copia_da_fala_nem_na_frase_do_cid_nem_nas_copias_da_nota(client, auth, key, monkeypatch):
+    """#18: a frase literal do CID também vive em insights, rascunho e cópias da nota (nota_original, versoes_nota)."""
+    monkeypatch.setattr(get_settings(), "ehr_writeback", True)
+    h = auth("medico")
+    fala = "Tomo glibenclamida e tenho nefropatia diabetica com diabetes tipo dois ha muitos anos"
+    cid = consulta_enviada(client, h, [("medico", "Qual remédio a senhora toma?"), ("paciente", fala)])
+    monkeypatch.setattr(get_settings(), "transcript_retention_days", "consulta=0")
+    from app.consult import purge
+
+    assert purge.main() == 1
+    with db_session.SessionLocal() as db:
+        c = db.get(Consultation, cid)
+        for col in ("insights_json", "note_json", "ai_meta_json", "note_meta_json", "extra_json"):
+            dump = json.dumps(getattr(c, col) or {}, ensure_ascii=False)
+            assert "glibenclamida e tenho" not in dump, col
+            assert "nefropatia diabetica com" not in dump, col

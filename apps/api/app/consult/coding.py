@@ -32,6 +32,17 @@ FAMILY = re.compile(
     r"\b(?:pai|mae|irma|irmao|irmaos|avo|avos|tio|tia|filho|filha|marido|esposa|sogra|sogro|familia|familiar|parente|vizinh[oa])\b"
 )
 HEDGE = re.compile(r"^(?:se|caso)\b|\b(?:sera que|talvez|quem sabe|e se)\b")
+NEGATORS = {"nao", "nunca", "nem", "sem", "nega", "negou", "nenhum", "nenhuma", "jamais", "ausencia", "afastou"}
+NEG_BREAKERS = {
+    "com",
+    "e",
+    "mas",
+    "tambem",
+    "tive",
+    "teve",
+    "apresenta",
+}  # "sem abscesso e com peritonite": nega só o 1º
+DENIED_AFTER = re.compile(r"^(?: \w+){0,2}? (?:descartad|afastad|excluid|negativ|ausente|improvavel|nao confirmad)")
 SECONDARY_DROP = "comorbidade não citada na consulta e sem efeito na conduta"
 
 
@@ -153,15 +164,18 @@ def phrase(refs: list[str], segments: list[Segment], chart: ChartView | None = N
     return ""
 
 
-def _statements(segments: list[Segment]) -> list[tuple[Segment, list[str]]]:
+def _statements(segments: list[Segment], split: bool = False) -> list[tuple[Segment, list[str]]]:
     """Falas afirmativas (sem pergunta nem marco), já divididas em orações normalizadas."""
     out = []
     for s in segments:
         if s.falante == "desconhecido" or s.marco or s.expurgada:
             continue
-        if "?" in s.texto or text.is_question(s.texto):
-            continue
-        out.append((s, text.clauses(s.texto)))
+        if not split and ("?" in s.texto or text.is_question(s.texto)):
+            continue  # secundário: fala que pergunta nada afirma (conservador)
+        # especificidade: "Tem abscesso? Não. É apendicite sem perfuração." mantém só as frases afirmativas
+        asserted = [x for x in re.split(r"(?<=[.!?])\s+", s.texto) if x and "?" not in x and not text.is_question(x)]
+        if asserted:
+            out.append((s, [c for x in asserted for c in text.clauses(x)]))
     return out
 
 
@@ -171,8 +185,20 @@ def _says(clauses: list[str], terms: tuple[str, ...]) -> bool:
         if FAMILY.search(clause) or HEDGE.search(clause):  # "minha mãe tem diabetes" é do familiar; "se for" é hipótese
             continue
         hit = text.find(clause, terms)
-        if hit and (hit[0].startswith(("sem ", "nao ")) or not text.negated_span(clause, hit[1], hit[2])):
+        if hit and (hit[0].startswith(("sem ", "nao ")) or not _denied(clause, hit[1], hit[2])):
             return True
+    return False
+
+
+def _denied(clause: str, start: int, end: int) -> bool:
+    """O termo está negado ("não tenho", "não há sinais de", "não dói nos...") ou descartado ("... descartada")?"""
+    if text.negated_span(clause, start, end) or DENIED_AFTER.match(clause[end:]):
+        return True
+    for word in reversed(clause[:start].split()[-4:]):
+        if word in NEGATORS:
+            return True
+        if word in NEG_BREAKERS:
+            break
     return False
 
 
@@ -184,7 +210,7 @@ def refine(code: str, segments: list[Segment], with_gaps: bool = True) -> tuple[
     fala afirmativa. Sem nenhuma regra casada e com o código ainda genérico (categoria ou ".9"), a dimensão vira lacuna.
     """
     code = norm_icd(code)
-    statements = _statements(segments)
+    statements = _statements(segments, split=True)
     found: list[CodigoEspecifico] = []
     gaps: list[str] = []
     dimensions: dict[tuple[str, str], list[SpecificityRule]] = {}
@@ -193,6 +219,9 @@ def refine(code: str, segments: list[Segment], with_gaps: bool = True) -> tuple[
             dimensions.setdefault((rule.prefix, rule.dimension), []).append(rule)
     generic = len(code) <= 3 or code.endswith(".9")
     for rules in dimensions.values():
+        # o que o ditado afirma vale mais que "sem X": "sem abscesso, com peritonite generalizada" não fecha em K35.8
+        missing = next((r.missing for r in rules if r.missing), "")
+        rules = sorted(rules, key=lambda r: r.terms[0].startswith(("sem ", "nao ")))
         hit = next(
             (
                 (rule, s)
@@ -212,8 +241,8 @@ def refine(code: str, segments: list[Segment], with_gaps: bool = True) -> tuple[
                     )
                 )
         elif with_gaps and generic:
-            if rules[0].missing:
-                gaps.append(rules[0].missing)
+            if missing:
+                gaps.append(missing)
     return found, gaps
 
 

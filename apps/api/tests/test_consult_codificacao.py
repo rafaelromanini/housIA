@@ -375,3 +375,23 @@ def test_family_history_is_not_a_cited_comorbidity(record):
     e = cen6_engine(record, falas)
     sec = coding.secondaries(e.chart, e.run(), e.segments, set())
     assert "E78.5" not in {s.codigo for s in sec}
+
+
+@pytest.mark.parametrize(
+    "code,who,fala,esperado",
+    [
+        ("K35.9", "paciente", "dor forte mas sem abscesso e com peritonite generalizada", ["K35.2"]),
+        ("K35.9", "medico", "Tem sinal de abscesso? Não. Então é apendicite sem perfuração.", ["K35.8"]),
+        ("E11.9", "paciente", "diabetes sem complicações mas tenho albuminuria", ["E11.2"]),
+        ("E11.9", "medico", "não há sinais de nefropatia diabética", []),
+        ("E11.9", "paciente", "diabetes sem retinopatia e sem nefropatia", []),
+        ("M17", "paciente", "nao dói nos dois joelhos", []),
+        ("M17", "paciente", "dor nos dois joelhos", ["M17.0"]),
+        ("K81", "medico", "colecistite aguda descartada", []),
+        ("K81", "paciente", "vesícula com colecistite cronica", ["K81.1"]),
+        ("I10", "paciente", "meu marido tem insuficiencia cardiaca, eu tenho pressao alta", []),
+    ],
+)
+def test_adversarial_refinement_priorities_and_denials(code, who, fala, esperado):
+    found, _ = coding.refine(code, [seg(1, who, fala)])
+    assert [c.codigo for c in found] == esperado, (fala, found)
