@@ -816,10 +816,18 @@ export interface SummarySentence {
 export interface ProtocolItem {
   protocolo: string;
   item: string;
-  status: "em_dia" | "pendente" | "sem_registro" | "fora_do_alvo" | "no_alvo";
+  status: "em_dia" | "pendente" | "sem_registro" | "fora_do_alvo" | "no_alvo" | "abordado" | "critico";
   ultimo: string | null;
   orientacao: string;
   refs: string[];
+  id?: string;
+  eixo?: string;
+  /** "Órgão, documento, ano, página" */
+  fonte?: string;
+  intervalo_dias?: number;
+  /** Item trocado ou criado pelo arquivo local da instituição. */
+  local?: boolean;
+  pergunta?: string;
 }
 export interface Highlight extends InsightItem {
   texto: string;

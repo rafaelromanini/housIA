@@ -273,10 +273,17 @@ class SurgeryItem(BaseModel):
 class ProtocolItem(BaseModel):
     protocolo: str
     item: str
-    status: Literal["em_dia", "pendente", "sem_registro", "fora_do_alvo", "no_alvo"]
+    # "abordado": tratado na conversa (refs Fala/N); "critico": gatilho de risco dito ou escala positiva
+    status: Literal["em_dia", "pendente", "sem_registro", "fora_do_alvo", "no_alvo", "abordado", "critico"]
     ultimo: str | None = None
     orientacao: str
     refs: list[str]
+    id: str = ""
+    eixo: str = ""
+    fonte: str = ""  # "Órgão, documento, ano, página"
+    intervalo_dias: int = 0
+    local: bool = False  # item trocado ou criado pelo arquivo local da instituição
+    pergunta: str = ""
 
 
 class Highlight(ItemAcionavel):

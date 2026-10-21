@@ -937,10 +937,10 @@ def suggest(
         d.checagens = _exam_checks(d, lab, ctx)
         out.append(_finish(d))
 
-    pending = {(p.protocolo, p.item): p for p in protocols if p.status in ("pendente", "sem_registro")}
+    pending = {p.id: p for p in protocols if p.status in ("pendente", "sem_registro")}
     for rule in knowledge.protocols():
         kind, _, spec = rule.source.partition(":")
-        p = pending.get((rule.protocol, rule.item))
+        p = pending.get(rule.id)
         if p is None:
             continue
         if kind == "lab":

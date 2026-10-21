@@ -1,0 +1,61 @@
+eixo: Idoso
+fontes:
+  ivcf:
+    documento: "Índice de Vulnerabilidade Clínico-Funcional (IVCF-20), Caderno de Atenção Básica nº 19: Envelhecimento e saúde da pessoa idosa"
+    orgao: Ministério da Saúde
+    ano: 2007
+    pagina: "cap. de avaliação multidimensional da pessoa idosa"
+  quedas:
+    documento: "Rede Estadual de Atenção à Saúde do Idoso: avaliação do risco de queda (Linha-guia de saúde do idoso)"
+    orgao: Secretaria de Estado da Saúde de Minas Gerais
+    ano: 2006
+    pagina: "seção de quedas"
+  beers:
+    documento: "American Geriatrics Society Beers Criteria for Potentially Inappropriate Medication Use in Older Adults"
+    orgao: American Geriatrics Society
+    ano: 2023
+    pagina: "tabela 2"
+  pnvac_idoso:
+    documento: "Calendário Nacional de Vacinação do Idoso"
+    orgao: Ministério da Saúde, PNI
+    ano: 2024
+    pagina: "quadro do idoso"
+itens:
+  - id: idoso.ivcf20
+    protocolo: Saúde da pessoa idosa
+    idade_min: 60
+    item: IVCF-20 (vulnerabilidade clínico-funcional)
+    fonte: ivcf
+    registro: "escala:ivcf20"
+    intervalo_dias: 365
+    orientacao: Aplicar o IVCF-20 uma vez por ano em todo idoso da APS.
+    fala: [ivcf, vulnerabilidade clinico-funcional]
+    pergunta: Posso aplicar o questionário IVCF-20 para avaliar a vulnerabilidade?
+  - id: idoso.quedas
+    protocolo: Saúde da pessoa idosa
+    idade_min: 60
+    item: Risco de quedas
+    fonte: quedas
+    registro: "texto:risco de queda|timed up|escala de morse|avaliacao de quedas|avaliacao de marcha"
+    intervalo_dias: 365
+    orientacao: Perguntar sobre quedas no último ano e avaliar marcha e equilíbrio.
+    fala: [quedas, queda, caiu, tropecou, timed up, equilibrio]
+    pergunta: Caiu ou tropeçou no último ano?
+  - id: idoso.vacinas
+    protocolo: Saúde da pessoa idosa
+    idade_min: 60
+    item: Vacinas do idoso (influenza, pneumocócica, dT, covid-19)
+    fonte: pnvac_idoso
+    registro: "vacina:influenza|pneumo|dt|covid"
+    intervalo_dias: 365
+    orientacao: Influenza anual; pneumocócica, dT e covid-19 conforme o esquema.
+    fala: [vacina da gripe, vacina contra gripe, vacina pneumococica, carteira de vacina, caderneta de vacina]
+  - id: idoso.beers
+    protocolo: Saúde da pessoa idosa
+    idade_min: 65
+    item: Revisão de medicamentos potencialmente inapropriados (Beers)
+    fonte: beers
+    registro: "texto:criterios de beers|beers|desprescricao|revisao dos medicamentos"
+    intervalo_dias: 180
+    orientacao: Rever a lista de medicamentos a cada 6 meses e considerar a desprescrição.
+    fala: [beers, desprescricao, revisao dos medicamentos, revisar os remedios, revisar os medicamentos]

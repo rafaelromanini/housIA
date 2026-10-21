@@ -5,14 +5,18 @@ segurança — a IA complementa, não substitui.
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 
 import yaml
 
 from app.config import get_settings
 from app.consult import especialidades
 from app.reference import _read_csv
+
+logger = logging.getLogger(__name__)
 
 
 def _words(cell: str) -> tuple[str, ...]:
@@ -126,12 +130,31 @@ class DoseAlertDef:
 
 @dataclass(frozen=True)
 class ProtocolDef:
+    """Item de protocolo de APS (data/reference/protocols/*.yaml). `source` diz como o prontuário prova o item."""
+
     protocol: str
-    condition: str
+    condition: str  # primeiro prefixo de CID-10 ("" quando o item vale por idade, sexo ou conversa)
     item: str
     source: str
     interval_days: int
     guidance: str
+    id: str = ""
+    axis: str = ""
+    conditions: tuple[str, ...] = ()
+    sex: str = ""
+    age_min: int | None = None
+    age_max: int | None = None
+    months_min: int | None = None
+    months_max: int | None = None
+    trimester: int | None = None
+    if_said: tuple[str, ...] = ()  # entra quando a conversa cita o tema
+    said: tuple[str, ...] = ()  # dito na consulta = abordado
+    question: str = ""
+    critical: bool = False
+    critical_triggers: tuple[str, ...] = ()
+    question_triggers: tuple[str, ...] = ()  # só valem numa pergunta do profissional respondida com "sim"
+    citation: str = ""  # "Órgão, documento, ano, página"
+    local: bool = False
 
 
 @dataclass(frozen=True)
@@ -498,12 +521,157 @@ def pediatric_doses() -> dict[str, PediatricDose]:
     }
 
 
+PROTOCOL_AXES = ("Criança", "Mulher", "Adulto crônico", "Idoso", "Saúde mental", "Telessaúde")
+_PROTOCOL_KEYS = {
+    "id", "protocolo", "item", "fonte", "pagina", "registro", "intervalo_dias", "orientacao", "fala", "pergunta",
+    "critico", "gatilhos_criticos", "gatilhos_pergunta", "condicao", "sexo", "idade_min", "idade_max", "meses_min",
+    "meses_max",
+    "trimestre", "aplica_se_fala", "ativo",
+}  # fmt: skip
+_PROTOCOL_REQUIRED = ("id", "protocolo", "item", "fonte", "registro", "intervalo_dias", "orientacao")
+_RECORD_KINDS = ("lab", "texto", "vacina", "vital", "escala", "nenhum")
+
+
+def protocols_dir() -> Path:
+    return get_settings().data_dir / "reference" / "protocols"
+
+
+def protocols_local_dir() -> Path:
+    override = get_settings().protocolos_locais_dir
+    return Path(override) if override else protocols_dir() / "local"
+
+
+def _yaml_files(folder: Path) -> list[Path]:
+    return sorted(folder.glob("*.yaml")) if folder.is_dir() else []
+
+
+def _protocol_def(row: dict, axis: str, sources: dict, where: str, local: bool) -> ProtocolDef:
+    missing = [k for k in _PROTOCOL_REQUIRED if row.get(k) in (None, "")]
+    if missing:
+        raise ValueError(f"{where}: faltam campos {missing}")
+    unknown = sorted(set(row) - _PROTOCOL_KEYS)
+    if unknown:
+        raise ValueError(f"{where}: campos desconhecidos {unknown}")
+    src = sources.get(row["fonte"])
+    if (
+        not isinstance(src, dict)
+        or not all(str(src.get(k) or "").strip() for k in ("documento", "orgao"))
+        or not isinstance(src.get("ano"), int)
+        or not 1900 <= src["ano"] <= 2100
+        or not str(row.get("pagina") or src.get("pagina") or "").strip()
+    ):
+        raise ValueError(f"{where}: fonte '{row['fonte']}' sem documento, órgão, ano e página")
+    for key in ("intervalo_dias", "idade_min", "idade_max", "meses_min", "meses_max", "trimestre"):
+        value = row.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+            raise ValueError(f"{where}: {key} deve ser um número inteiro, não negativo")
+    kind = str(row["registro"]).partition(":")[0]
+    if kind not in _RECORD_KINDS:
+        raise ValueError(f"{where}: registro '{row['registro']}' desconhecido")
+    conditions = tuple(str(c) for c in row.get("condicao") or ())
+    return ProtocolDef(
+        protocol=row["protocolo"],
+        condition=conditions[0] if conditions else "",
+        item=row["item"],
+        source=str(row["registro"]),
+        interval_days=int(row["intervalo_dias"]),
+        guidance=row["orientacao"],
+        id=row["id"],
+        axis=axis,
+        conditions=conditions,
+        sex=row.get("sexo") or "",
+        age_min=row.get("idade_min"),
+        age_max=row.get("idade_max"),
+        months_min=row.get("meses_min"),
+        months_max=row.get("meses_max"),
+        trimester=row.get("trimestre"),
+        if_said=tuple(str(w) for w in row.get("aplica_se_fala") or ()),
+        said=tuple(str(w) for w in row.get("fala") or ()),
+        question=row.get("pergunta") or "",
+        critical=bool(row.get("critico")),
+        critical_triggers=tuple(str(w) for w in row.get("gatilhos_criticos") or ()),
+        question_triggers=tuple(str(w) for w in row.get("gatilhos_pergunta") or ()),
+        citation=", ".join([src["orgao"], src["documento"], str(src["ano"]), str(row.get("pagina") or src["pagina"])]),
+        local=local,
+    )
+
+
+# num item crítico (risco de suicídio), o arquivo local só ajusta texto e periodicidade: não desliga o item, não tira o
+# crítico, nem troca os gatilhos, a idade ou o sexo
+_CRITICAL_LOCAL_KEYS = {"id", "item", "protocolo", "fonte", "pagina", "orientacao", "pergunta", "intervalo_dias"}
+
+
+def _read_yaml_items(path: Path) -> tuple[dict, list]:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict) or not isinstance(raw.get("itens") or [], list):
+        raise ValueError(f"{path.name}: esperado um mapa com eixo, fontes e itens")
+    return raw, raw.get("itens") or []
+
+
+def load_protocols(folder: Path, local_folder: Path | None = None) -> tuple[ProtocolDef, ...]:
+    """Lê os YAML de `folder` e aplica por cima os de `local_folder` (instituição ou município): o `id` repetido troca
+    só os campos informados, `ativo: false` desliga e um `id` novo acrescenta o item.
+    Erro de schema na base: ValueError.
+    Erro no arquivo local (YAML quebrado, id sem os campos de um item novo, valor inválido): o item ou arquivo é
+    ignorado com aviso e a base segue valendo; os itens críticos não podem ser desligados nem enfraquecidos."""
+    rows: dict[str, tuple[dict, str, dict, str]] = {}
+    for path in _yaml_files(folder):
+        raw, itens = _read_yaml_items(path)
+        axis = raw.get("eixo")
+        if axis not in PROTOCOL_AXES:
+            raise ValueError(f"{path.name}: eixo '{axis}' desconhecido")
+        for row in itens:
+            if row.get("id") in rows:
+                raise ValueError(f"{path.name}: id repetido {row.get('id')}")
+            rows[row.get("id")] = (row, axis, raw.get("fontes") or {}, path.name)
+    base_defs = {
+        rid: _protocol_def(row, axis, src, f"{origin}:{rid}", False) for rid, (row, axis, src, origin) in rows.items()
+    }
+    local_ids: set[str] = set()
+    for path in _yaml_files(local_folder) if local_folder else []:
+        try:
+            raw, itens = _read_yaml_items(path)
+        except (OSError, ValueError, yaml.YAMLError) as e:
+            logger.warning("protocolos locais: arquivo %s ignorado (%s)", path.name, str(e).splitlines()[0])
+            continue
+        for row in itens:
+            try:
+                rid = row["id"]
+                if not isinstance(rid, str) or not rid:
+                    raise ValueError("item sem id")
+                if rid in rows:
+                    base, axis, sources, _ = rows[rid]
+                    if base_defs[rid].critical:
+                        dropped = sorted(set(row) - _CRITICAL_LOCAL_KEYS)
+                        if dropped:
+                            logger.warning("protocolos locais: %s é crítico, campos %s ignorados", rid, dropped)
+                        row = {k: v for k, v in row.items() if k in _CRITICAL_LOCAL_KEYS}
+                        if set(row) <= {"id"}:
+                            continue
+                    merged = (base | row, axis, sources | (raw.get("fontes") or {}), path.name)
+                else:
+                    axis = raw.get("eixo")
+                    if axis not in PROTOCOL_AXES:
+                        raise ValueError(f"eixo '{axis}' desconhecido")
+                    merged = (row, axis, raw.get("fontes") or {}, path.name)
+                if merged[0].get("ativo", True):
+                    _protocol_def(
+                        merged[0], merged[1], merged[2], f"{path.name}:{rid}", True
+                    )  # valida antes de aceitar
+                rows[rid] = merged
+                local_ids.add(rid)
+            except (KeyError, TypeError, AttributeError, ValueError) as e:
+                logger.warning("protocolos locais: item de %s ignorado (%s)", path.name, e)
+    return tuple(
+        _protocol_def(row, axis, sources, f"{origin}:{rid}", rid in local_ids)
+        for rid, (row, axis, sources, origin) in rows.items()
+        if row.get("ativo", True)
+    )
+
+
 @lru_cache
 def protocols() -> tuple[ProtocolDef, ...]:
-    return tuple(
-        ProtocolDef(r["protocolo"], r["condicao"], r["item"], r["fonte"], int(r["intervalo_dias"]), r["orientacao"])
-        for r in _read_csv("care_protocols.csv")
-    )
+    return load_protocols(protocols_dir(), protocols_local_dir())
 
 
 @lru_cache
