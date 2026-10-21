@@ -24,6 +24,7 @@ from app.consult import (
     apps,
     consentimento,
     consultorio,
+    encaminhamento,
     fidelidade,
     glossario,
     gs1,
@@ -1207,6 +1208,67 @@ def decide_order(db: Session, fhir: FhirSource, user: User, cid: int, draft_id: 
     return result | {"pedido": next((d for d in _draft_list(c) if d["id"] == draft_id), None)}
 
 
+def decide_referral(
+    db: Session, fhir: FhirSource, user: User, cid: int, enc_id: str, escolha: str, motivo: str
+) -> dict:
+    """Encaminhar ou manejar na APS, no card "Antes de encaminhar" (#29): vai para a auditoria e alimenta a métrica
+    de encaminhamentos evitados. Encaminhar com exame mínimo faltando exige uma justificativa."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O modo cirúrgico não tem o card Antes de encaminhar.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: a escolha sobre o encaminhamento não pode mais mudar.")
+    if escolha not in encaminhamento.ESCOLHAS:
+        raise HTTPException(422, "Escolha inválida.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    card = next((e for e in _insights(c, record, events, ctx, segments).encaminhamentos if e.id == enc_id), None)
+    if card is None:
+        raise HTTPException(404, "Esse encaminhamento não aparece mais na análise.")
+    text = acoes.efetivo(motivo)
+    if escolha == "encaminhar" and card.exames_faltantes and len(text) < encaminhamento.MIN_MOTIVO:
+        raise HTTPException(
+            409,
+            {
+                "codigo": "exames_faltando",
+                "mensagem": "Faltam exames mínimos ("
+                + ", ".join(card.exames_faltantes)
+                + "). Encaminhe só com uma justificativa de pelo menos "
+                f"{encaminhamento.MIN_MOTIVO} caracteres (por exemplo, urgência) ou peça os exames antes.",
+            },
+        )
+    extra = dict(c.extra_json or {})
+    decided = dict(extra.get("encaminhamentos") or {})
+    when = clock.now().isoformat()
+    if escolha == "pendente":
+        decided.pop(enc_id, None)
+    else:
+        decided[enc_id] = {"escolha": escolha, "motivo": text, "por": user.name, "em": when}
+    c.extra_json = extra | {"encaminhamentos": decided}
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    log_action(
+        db,
+        user,
+        "consulta.encaminhamento",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "encaminhamento": card.id,
+            "especialidade": card.especialidade,
+            "condicao": card.condicao,
+            "gatilho": card.gatilho,
+            "escolha": escolha,
+            "motivo": text,
+            "criterios_atendidos": sum(k.status == "atendido" for k in card.criterios),
+            "criterios_total": len(card.criterios),
+            "exames_faltantes": card.exames_faltantes,
+            "refs": card.refs,
+        },
+    )
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
 def _draft_list(c: Consultation) -> list[dict]:
     return (c.insights_json or {}).get("pedidos") or []
 
@@ -1216,8 +1278,19 @@ def _signed_orders(c: Consultation) -> list[order_drafts.OrderDraft]:
     return [] if c.kind == "cirurgia" else order_drafts.signed(_draft_list(c))
 
 
-def _order_resources(c: Consultation, author: str, when: datetime) -> list[dict]:
+def _referral_resources(c: Consultation, author: str) -> list[dict]:
+    """ServiceRequest de encaminhamento (rascunho) dos cards em que o profissional escolheu "encaminhar" (#29)."""
+    if c.kind == "cirurgia":
+        return []
     return [
+        encaminhamento.resource_for_export(e, consultation_id=c.id, encounter_id=c.encounter_id, author=author)
+        for e in (c.insights_json or {}).get("encaminhamentos") or []
+        if (e.get("decisao") or {}).get("escolha") == "encaminhar"
+    ]
+
+
+def _order_resources(c: Consultation, author: str, when: datetime) -> list[dict]:
+    return _referral_resources(c, author) + [
         order_drafts.fhir_resource(
             d,
             patient_id=c.patient_id,
