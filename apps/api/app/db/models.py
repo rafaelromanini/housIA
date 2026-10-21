@@ -281,6 +281,27 @@ class Consultation(Tenant, Base):
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
+class EhrOutbox(Tenant, Base):
+    """Fila de envio ao prontuário (#17): um registro por consulta, com o Bundle exato a enviar.
+
+    pendente → enviando → enviado | erro. O reenvio (botão ou subida da API) manda o mesmo Bundle; como cada entrada tem
+    If-None-Exist, enviar de novo nunca duplica. O Bundle tem dado clínico: cifrado e apagado depois do envio.
+    """
+
+    __tablename__ = "ehr_outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consultation_id: Mapped[int] = mapped_column(ForeignKey("consultations.id"), unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
+    fhir_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
 class JourneyContact(Tenant, Base):
     """Contato pós-alta feito pela equipe (ligação, visita ou retorno de mensagem): roteiro respondido e desfecho.
 

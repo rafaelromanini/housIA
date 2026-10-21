@@ -52,10 +52,15 @@ def client(tmp_path, store):
     db_session.configure_engine(f"sqlite:///{tmp_path / 'test.db'}")
     Base.metadata.create_all(db_session.engine)
     set_fhir(store)
+    # o store é da sessão e cada teste tem um banco novo (ids de consulta recomeçam em 1): o que o teste grava no FHIR
+    # (Bundle com If-None-Exist por consulta, #17) não pode vazar para o seguinte
+    snapshot = {rtype: dict(items) for rtype, items in store.resources.items()}
     from app.main import create_app
 
     with TestClient(create_app()) as c:
         yield c
+    store.resources.clear()
+    store.resources.update({rtype: items for rtype, items in snapshot.items()})
     set_fhir(None)
 
 

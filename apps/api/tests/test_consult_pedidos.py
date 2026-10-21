@@ -177,7 +177,14 @@ def test_envio_cria_service_request_e_medication_request_draft_no_fhir_local(cli
         f"/consultations/{cid}/send", json={"justificativa": "Risco avaliado e discutido com a paciente."}, headers=h
     ).json()
     assert export["enviado"] is False and len(export["pedidos"]) == 3
-    assert export["bundle"]["type"] == "transaction" and len(export["bundle"]["entry"]) == 4  # nota + 3 pedidos
+    # Bundle estruturado (#17): além do documento e dos 3 pedidos, vão Practitioner, Device, Composition e Provenance
+    assert export["bundle"]["type"] == "transaction"
+    kinds = sorted(e["resource"]["resourceType"] for e in export["bundle"]["entry"])
+    assert kinds == sorted(
+        ["Practitioner", "Device", "Composition", "DocumentReference", "Provenance"]
+        + ["MedicationRequest", "ServiceRequest", "ServiceRequest"]
+    )
+    assert all(e["request"]["ifNoneExist"] for e in export["bundle"]["entry"])  # reenviar não duplica
     assert "Pedidos e prescrições assinados" in export["texto"] and "Dipirona" in export["texto"]
 
     monkeypatch.setattr(consult_service.get_settings(), "ehr_writeback", True)

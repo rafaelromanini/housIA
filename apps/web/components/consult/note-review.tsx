@@ -21,6 +21,7 @@ import { CidEditor } from "@/components/consult/cid-editor";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
+import { ProposalsPanel } from "@/components/consult/proposals-panel";
 import { api, downloadFile, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { focusFala } from "@/components/source-ref";
 import { fmtDateTime } from "@/lib/format";
@@ -486,6 +487,21 @@ export function NoteReview({
     }
   }
 
+  async function retrySend() {
+    setBusy("send");
+    setError(null);
+    try {
+      const out = await api<{ enviado: boolean; fhir_ref?: string; motivo?: string; consulta: Consultation }>(`/consultations/${c.id}/send/retry`, { method: "POST" });
+      onChange(out.consulta);
+      if (out.enviado) setMessage(`Enviado ao prontuário (${out.fhir_ref}).`);
+      else setError(out.motivo ?? "Prontuário indisponível: tente de novo em instantes.");
+    } catch (e) {
+      setError(apiMessage(e, "Erro ao reenviar"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function downloadPdf() {
     setBusy("pdf");
     setError(null);
@@ -505,13 +521,14 @@ export function NoteReview({
     setBusy("send");
     setError(null);
     try {
-      const out = await api<{ enviado: boolean; fhir_ref?: string; motivo?: string; consulta: Consultation }>(
+      const out = await api<{ enviado: boolean; status_envio?: string; fhir_ref?: string; motivo?: string; consulta: Consultation }>(
         `/consultations/${c.id}/send`,
         { method: "POST", json: withJustification ? { justificativa: justification.trim() } : undefined },
       );
       onChange(out.consulta);
       setBlocked(null);
-      setMessage(out.enviado ? `Enviado ao prontuário (${out.fhir_ref}).` : (out.motivo ?? "Exportado."));
+      if (out.status_envio === "erro") setError(out.motivo ?? "Prontuário indisponível: a nota ficou na fila.");
+      else setMessage(out.enviado ? `Enviado ao prontuário (${out.fhir_ref}).` : (out.motivo ?? "Exportado."));
     } catch (e) {
       const block = blockedBy(e);
       if (block) setBlocked(block);
@@ -883,6 +900,29 @@ export function NoteReview({
               </section>
             )}
           </div>
+        )}
+
+        {!surgical && (c.propostas?.length ?? 0) > 0 && (
+          <ProposalsPanel
+            consultId={c.id}
+            patientId={patient.id}
+            proposals={c.propostas ?? []}
+            editable={!sent}
+            onChange={(propostas) => onChange({ ...c, propostas })}
+          />
+        )}
+
+        {c.envio?.status === "erro" && !sent && (
+          <Alert variant="atencao" data-testid="envio-erro">
+            <ShieldAlert aria-hidden />
+            <span className="flex-1">
+              <b>Envio ao prontuário falhou</b> (tentativa {c.envio.tentativas}): a nota ficou na fila e o reenvio não duplica nada.
+              {c.envio.ultimo_erro && <span className="block text-xs">{c.envio.ultimo_erro}</span>}
+            </span>
+            <Button variant="outline" onClick={() => void retrySend()} disabled={busy !== null}>
+              {busy === "send" ? <Loader2 aria-hidden className="animate-spin" /> : <RefreshCw aria-hidden />} Reenviar
+            </Button>
+          </Alert>
         )}
 
         {diff && <DiffPanel diff={diff} />}

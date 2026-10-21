@@ -1,7 +1,7 @@
 """Planos e teste grátis: catálogo de planos e direito de uso por organização
 
 Revision ID: e351
-Revises: e341
+Revises: c202
 Create Date: 2026-10-21 09:00:00
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e351"
-down_revision: str | None = "e341"
+down_revision: str | None = "c202"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

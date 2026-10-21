@@ -313,7 +313,9 @@ def test_consulta_actions_are_filterable_and_labelled_in_the_screen(tres):
     web = Path(__file__).resolve().parents[2] / "web" / "components" / "audit" / "audit-view.tsx"
     source = web.read_text(encoding="utf-8")
     emitted = {i["action"] for i in only["items"]}
-    code = (Path(impact.__file__).resolve().parents[1] / "consult" / "service.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        f.read_text(encoding="utf-8") for f in (Path(impact.__file__).resolve().parents[1] / "consult").glob("*.py")
+    )
     emitted |= set(re.findall(r'"(consulta\.[a-z_]+)"', code)) | {
         f"consulta.pedido_{a}" for a in ("assinado", "recusado", "revertido")
     }

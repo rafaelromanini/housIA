@@ -1320,6 +1320,22 @@ export interface CopilotState {
   sugestoes: { alerta: string; pergunta: string }[];
   llm_mode: string;
 }
+export interface Proposal {
+  id: string;
+  tipo: "alergia" | "medicamento" | "condicao" | "observacao";
+  tipo_rotulo: string;
+  rotulo: string;
+  detalhe: string;
+  refs: string[];
+  aceita: boolean;
+}
+export interface SendStatus {
+  status: "pendente" | "enviando" | "erro" | "enviado";
+  tentativas: number;
+  ultimo_erro: string | null;
+  atualizado_em: string;
+  enviado_em: string | null;
+}
 export interface Consultation {
   id: number;
   patient_id: string;
@@ -1333,6 +1349,10 @@ export interface Consultation {
   sandbox?: boolean;
   segmentos: Segment[];
   consentimento?: ConsentInfo | null;
+  /** propostas para o prontuário (alergia/medicamento relatados, CID, PA e peso ditos); aceite item a item */
+  propostas?: Proposal[];
+  /** fila de envio ao prontuário (null: nunca enviada) */
+  envio?: SendStatus | null;
   insights: ConsultInsights | null;
   ia: {
     modo: "real" | "mock";
@@ -1453,6 +1473,7 @@ export interface Appointment {
   motivo: string;
   consulta_id: number | null;
   consulta_status: Consultation["status"] | null;
+  envio_status: SendStatus["status"] | null;
   cenario: boolean;
 }
 export interface DemoScript {

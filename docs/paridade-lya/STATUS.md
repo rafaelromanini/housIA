@@ -211,6 +211,13 @@ Cada onda com 8 entregas consome bastante da cota de uso. Rode uma onda por jane
   o plano hospitalar ativado na organização B) e `{escala}` preenchido.
 - Decisão: consultório sem o módulo de alta recebe 403 (plano) antes do 404 de organização. O limite de 30 do #34 caiu
   para 10 (briefing). Pendente: cobrança automática (só ativação manual) e e2e do contador.
+## #17 bundle FHIR e envio ao prontuário (2026-10-21)
+
+Branch `claude/onda3-17-bundle-fhir-prontuario`, já mesclado com a main (migração c202 sobre e341, cabeça única).
+Bundle transaction estruturado, propostas revisáveis, fila `ehr_outbox` (cifrada, isolada por organização) e reenvio
+idempotente (If-None-Exist). Verificação de esforço alto concluída: regressão nos rótulos de auditoria corrigida,
+critérios de aceite cobertos por testes e entradas adversariais conferidas. Segue o resultado da suíte completa no
+histórico de commits.
 
 ## Pausa (2026-10-20, cota)
 
