@@ -17,6 +17,7 @@ def log_action(
     """Registra uma ação no audit_log. Nunca grava texto clínico bruto de prompts aqui."""
     entry = AuditLog(
         user_id=user.id if user else None,
+        organization_id=user.organization_id if user else None,
         action=action,
         entity=entity,
         entity_id=str(entity_id) if entity_id is not None else None,

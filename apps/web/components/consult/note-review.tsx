@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CircleCheck, ClipboardCopy, Download, FileCheck2, GitCompareArrows, Loader2, Plus, RefreshCw, Send, ShieldAlert, Trash2 } from "lucide-react";
+import { CircleCheck, ClipboardCopy, Download, FileCheck2, FileText, GitCompareArrows, Loader2, Plus, RefreshCw, Send, ShieldAlert, Trash2 } from "lucide-react";
 
 import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { FeedbackButtons } from "@/components/ai/feedback";
@@ -22,7 +22,7 @@ import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
 import { ProposalsPanel } from "@/components/consult/proposals-panel";
-import { api, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
+import { api, downloadFile, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { focusFala } from "@/components/source-ref";
 import { fmtDateTime } from "@/lib/format";
 
@@ -275,7 +275,7 @@ export function NoteReview({
   const r = (t: string) => reidentify(t, patient.nome);
   const surgical = c.tipo === "cirurgia";
   const [draft, setDraft] = useState(() => structuredClone(c.nota) as Record<string, unknown>);
-  const [busy, setBusy] = useState<"save" | "send" | "copy" | "download" | "recompute" | "diff" | null>(null);
+  const [busy, setBusy] = useState<"save" | "send" | "copy" | "download" | "pdf" | "recompute" | "diff" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sent = c.status === "enviada";
@@ -497,6 +497,20 @@ export function NoteReview({
       else setError(out.motivo ?? "Prontuário indisponível: tente de novo em instantes.");
     } catch (e) {
       setError(apiMessage(e, "Erro ao reenviar"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadPdf() {
+    setBusy("pdf");
+    setError(null);
+    try {
+      await downloadFile(`/consultations/${c.id}/export.pdf`, `nota-consulta-${c.id}.pdf`);
+    } catch (e) {
+      const block = blockedBy(e);
+      if (block) setBlocked(block);
+      else setError(e instanceof Error ? e.message : "Não foi possível gerar o PDF");
     } finally {
       setBusy(null);
     }
@@ -963,6 +977,9 @@ export function NoteReview({
           </Button>
           <Button variant="outline" onClick={() => void download()} disabled={busy !== null || !approved || dirty}>
             <Download aria-hidden /> Baixar FHIR
+          </Button>
+          <Button variant="outline" onClick={() => void downloadPdf()} disabled={busy !== null || !approved || dirty}>
+            {busy === "pdf" ? <Loader2 aria-hidden className="animate-spin" /> : <FileText aria-hidden />} Baixar PDF
           </Button>
           {!sent && (
             <Button onClick={() => void send()} disabled={busy !== null || !attested}>

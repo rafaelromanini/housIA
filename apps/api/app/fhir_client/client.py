@@ -25,6 +25,7 @@ PATIENT_SCOPED: dict[str, str] = {
     "Condition": "subject",
     "AllergyIntolerance": "patient",
     "MedicationRequest": "subject",
+    "MedicationStatement": "subject",
     "MedicationAdministration": "subject",
     "Observation": "subject",
     "Procedure": "subject",

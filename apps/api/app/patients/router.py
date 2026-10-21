@@ -3,10 +3,11 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user
+from app.auth.deps import get_current_user, require_roles
 from app.db.models import User
 from app.db.session import get_db
 from app.fhir_client.client import FhirSource, get_fhir
+from app.patients import avulso
 from app.patients.service import alert_counts, bed_panel, latest_discharge_risk, load_record
 from app.seed.scenarios import scenario_meta
 from app.timeline.context import build_context
@@ -21,6 +22,27 @@ def list_patients(
 ) -> list[dict]:
     """Painel de leitos: pacientes internados com setor, leito, dias de internação, alertas e risco de alta."""
     return bed_panel(fhir, db)
+
+
+@router.post("", status_code=201)
+def create_patient(
+    body: avulso.PacienteIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(require_roles("medico", "enfermagem")),
+) -> dict:
+    """Paciente avulso (modo consultório): cria Patient, AllergyIntolerance e MedicationStatement no FHIR."""
+    return avulso.create(db, fhir, user, body)
+
+
+@router.get("/avulsos")
+def list_avulsos(
+    q: str = Query("", max_length=80),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(require_roles("medico", "enfermagem")),
+) -> list[dict]:
+    """Pacientes avulsos cadastrados pela organização."""
+    return avulso.listing(fhir, user.organization_id or 0, q)
 
 
 @router.get("/{patient_id}")

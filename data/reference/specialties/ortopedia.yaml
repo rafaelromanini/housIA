@@ -1,0 +1,17 @@
+id: ortopedia
+ordem: 9
+rotulo: Ortopedia e traumatologia
+foco: lateralidade, garrote, implantes e rastreabilidade, radioscopia (tempo, dose) e RX de controle
+modelo_nota: consulta_clinica
+smart_apps:
+- cirurgia
+- alergias
+- medicamentos
+- exames
+- resumo
+escalas:
+- imc
+hipoteses_prioritarias:
+- M17.9
+glossario: {}
+perguntas: []

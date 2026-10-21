@@ -1,0 +1,123 @@
+eixo: Criança
+fontes:
+  cab33:
+    documento: "Caderno de Atenção Básica nº 33: Saúde da Criança, crescimento e desenvolvimento"
+    orgao: Ministério da Saúde
+    ano: 2012
+    pagina: "cap. 1, calendário de consultas e cap. 2, vigilância do crescimento"
+  pni:
+    documento: "Calendário Nacional de Vacinação da Criança"
+    orgao: Ministério da Saúde, PNI
+    ano: 2024
+    pagina: "quadro da criança"
+  triagem:
+    documento: "Manual de normas técnicas e rotinas operacionais do Programa Nacional de Triagem Neonatal"
+    orgao: Ministério da Saúde
+    ano: 2002
+    pagina: "cap. de triagem neonatal biológica"
+itens:
+  - id: crianca.puericultura
+    protocolo: Puericultura
+    meses_min: 0
+    meses_max: 71
+    item: Consulta de puericultura
+    fonte: cab33
+    registro: "texto:puericultura|consulta de crianca|consulta da crianca"
+    intervalo_dias: 90
+    orientacao: 7 consultas no 1º ano (1ª semana, 1, 2, 4, 6, 9 e 12 meses), 2 no 2º ano e anual a partir dos 2 anos.
+    fala: [puericultura]
+  - id: crianca.crescimento
+    protocolo: Puericultura
+    meses_min: 0
+    meses_max: 71
+    item: Curvas de crescimento (peso, estatura, perímetro cefálico, IMC)
+    fonte: cab33
+    registro: "texto:curva de crescimento|percentil|escore z|perimetro cefalico|caderneta da crianca"
+    intervalo_dias: 90
+    orientacao: Marcar peso e comprimento/estatura nas curvas da OMS a cada consulta; perímetro cefálico até 2 anos.
+    fala: [curva de crescimento, percentil, escore z, perimetro cefalico, peso e altura, "pesei", "medi o comprimento"]
+    pergunta: Posso pesar e medir a criança para marcar na curva de crescimento?
+  - id: crianca.dnpm
+    protocolo: Puericultura
+    meses_min: 0
+    meses_max: 71
+    item: Desenvolvimento neuropsicomotor (marcos)
+    fonte: cab33
+    registro: "texto:dnpm|marcos do desenvolvimento|desenvolvimento neuropsicomotor"
+    intervalo_dias: 90
+    orientacao: Perguntar e observar os marcos da idade a cada consulta.
+    fala: [dnpm, marcos do desenvolvimento, desenvolvimento neuropsicomotor, sustenta a cabeca, engatinha, senta sem apoio, anda sozinho, balbucia]
+    pergunta: Já sustenta a cabeça, senta ou fala? Como está o desenvolvimento?
+  - id: crianca.triagem_neonatal
+    protocolo: Puericultura
+    meses_min: 0
+    meses_max: 2
+    item: Triagem neonatal (pezinho, orelhinha, olhinho, coraçãozinho)
+    fonte: triagem
+    registro: "texto:teste do pezinho|triagem neonatal|teste da orelhinha|teste do olhinho|teste do coracaozinho"
+    intervalo_dias: 0
+    orientacao: Pezinho entre o 3º e o 5º dia de vida; orelhinha e olhinho antes da alta ou no 1º mês.
+    fala: [pezinho, orelhinha, olhinho, coracaozinho, triagem neonatal]
+  - id: crianca.vacina.2m
+    protocolo: Calendário vacinal do PNI
+    meses_min: 2
+    meses_max: 3
+    item: "Vacinas dos 2 meses (pentavalente, VIP, pneumocócica 10, rotavírus)"
+    fonte: pni
+    registro: "vacina:penta|pentavalente|vip|poliomielite|pneumo|rotavirus"
+    intervalo_dias: 0
+    orientacao: 1ª dose de cada uma aos 2 meses; rotavírus até 3 meses e 15 dias.
+    fala: [vacina, vacinas, carteira de vacina, caderneta de vacina]
+    pergunta: A caderneta de vacinação está em dia? Posso conferir as doses?
+  - id: crianca.vacina.4m
+    protocolo: Calendário vacinal do PNI
+    meses_min: 4
+    meses_max: 5
+    item: "Vacinas dos 4 meses (2ª dose de pentavalente, VIP, pneumocócica 10 e rotavírus)"
+    fonte: pni
+    registro: "vacina:penta|pentavalente|vip|poliomielite|pneumo|rotavirus"
+    intervalo_dias: 0
+    orientacao: 2ª dose aos 4 meses; meningocócica C aos 3 e aos 5 meses.
+    fala: [vacina, vacinas, carteira de vacina, caderneta de vacina]
+    pergunta: A caderneta de vacinação está em dia? Posso conferir as doses?
+  - id: crianca.vacina.6m
+    protocolo: Calendário vacinal do PNI
+    meses_min: 6
+    meses_max: 8
+    item: "Vacinas dos 6 meses (3ª dose de pentavalente e VIP, covid-19)"
+    fonte: pni
+    registro: "vacina:penta|pentavalente|vip|poliomielite|covid"
+    intervalo_dias: 0
+    orientacao: 3ª dose de pentavalente e VIP aos 6 meses; covid-19 a partir dos 6 meses.
+    fala: [vacina, vacinas, carteira de vacina, caderneta de vacina]
+    pergunta: A caderneta de vacinação está em dia? Posso conferir as doses?
+  - id: crianca.vacina.9m
+    protocolo: Calendário vacinal do PNI
+    meses_min: 9
+    meses_max: 11
+    item: Vacina febre amarela (9 meses)
+    fonte: pni
+    registro: "vacina:febre amarela"
+    intervalo_dias: 0
+    orientacao: Dose aos 9 meses; reforço aos 4 anos.
+    fala: [febre amarela, vacina, carteira de vacina, caderneta de vacina]
+  - id: crianca.vacina.12m
+    protocolo: Calendário vacinal do PNI
+    meses_min: 12
+    meses_max: 23
+    item: "Vacinas de 12 a 15 meses (tríplice viral, pneumocócica, meningocócica C, DTP, hepatite A)"
+    fonte: pni
+    registro: "vacina:triplice viral|tetra viral|pneumo|meningo|dtp|hepatite a"
+    intervalo_dias: 0
+    orientacao: Tríplice viral e reforços de pneumocócica e meningocócica C aos 12 meses; DTP, hepatite A e tetra viral aos 15.
+    fala: [vacina, vacinas, carteira de vacina, caderneta de vacina]
+  - id: crianca.vacina.influenza
+    protocolo: Calendário vacinal do PNI
+    meses_min: 6
+    meses_max: 71
+    item: Vacina contra influenza
+    fonte: pni
+    registro: "vacina:influenza"
+    intervalo_dias: 365
+    orientacao: Anual dos 6 meses aos menores de 6 anos (2 doses na primeira vez).
+    fala: [vacina da gripe, vacina influenza, vacina contra gripe]

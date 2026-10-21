@@ -122,7 +122,8 @@ NUM = r"(\d+|" + "|".join(NUMBER_WORDS) + r")"
 UNIT = r"(mg|miligramas?|mcg|microgramas?|g|gramas?|ml|ui|unidades|gotas|comprimidos?|capsulas?|ampolas?)"
 # "1.000 mg" e "1.200.000 UI" têm ponto de milhar; "2,5 mg" e "0.5 mg" são decimais
 QTY = r"(\d{1,3}(?:\.\d{3})+(?![\d,])|\d+(?:[.,]\d+)?)"
-DOSE = re.compile(rf"(?<![\w,.]){QTY}\s*{UNIT}(?![a-z])")
+# "250 mg/5 ml" é concentração do frasco, não dose: a dose é o volume que vem depois ("10 ml")
+DOSE = re.compile(rf"(?<![\w,./]){QTY}\s*{UNIT}(?![a-z])(?!\s*(?:/|por)\s*(?:\d+(?:[.,]\d+)?\s*)?ml\b)")
 DOSE_TO = re.compile(
     rf"(?:\bpara|\bpra)\s+(?:o\s+)?{QTY}(?:\s*{UNIT}(?![a-z]))?(?!\s*(?:dias?|semanas?|mes|meses|horas?|vezes|vez|x)\b)"
 )
@@ -474,6 +475,8 @@ def _check(tipo, sev: Severity, texto: str, refs: list[str]) -> OrderCheck:
 
 
 def _drug_checks(d: OrderDraft, ing: str, cls: str, name: str, ctx: OrderContext, drafts: list[OrderDraft]):
+    from app.consult import dose_peso  # import tardio: dose_peso lê a posologia daqui
+
     checks: list[OrderCheck] = []
     chart = ctx.chart
     active = [m for m in chart.active_meds if (ing and m.ingredient == ing) or (not ing and m.drug_class == cls)]
@@ -531,6 +534,14 @@ def _drug_checks(d: OrderDraft, ing: str, cls: str, name: str, ctx: OrderContext
         elif rule.criterion == "idade" and age >= rule.limit:
             fired.add("idade")
             checks.append(_check("dose_idade", sev, f"{name}: {rule.recommendation} ({age} anos)", []))
+    if ing and d.dose and (mg := dose_peso.parse_mg(d.dose)) and (w := chart.weight()):
+        found = dose_peso.avaliar(ing, mg, dose_peso.interval_hours(d.periodicidade), w[0], ctx.age)
+        if found:  # criança: a dose do rascunho confere com o último peso registrado
+            checks.append(_check("dose_peso", found.severidade, f"{found.texto} Fonte: {found.fonte}", [w[1]]))  # type: ignore[arg-type]
+    elif ing and d.dose and dose_peso.pediatric_ml(ing, d.dose, ctx.age):
+        checks.append(  # dose em mL: sem a concentração do frasco não dá para chegar em mg/kg
+            _check("dose_peso", "atencao", f"{name}: dose em {d.dose}; confirmar a concentração e a dose por kg.", [])
+        )
     others = [c for c in ctx.in_use if (c[0] != ing if ing else c[1] != cls)]
     for other in drafts:  # outros rascunhos da mesma consulta também entram na checagem
         if other is d or other.tipo != "medicamento" or other.acao in ("suspender",) or other.chave.startswith(UNKNOWN):
@@ -926,10 +937,10 @@ def suggest(
         d.checagens = _exam_checks(d, lab, ctx)
         out.append(_finish(d))
 
-    pending = {(p.protocolo, p.item): p for p in protocols if p.status in ("pendente", "sem_registro")}
+    pending = {p.id: p for p in protocols if p.status in ("pendente", "sem_registro")}
     for rule in knowledge.protocols():
         kind, _, spec = rule.source.partition(":")
-        p = pending.get((rule.protocol, rule.item))
+        p = pending.get(rule.id)
         if p is None:
             continue
         if kind == "lab":

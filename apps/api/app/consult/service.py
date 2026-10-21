@@ -22,7 +22,9 @@ from app.consult import (
     antiglosa,
     apps,
     consentimento,
+    consultorio,
     fidelidade,
+    glossario,
     gs1,
     hipoteses,
     idiomas,
@@ -30,9 +32,11 @@ from app.consult import (
     notas,
     note_templates,
     opme,
+    pdf,
     privacidade,
     propostas,
     relevancia,
+    scales,
     stt,
     summary,
 )
@@ -42,12 +46,14 @@ from app.consult.edicao import edit_percent
 from app.consult.edicao import section_diff as edit_sections
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
+    KIND_TITLE,
     bundle_transaction,
     claim_resource,
     device_resources,
     document_reference,
     note_as_text,
     procedure_resource,
+    selo_profissional,
     transaction_bundle,
 )
 from app.consult.export import urn as export_urn
@@ -271,6 +277,7 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "idioma_paciente": c.patient_language,
         "consentimento": consentimento.public((c.extra_json or {}).get("consentimento")),
         "status": c.status,
+        "sandbox": bool(c.sandbox),
         "segmentos": [s.model_dump() for s in segments],
         "cobertura": relevancia.coverage(segments, c.note_json) if c.kind != "cirurgia" else None,
         "insights": c.insights_json,
@@ -329,7 +336,7 @@ def _consent_record(fhir: FhirSource, user: User, patient_id: str, record: Patie
     when = clock.now().isoformat()
     resource = consentimento.build_consent(patient_id, cons, who_name, when)
     ref = None
-    if get_settings().ehr_writeback:
+    if get_settings().ehr_writeback and not body.sandbox:  # sandbox nunca grava no FHIR (#34)
         resource = fhir.create(resource)
         ref = f"Consent/{resource['id']}"
         clear_chart_cache()  # o Consent entra na linha do tempo do paciente
@@ -368,6 +375,7 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
     if body.especialidade not in knowledge.SPECIALTIES:
         raise HTTPException(422, "Especialidade desconhecida")
     record, events, ctx = _chart(fhir, patient_id)
+    consultorio.check_start(db, record, body.sandbox)  # sandbox só em cenário sintético; plano de teste grátis
     consent = _consent_record(fhir, user, patient_id, record, body)
     encounter_id = _pick_encounter(record, body.encounter_id)
     scripts = [
@@ -383,6 +391,7 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
         specialty=body.especialidade,
         patient_language=body.idioma_paciente or idiomas.do_paciente(record.patient)[0] or idiomas.PADRAO,
         status="em_andamento",
+        sandbox=body.sandbox,
         segments_json=[],
         extra_json=extra,
         created_by=user.id,
@@ -397,7 +406,13 @@ def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: Con
         "consulta.iniciada",
         "consultation",
         c.id,
-        {"patient_id": patient_id, "tipo": c.kind, "especialidade": c.specialty, "idioma": c.patient_language},
+        {
+            "patient_id": patient_id,
+            "tipo": c.kind,
+            "especialidade": c.specialty,
+            "idioma": c.patient_language,
+            "sandbox": c.sandbox,
+        },
         commit=False,
     )
     log_action(
@@ -693,7 +708,9 @@ def transcribe_audio(
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
     try:
-        text = stt.transcribe(audio, content_type, language)
+        text = stt.transcribe(
+            audio, content_type, language, glossario.prompt_stt(c.specialty) if language.startswith("pt") else ""
+        )
     except stt.STTUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
     log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(text)})
@@ -733,6 +750,34 @@ def mark_checklist(db: Session, fhir: FhirSource, user: User, cid: int, step: st
         c.id,
         {"patient_id": c.patient_id, "etapa": CHECKLIST_LABEL[step], "feito": done},
     )
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
+def save_scale(db: Session, fhir: FhirSource, user: User, cid: int, scale: str, answers: dict) -> dict:
+    """Respostas de uma escala dadas pelo profissional (valem mais que a estimativa pela fala): a pontuação sai das
+    regras em `scales.py`, com o ponto a ponto no Smart App "Escalas clínicas"."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "As escalas clínicas valem para consultas e visitas, não para o modo cirúrgico.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: não aceita novas respostas de escala.")
+    if scale == "nyha":
+        errors = [] if str(answers.get("classe")) in scales.NYHA_CLASSES else ["Classe NYHA: use I, II, III ou IV."]
+    elif scale == "imc":
+        ok = isinstance(answers.get("altura_cm"), int | float) and 40 <= answers["altura_cm"] <= 250
+        errors = [] if ok else ["IMC: informe altura_cm entre 40 e 250."]
+    else:
+        errors = scales.validar_respostas(scale, {k: str(v) for k, v in answers.items()})
+    if errors:
+        raise HTTPException(422, " ".join(errors))
+    record, events, ctx = _chart(fhir, c.patient_id)
+    extra = dict(c.extra_json or {})
+    saved = dict(extra.get("escalas") or {})
+    saved[scale] = {"respostas": answers, "por": user.name, "em": clock.now().isoformat()}
+    c.extra_json = extra | {"escalas": saved}
+    segments = _segments(c)
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    log_action(db, user, "consulta.escala", "consultation", c.id, {"patient_id": c.patient_id, "escala": scale})
     return {"insights": c.insights_json, "total": len(segments)}
 
 
@@ -1866,7 +1911,15 @@ def _document(db: Session, fhir: FhirSource, user: User, c: Consultation) -> tup
     note = reidentify(_nota(c), record)  # o prontuário recebe os nomes, não os tokens enviados à IA
     interp = _interpretacao(c)
     text = note_as_text(
-        c.kind, record.name, author, _local(now), note, c.patient_language, _signed_orders(c), interpretacao=interp
+        c.kind,
+        record.name,
+        author,
+        _local(now),
+        note,
+        c.patient_language,
+        _signed_orders(c),
+        interpretacao=interp,
+        selo=consultorio.selo_sandbox(selo_profissional(user)) if c.sandbox else selo_profissional(user),
     )
     doc = document_reference(
         interpretacao=interp,
@@ -1956,6 +2009,15 @@ def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     return result
 
 
+def export_pdf(db: Session, fhir: FhirSource, user: User, cid: int) -> tuple[bytes, str]:
+    """Nota revisada e atestada em PDF (mesmas travas da exportação em texto). Devolve o arquivo e o nome sugerido."""
+    result = export(db, fhir, user, cid)
+    c = _get(db, cid)
+    log_action(db, user, "consulta.exportada_pdf", "consultation", c.id, {"patient_id": c.patient_id})
+    title = KIND_TITLE.get(c.kind, "Nota clínica") + (" (sandbox)" if c.sandbox else "")
+    return pdf.render(title, result["texto"], rodape=f"HousIA · consulta {c.id}"), f"nota-consulta-{c.id}.pdf"
+
+
 def _author(doc: dict) -> str:
     return (doc.get("author") or [{}])[0].get("display") or ""
 
@@ -2018,7 +2080,7 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     _gate_clinical(db, user, c, justification)
     record = load_record(fhir, c.patient_id)
     text, doc = _document(db, fhir, user, c)
-    if not get_settings().ehr_writeback:
+    if not get_settings().ehr_writeback or c.sandbox:  # sandbox nunca escreve no prontuário (#34)
         log_action(
             db,
             user,
@@ -2030,7 +2092,11 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
         orders = _orders(c, _author(doc), clock.now())
         return {
             "enviado": False,
-            "motivo": "Envio automático desligado (EHR_WRITEBACK=false): copie o texto ou baixe o FHIR.",
+            "motivo": (
+                "Consulta de sandbox (cenário sintético): nunca é enviada ao prontuário. Copie o texto ou baixe o PDF."
+                if c.sandbox
+                else "Envio automático desligado (EHR_WRITEBACK=false): copie o texto ou baixe o FHIR."
+            ),
             "texto": text,
             "recurso": doc,
             "pedidos": orders,

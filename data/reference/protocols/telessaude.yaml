@@ -1,0 +1,18 @@
+eixo: Telessaúde
+fontes:
+  telessaude:
+    documento: "Portaria GM/MS nº 2.546/2011 (Telessaúde Brasil Redes) e Lei nº 14.510/2022 (telessaúde)"
+    orgao: Ministério da Saúde
+    ano: 2022
+    pagina: "art. 1º a 3º da Portaria; art. 26-A da Lei"
+itens:
+  - id: telessaude.teleconsultoria
+    protocolo: Telessaúde
+    aplica_se_fala: [encaminhar, encaminhamento, especialista, segunda opiniao, teleconsultoria, telessaude]
+    item: Teleconsultoria com especialista antes do encaminhamento
+    fonte: telessaude
+    registro: "texto:teleconsultoria|telessaude|segunda opiniao formativa"
+    intervalo_dias: 0
+    orientacao: Considerar teleconsultoria (segunda opinião) para resolver o caso na APS ou qualificar o encaminhamento.
+    fala: [teleconsultoria, telessaude, segunda opiniao]
+    pergunta: Vale pedir uma teleconsultoria com o especialista antes de encaminhar?

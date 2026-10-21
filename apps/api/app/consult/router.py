@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
@@ -11,12 +11,14 @@ from app.consult import (
     antiglosa,
     cid,
     consentimento,
+    consultorio,
     idiomas,
     knowledge,
     note_templates,
     opme,
     perfis,
     privacidade,
+    scales,
     service,
     stt,
 )
@@ -48,7 +50,15 @@ def config(_: User = Depends(get_current_user)) -> dict:
         "aviso_consentimento": consentimento.NOTICES,
         "finalidades": [{"value": k, "label": v} for k, v in consentimento.PURPOSES.items()],
         "especialidades": [
-            {"value": k, "label": v, "foco": knowledge.SPECIALTY_FOCUS.get(k, ""), "cirurgica": k in surgical}
+            {
+                "value": k,
+                "label": v,
+                "foco": knowledge.SPECIALTY_FOCUS.get(k, ""),
+                "cirurgica": k in surgical,
+                "smart_apps": knowledge.specialty_pack(k).smart_apps,
+                "escalas": knowledge.specialty_pack(k).escalas,
+                "modelo_nota": knowledge.specialty_pack(k).modelo_nota,
+            }
             for k, v in knowledge.SPECIALTIES.items()
         ],
     }
@@ -98,6 +108,57 @@ def cid10_search(q: str = Query("", max_length=80), _: User = Depends(clinician)
 def convenios(_: User = Depends(clinician)) -> list[dict]:
     """Convênios com regras anti-glosa em dados (data/reference/glosa_rules)."""
     return antiglosa.convenio_list()
+
+
+@router.get("/consult/plano")
+def plano(db: Session = Depends(get_db), _: User = Depends(clinician)) -> dict:
+    """Contador do plano da organização: o sandbox não entra na conta."""
+    return consultorio.plano(db)
+
+
+@router.get("/consult/sandbox/cenarios")
+def sandbox_scenarios(fhir: FhirSource = Depends(get_fhir), _: User = Depends(clinician)) -> list[dict]:
+    """Cenários sintéticos marcados para testar sem gastar o teste grátis (abra a consulta com `sandbox: true`)."""
+    return consultorio.scenarios(fhir)
+
+
+@router.get("/consult/onboarding")
+def consultorio_onboarding(db: Session = Depends(get_db), _: User = Depends(clinician)) -> dict:
+    """Onboarding de 3 passos do consultório: termina na primeira nota aprovada no sandbox."""
+    return consultorio.onboarding(db)
+
+
+@router.get("/consultations")
+def search_consultations(
+    status: str | None = Query(
+        None, max_length=30, description="em_andamento | finalizada | enviada | aguardando_revisao"
+    ),
+    q: str = Query("", max_length=80, description="nome ou id do paciente, especialidade, CID"),
+    cid: str = Query("", max_length=12, description="código CID-10 (prefixo): E11 devolve E11.9"),
+    de: date | None = Query(None, description="criada a partir de (AAAA-MM-DD)"),
+    ate: date | None = Query(None, description="criada até (AAAA-MM-DD)"),
+    revisada: bool | None = None,
+    sandbox: bool | None = None,
+    limite: int = Query(50, ge=1, le=200),
+    deslocamento: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    _: User = Depends(clinician),
+) -> dict:
+    """Busca global de consultas da organização, com a fila de notas finalizadas e ainda não revisadas."""
+    return consultorio.search(
+        db,
+        fhir,
+        status=status,
+        q=q,
+        cid=cid,
+        de=de,
+        ate=ate,
+        revisada=revisada,
+        sandbox=sandbox,
+        limit=limite,
+        offset=deslocamento,
+    )
 
 
 @router.get("/appointments")
@@ -230,6 +291,29 @@ def checklist(
 ) -> dict:
     """Cirurgia Segura (OMS) por botão: sign-in, time-out ou sign-out (o ditado também marca, por voz)."""
     return service.mark_checklist(db, fhir, user, cid, body.etapa, body.feito)
+
+
+class ScaleIn(BaseModel):
+    respostas: dict[str, str | int | float] = Field(..., min_length=1, max_length=40)
+
+
+@router.put("/consultations/{cid}/escalas/{escala}")
+def scale_answers(
+    cid: int,
+    escala: str,
+    body: ScaleIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Respostas de uma escala (IPSS, PHQ-9, GAD-7, Morse, Braden, IVCF-20, NYHA ou IMC): o servidor soma os pontos."""
+    return service.save_scale(db, fhir, user, cid, escala, body.respostas)
+
+
+@router.get("/escalas")
+def scale_catalog(_: User = Depends(clinician)) -> list[dict]:
+    """Escalas disponíveis, com itens, opções e fonte (a tela monta o formulário por aqui)."""
+    return scales.catalogo()
 
 
 class MainComplaintIn(BaseModel):
@@ -551,6 +635,17 @@ def export(
 ) -> dict:
     """Texto pronto para o prontuário e o recurso FHIR (DocumentReference), sem enviar."""
     return service.export(db, fhir, user, cid)
+
+
+@router.get("/consultations/{cid}/export.pdf")
+def export_pdf(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+) -> Response:
+    """Nota revisada e atestada em PDF (mesmas travas do /export)."""
+    data, filename = service.export_pdf(db, fhir, user, cid)
+    return Response(
+        data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 class AskIn(BaseModel):

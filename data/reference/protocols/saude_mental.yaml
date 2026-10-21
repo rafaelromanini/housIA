@@ -1,0 +1,87 @@
+eixo: Saúde mental
+fontes:
+  cab34:
+    documento: "Caderno de Atenção Básica nº 34: Saúde mental"
+    orgao: Ministério da Saúde
+    ano: 2013
+    pagina: "cap. de avaliação de risco e depressão"
+  phq9:
+    documento: "PHQ-9 e GAD-7 na atenção primária: Kroenke et al. (J Gen Intern Med) e validação brasileira de Santos et al. (Cad Saúde Pública)"
+    orgao: Ministério da Saúde, adaptação para a APS
+    ano: 2013
+    pagina: "item 9 do PHQ-9 e pontos de corte"
+itens:
+  - id: mental.suicidio
+    protocolo: Saúde mental
+    condicao: [F32, F33, F41, F31, F20, X6, X7]
+    aplica_se_fala:
+      - me matar
+      - quero morrer
+      - queria morrer
+      - tirar minha vida
+      - tirar a minha vida
+      - acabar com minha vida
+      - acabar com a minha vida
+      - suicid
+      - sem vontade de viver
+      - sem animo
+      - muito triste
+      - tristeza
+      - deprimid
+      - depressao
+    item: Risco de suicídio (item 9 do PHQ-9)
+    fonte: phq9
+    registro: "escala:phq9"
+    intervalo_dias: 180
+    critico: true
+    orientacao: Item 9 do PHQ-9 positivo (qualquer resposta diferente de "nenhuma vez") é risco crítico, avaliar no mesmo dia.
+    fala: [phq-9, phq9, questionario de depressao]
+    pergunta: Nas últimas 2 semanas, teve pensamentos de que seria melhor estar morto ou de se ferir de alguma forma?
+    gatilhos_criticos:
+      - me matar
+      - se matar
+      - quero morrer
+      - queria morrer
+      - tirar minha vida
+      - tirar a minha vida
+      - acabar com minha vida
+      - acabar com a minha vida
+      - suicid
+      - melhor estar morto
+      - melhor estar morta
+      - "!nao quero mais viver"
+      - "!nao aguento mais viver"
+    gatilhos_pergunta:
+      - se machucar
+      - me machucar
+      - se ferir
+      - me ferir
+      - se cortar
+      - me cortar
+      - fazer mal a si
+      - quer morrer
+      - vontade de morrer
+      - ideacao
+      - pensamentos de morte
+  - id: mental.phq9
+    protocolo: Saúde mental
+    condicao: [F32, F33]
+    aplica_se_fala: [tristeza, muito triste, sem animo, desanimo, deprimid, depressao, sem vontade de fazer nada, choro facil]
+    item: PHQ-9 (rastreio e acompanhamento de depressão)
+    fonte: phq9
+    registro: "escala:phq9"
+    intervalo_dias: 90
+    orientacao: Aplicar na suspeita e a cada 3 meses no acompanhamento; 10 pontos ou mais indicam depressão provável.
+    fala: [phq-9, phq9, questionario de depressao]
+    pergunta: Posso aplicar o questionário PHQ-9 para medir o humor nas últimas 2 semanas?
+  - id: mental.gad7
+    protocolo: Saúde mental
+    condicao: [F41]
+    aplica_se_fala: [ansiedade, ansioso, ansiosa, nervoso, panico, preocupacao demais, nao consigo relaxar]
+    item: GAD-7 (rastreio e acompanhamento de ansiedade)
+    fonte: phq9
+    registro: "escala:gad7"
+    intervalo_dias: 90
+    orientacao: 10 pontos ou mais indicam ansiedade generalizada provável.
+    fala: [gad-7, gad7, questionario de ansiedade]
+    pergunta: Posso aplicar o questionário GAD-7 para medir a ansiedade nas últimas 2 semanas?

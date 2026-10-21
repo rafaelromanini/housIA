@@ -1,0 +1,24 @@
+id: ginecologia_obstetricia
+ordem: 12
+rotulo: Ginecologia e obstetrícia
+foco: indicação da cesariana, nascimento e Apgar, dequitação, uterotônico e histerorrafia
+modelo_nota: consulta_clinica
+smart_apps:
+- cirurgia
+- alergias
+- medicamentos
+- exames
+- gestacao_lactacao
+- resumo
+escalas:
+- phq9
+- gad7
+- imc
+hipoteses_prioritarias:
+- Z32.0
+- N93.9
+glossario:
+  regra atrasada: atraso menstrual
+  ficar de resguardo: puerpério
+  perdi o bebe: abortamento
+perguntas: []

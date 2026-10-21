@@ -50,7 +50,7 @@ def child_engine(record, specialty: str, falas: list[tuple[str, str]], birth: st
 
 
 # ---------- modelos em dados ----------
-def test_os_oito_modelos_sao_versionados_e_validos():
+def test_os_dez_modelos_sao_versionados_e_validos():
     tpls = note_templates.templates()
     assert set(tpls) == {
         "consulta_clinica",
@@ -61,6 +61,8 @@ def test_os_oito_modelos_sao_versionados_e_validos():
         "evolucao_internacao",
         "ps",
         "aps_esus",
+        "nutricao",  # pacotes de nutrição e saúde mental (#27)
+        "saude_mental",
     }
     for t in tpls.values():
         assert t.versao.count(".") == 2 and t.fonte and t.loinc.codigo
@@ -83,7 +85,7 @@ def test_modelo_e_escolhido_por_especialidade_e_tipo():
 def test_get_note_templates_lista_e_marca_o_sugerido(client, auth):
     h = auth("medico")
     todos = client.get("/note-templates", headers=h).json()
-    assert len(todos) == 8 and not any(m["sugerido"] for m in todos)
+    assert len(todos) == 10 and not any(m["sugerido"] for m in todos)
     sug = client.get("/note-templates?especialidade=pediatria&tipo=consulta", headers=h).json()
     assert [m["id"] for m in sug if m["sugerido"]] == ["pediatria"]
     assert client.get("/note-templates").status_code == 401
@@ -93,7 +95,7 @@ def test_get_note_templates_lista_e_marca_o_sugerido(client, auth):
 def test_consulta_de_pediatria_gera_peso_vacinas_e_dnpm(client, auth):
     h = auth("medico")
     nota = finish(client, h, pid="cen4b", especialidade="pediatria")["nota"]
-    assert nota["modelo"]["id"] == "pediatria" and nota["modelo"]["versao"] == "1.0.0"
+    assert nota["modelo"]["id"] == "pediatria" and nota["modelo"]["versao"] == "1.1.0"  # +seção de hidratação (#27)
     assert {"peso", "vacinas", "dnpm"} <= set(keys(nota))
     got = {s["key"]: s for s in nota["secoes"]}
     assert {"peso", "vacinas", "dnpm"} <= set(got)

@@ -196,17 +196,19 @@ Cada onda com 8 entregas consome bastante da cota de uso. Rode uma onda por jane
 - Toda afirmação da IA leva fonte (`Fala/N` e/ou referência FHIR). As regras de segurança nunca são removidas pela
   IA.
 
-## Pausa 2 (2026-10-21)
+## #17 bundle FHIR e envio ao prontuário (2026-10-21)
 
-PRs abertos e verdes (aguardam merge, nesta ordem): #5 (golden cen6 independente da data), #2 (#33 multi-org,
-migração e331), #3 (#27 especialidades), #4 (#34 consultório, e341→e331, depende do #2), #6 (#28 protocolos APS,
-depende do #3).
+Branch `claude/onda3-17-bundle-fhir-prontuario`, já mesclado com a main (migração c202 sobre e341, cabeça única).
+Bundle transaction estruturado, propostas revisáveis, fila `ehr_outbox` (cifrada, isolada por organização) e reenvio
+idempotente (If-None-Exist). Verificação de esforço alto concluída: regressão nos rótulos de auditoria corrigida,
+critérios de aceite cobertos por testes e entradas adversariais conferidas. Segue o resultado da suíte completa no
+histórico de commits.
 
-Em andamento, NÃO verificados (commits wip no remoto):
-- #17 `claude/onda3-17-bundle-fhir-prontuario` (de main; migração c202→c201): implementação pronta; verificação de
-  esforço alto interrompida corrigindo regressão nos rótulos de auditoria. Suíte completa nunca passou verde.
-  Ao entrar depois do #2, reapontar c202 (ou e331) para não haver duas cabeças.
-- #35 `claude/onda3-35-planos-teste-gratis` (de #34; migração e351→e341): implementação pronta; verificação
-  interrompida. Restaurar asserção exata (404) em test_multiorg_adversarial para hospital.
+## Pausa (2026-10-20, cota)
 
-Falta na Onda 3: #18, #29. Depois Onda 4 (#11, #12, P1 #38–#54, P2 #55–#57), pitch e polimento.
+- #33: branch `claude/onda3-33-multitenant` (commit 1ca67b5 = implementação, 1037 passed; commit wip = verificação
+  adversarial interrompida, testes novos em `test_multiorg_adversarial.py` não conferidos). Retomar a verificação.
+- #27: implementado e verificado no branch `claude/onda3-27-pacotes-especialidade` (verificação cética: peso em
+  lb/g/zero/antigo, mL e concentração, dose diária x por tomada, mg/kg, adolescente com dose de adulto, NYHA/IPSS com
+  negação, glossário sem trocar sentido). Pendências: percentil/escore z de IMC da OMS (tabelas LMS não embarcadas) e
+  conferência humana das faixas de `pediatric_doses.csv` e dos itens do IVCF-20 contra bula/SBP/MS.

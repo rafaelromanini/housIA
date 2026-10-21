@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { LogIn, Stethoscope } from "lucide-react";
@@ -31,9 +32,10 @@ export function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      await login(email, password);
+      const u = await login(email, password);
       const next = params.get("next");
-      router.push(next && next.startsWith("/") ? next : "/leitos");
+      // sem destino pedido: consultório vai para /consultas, hospital para /leitos
+      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : u.destino);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha no login");
     } finally {
@@ -80,6 +82,14 @@ export function LoginForm() {
             {busy ? "Entrando…" : "Entrar"}
           </Button>
         </form>
+        <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
+          <Link href="/esqueci" className="font-bold text-primary underline underline-offset-2 hover:no-underline">
+            Esqueci a senha
+          </Link>
+          <Link href="/cadastro" className="font-bold text-primary underline underline-offset-2 hover:no-underline">
+            Criar conta grátis
+          </Link>
+        </div>
         <div className="mt-5 border-t pt-4">
           <p className="text-sm font-bold mb-2">Usuários de demonstração (senha: housia123)</p>
           <div className="flex flex-wrap gap-2">

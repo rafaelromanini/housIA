@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     jwt_expires_minutes: int = 12 * 60
     cookie_secure: bool | None = None  # None: ligado em produção
 
+    # E-mail (#33): verificação de cadastro, recuperação de senha e convites. Sem SMTP_HOST, a mensagem fica só no
+    # log e na caixa de saída em memória (testes); no compose de dev o mailpit recebe tudo (UI 8025, API /api/v1).
+    smtp_host: str = ""
+    smtp_port: int = 1025
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = False
+    smtp_from: str = "HousIA <nao-responda@housia.dev>"
+    app_base_url: str = "http://localhost:3000"  # base dos links enviados por e-mail
+
     # Consulta com IA
     # Transcrição no servidor (opcional): endpoint compatível com /v1/audio/transcriptions (ex.: Whisper on-premise).
     # Sem isso, a transcrição ao vivo usa o reconhecimento de fala do navegador (ver ADR 0009).
@@ -67,6 +77,8 @@ class Settings(BaseSettings):
     allow_browser_stt: bool = True
 
     data_dir: Path = Field(default_factory=_default_data_dir)
+    # Protocolos de APS (#28): pasta de sobrescrita local (padrão: data/reference/protocols/local)
+    protocolos_locais_dir: Path | None = None
     timezone: str = "America/Sao_Paulo"
     cors_origins: str = "http://localhost:3000"
     seed_users: bool = True

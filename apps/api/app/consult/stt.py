@@ -21,7 +21,8 @@ def enabled() -> bool:
     return bool(get_settings().stt_url)
 
 
-def transcribe(audio: bytes, content_type: str, language: str) -> str:
+def transcribe(audio: bytes, content_type: str, language: str, vocabulary: str = "") -> str:
+    """`vocabulary`: dica de termos (glossário clínico) no campo `prompt` da API, que o Whisper usa como contexto."""
     settings = get_settings()
     if not settings.stt_url:
         raise STTUnavailable("Transcrição no servidor não configurada (STT_URL). Use o microfone do navegador.")
@@ -35,7 +36,8 @@ def transcribe(audio: bytes, content_type: str, language: str) -> str:
         r = httpx.post(
             settings.stt_url,
             files={"file": (f"trecho.{EXTENSIONS.get(mime, 'webm')}", audio, mime)},
-            data={"model": settings.stt_model, "language": language.split("-")[0], "response_format": "json"},
+            data={"model": settings.stt_model, "language": language.split("-")[0], "response_format": "json"}
+            | ({"prompt": vocabulary} if vocabulary else {}),
             headers=headers,
             timeout=60,
         )

@@ -100,6 +100,7 @@ class ConsultCreate(BaseModel):
     idioma_paciente: Language | None = None  # sem idioma: vale o Patient.communication (ou pt-BR)
     consentimento: Consentimento  # obrigatório: sem registro de consentimento (ou recusa) não há consulta
     encounter_id: str | None = Field(None, max_length=64)  # a agenda manda o encontro clicado (#17)
+    sandbox: bool = False  # cenário sintético para testar: fora do contador do plano, nunca vai ao prontuário (#34)
 
 
 # ---------- Smart Apps ----------
@@ -273,10 +274,17 @@ class SurgeryItem(BaseModel):
 class ProtocolItem(BaseModel):
     protocolo: str
     item: str
-    status: Literal["em_dia", "pendente", "sem_registro", "fora_do_alvo", "no_alvo"]
+    # "abordado": tratado na conversa (refs Fala/N); "critico": gatilho de risco dito ou escala positiva
+    status: Literal["em_dia", "pendente", "sem_registro", "fora_do_alvo", "no_alvo", "abordado", "critico"]
     ultimo: str | None = None
     orientacao: str
     refs: list[str]
+    id: str = ""
+    eixo: str = ""
+    fonte: str = ""  # "Órgão, documento, ano, página"
+    intervalo_dias: int = 0
+    local: bool = False  # item trocado ou criado pelo arquivo local da instituição
+    pergunta: str = ""
 
 
 class Highlight(ItemAcionavel):
@@ -508,6 +516,7 @@ OrderCheckType = Literal[
     "reatividade_cruzada",
     "dose_tfg",
     "dose_idade",
+    "dose_peso",
     "interacao",
     "duplicidade",
     "alto_alerta",

@@ -1,0 +1,108 @@
+id: nutricao
+versao: 1.0.0
+rotulo: Consulta de nutrição
+titulo: Nota de consulta de nutrição
+tipo: consulta
+especialidades:
+- nutricao
+automatico: true
+loinc:
+  codigo: 11488-4
+  display: Consult note
+fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014); SISVAN
+secoes:
+- key: queixa_principal
+  rotulo: Queixa principal
+  soap: S
+  obrigatoria: true
+  dica: Motivo do atendimento nas palavras do paciente.
+  loinc: 10154-3
+- key: hda
+  rotulo: História da doença atual
+  soap: S
+  obrigatoria: false
+  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
+  loinc: 10164-2
+- key: antecedentes
+  rotulo: Antecedentes
+  soap: S
+  obrigatoria: false
+  dica: Doenças prévias, cirurgias e história familiar.
+  loinc: 11348-0
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: consumo_alimentar
+  rotulo: Consumo alimentar
+  soap: S
+  obrigatoria: false
+  dica: Recordatório de 24 horas, refeições, horários e quem prepara.
+  palavras:
+  - comeu
+  - cafe da manha
+  - almoco
+  - jantar
+  - lanche
+  - refeicao
+  - 'come '
+  - beliscar
+  - fast food
+  - ultraprocessado
+  - agua
+  prefixo: 'Relato: '
+- key: atividade_fisica
+  rotulo: Atividade física e hábitos
+  soap: S
+  obrigatoria: false
+  dica: Frequência, duração, sono, álcool e tabagismo.
+  palavras:
+  - atividade fisica
+  - exercicio
+  - caminha
+  - academia
+  - treina
+  - sedentari
+  - dorme
+  - alcool
+  - fuma
+  prefixo: 'Relato: '
+- key: antropometria
+  rotulo: Peso e antropometria
+  soap: O
+  obrigatoria: false
+  dica: Último peso registrado; altura e circunferências medidas na consulta.
+  padrao: '{{peso}}'
+  loinc: 29463-7
+- key: exame_fisico
+  rotulo: Exame físico
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi medido ou verbalizado.
+  loinc: 29545-1
+- key: exames_complementares
+  rotulo: Exames complementares
+  soap: O
+  obrigatoria: false
+  dica: Resultados relevantes, com data.
+  loinc: 30954-2
+- key: avaliacao
+  rotulo: Avaliação
+  soap: A
+  obrigatoria: true
+  dica: Raciocínio clínico e hipóteses, com CID-10.
+  loinc: 51848-0
+- key: plano
+  rotulo: Plano
+  soap: P
+  obrigatoria: false
+  dica: Condutas combinadas; o que não foi combinado fica como "a confirmar".
+  loinc: 18776-5

@@ -8,11 +8,24 @@ export type Role = "medico" | "enfermagem" | "gestor";
 export type Severity = "info" | "atencao" | "critico";
 export type Risk = "baixo" | "moderado" | "alto";
 
+export interface Organizacao {
+  id: number;
+  nome: string;
+  tipo: "consultorio" | "hospital";
+}
+
 export interface User {
   id: number;
   name: string;
   email: string;
   role: Role;
+  organizacao: Organizacao | null;
+  destino: string;
+  conselho: string | null;
+  conselho_numero: string | null;
+  uf: string | null;
+  conselho_verificado: boolean;
+  email_verificado: boolean;
 }
 
 export interface AlertCounts {
@@ -491,7 +504,12 @@ export interface GestaoSummary {
 /** Baixa um arquivo da API (com o cookie de sessão) e o entrega ao navegador. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const res = await fetch(`${API_URL}${path}`, { credentials: "include" });
-  if (!res.ok) throw new ApiError(res.status, "Não foi possível exportar.");
+  if (!res.ok) {
+    // devolve o motivo do servidor (ex.: 409 de revisão pendente) em vez de uma mensagem genérica
+    const data = await res.json().catch(() => null);
+    const detail = data && typeof data === "object" && "detail" in data ? data.detail : null;
+    throw new ApiError(res.status, typeof detail === "string" ? detail : "Não foi possível exportar.", data);
+  }
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
   a.href = url;
@@ -798,10 +816,18 @@ export interface SummarySentence {
 export interface ProtocolItem {
   protocolo: string;
   item: string;
-  status: "em_dia" | "pendente" | "sem_registro" | "fora_do_alvo" | "no_alvo";
+  status: "em_dia" | "pendente" | "sem_registro" | "fora_do_alvo" | "no_alvo" | "abordado" | "critico";
   ultimo: string | null;
   orientacao: string;
   refs: string[];
+  id?: string;
+  eixo?: string;
+  /** "Órgão, documento, ano, página" */
+  fonte?: string;
+  intervalo_dias?: number;
+  /** Item trocado ou criado pelo arquivo local da instituição. */
+  local?: boolean;
+  pergunta?: string;
 }
 export interface Highlight extends InsightItem {
   texto: string;
@@ -1005,6 +1031,7 @@ export type OrderCheckType =
   | "reatividade_cruzada"
   | "dose_tfg"
   | "dose_idade"
+  | "dose_peso"
   | "interacao"
   | "duplicidade"
   | "alto_alerta"
@@ -1306,6 +1333,8 @@ export interface Consultation {
   especialidade_rotulo: string;
   idioma_paciente: string;
   status: "em_andamento" | "finalizada" | "enviada";
+  /** cenário sintético do sandbox: fora do plano, nunca vai ao prontuário */
+  sandbox?: boolean;
   segmentos: Segment[];
   consentimento?: ConsentInfo | null;
   /** propostas para o prontuário (alergia/medicamento relatados, CID, PA e peso ditos); aceite item a item */
@@ -1568,4 +1597,67 @@ export interface JourneyMetrics {
   total: JourneyMetricsRow;
   coortes: (JourneyMetricsRow & { chave: string; rotulo: string })[];
   casos: JourneyCase[];
+}
+
+// ---------- Modo consultório (#34) ----------
+export interface PacienteAvulsoIn {
+  nome: string;
+  nascimento: string;
+  sexo: "M" | "F" | "O";
+  telefone?: string;
+  alergias: { substancia: string; reacao?: string; criticidade: "alta" | "baixa" | "indeterminada" }[];
+  medicamentos: { nome: string; posologia?: string; via?: string }[];
+  sem_alergias?: boolean;
+}
+export interface PacienteAvulso {
+  id: string;
+  nome: string;
+  nascimento: string | null;
+  sexo: string;
+  avulso: true;
+  alergias?: number;
+  medicamentos?: number;
+}
+export interface PlanoUso {
+  plano: "teste_gratis" | "ilimitado";
+  limite: number | null;
+  usadas: number;
+  restantes: number | null;
+  sandbox: number;
+}
+export interface CenarioSandbox {
+  id: string;
+  patient_id: string;
+  paciente: string;
+  titulo: string;
+  tipo: ConsultKind;
+  especialidade: string;
+  especialidade_rotulo: string;
+  sintetico: true;
+}
+export interface ConsultaLinha {
+  id: number;
+  patient_id: string;
+  paciente: string;
+  tipo: ConsultKind;
+  especialidade_rotulo: string;
+  status: "em_andamento" | "finalizada" | "enviada";
+  revisada: boolean;
+  aguardando_revisao: boolean;
+  sandbox: boolean;
+  cids: { codigo: string; descricao: string }[];
+  falas: number;
+  criado_por: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+export interface ConsultaBusca {
+  total: number;
+  limite: number;
+  deslocamento: number;
+  itens: ConsultaLinha[];
+}
+export interface OnboardingConsultorio {
+  passos: { chave: string; titulo: string; feito: boolean }[];
+  concluido: boolean;
 }

@@ -1,13 +1,14 @@
 """#8 — Sumarizador com fonte por frase, lembretes ao vivo e alertas (atenção recolhida + sinal vital crítico)."""
 
 import pytest
+from sqlalchemy import select
 
 from app import clock
 from app.consult import summary
 from app.consult.engine import Engine
 from app.consult.schemas import Insights, Segment
 from app.db import session as db_session
-from app.db.models import MedrecRun
+from app.db.models import MedrecRun, Organization
 from app.llm import client as llm_client
 from app.timeline.context import build_context
 from app.timeline.events import ClinicalEvent, build_timeline
@@ -237,6 +238,7 @@ def test_post_discharge_visit_without_reconciliation(client, auth, record):
                 to_encounter_or_location="Casa",
                 findings_json={},
                 created_at=clock.now(),
+                organization_id=db.scalar(select(Organization.id)),  # a reconciliação é da organização do usuário
             )
         )
         db.commit()

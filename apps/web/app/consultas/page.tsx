@@ -1,12 +1,14 @@
 import { AppShell } from "@/components/app-shell";
-import { Agenda } from "@/components/consult/agenda";
+import { ConsultasView } from "@/components/consult/consultas-view";
+import { Onboarding } from "@/components/equipe/onboarding";
 
-export const metadata = { title: "Agenda de consultas" };
+export const metadata = { title: "Consultas" };
 
 export default function ConsultasPage() {
   return (
     <AppShell>
-      <Agenda />
+      <Onboarding />
+      <ConsultasView />
     </AppShell>
   );
 }

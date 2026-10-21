@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.config import get_settings
-from app.consult import knowledge
+from app.consult import knowledge, protocolos, scales
 from app.consult.schemas import (
     AllergyInfo,
     ExamInfo,
@@ -90,10 +90,22 @@ class ChartView:
         items = [e for e in self.vitals.get(key, []) if self.now - e.timestamp <= timedelta(hours=max_hours)]
         return items[-1] if items else None
 
+    def weight_event(self) -> ClinicalEvent | None:
+        """Último peso utilizável (até 1 ano): ignora valor zerado, absurdo (fora de 0,3 a 400 kg) ou em unidade
+        desconhecida, que lidos como kg dariam dose errada; sem peso utilizável, a conferência por kg pede pesagem."""
+        items = [
+            e
+            for e in self.vitals.get("peso", [])
+            if (self.now - e.timestamp).days <= 365
+            and not e.value.get("unidade_invalida")
+            and 0.3 <= float(e.value["valor"]) <= 400
+        ]
+        return items[-1] if items else None
+
     def weight(self) -> tuple[float, str] | None:
         """Último peso registrado (kg) e a fonte, para conferir doses por peso."""
-        items = [e for e in self.vitals.get("peso", []) if (self.now - e.timestamp).days <= 365]
-        return (float(items[-1].value["valor"]), items[-1].source_ref) if items else None
+        e = self.weight_event()
+        return (float(e.value["valor"]), e.source_ref) if e else None
 
     @property
     def conditions(self) -> list[tuple[str, str, dict]]:
@@ -399,49 +411,145 @@ class ChartView:
         return out
 
     # ---------- Protocolos de acompanhamento (APS) ----------
-    def protocols(self) -> list[ProtocolItem]:
+    def _protocol_applies(self, p: knowledge.ProtocolDef, segments, trimester: int | None, risks: dict) -> dict | None:
+        """O item vale para este paciente? Idade e sexo sempre valem; condição ou tema dito na conversa valem como
+        "ou". Devolve {"refs": [...]} (o que motivou o item) ou None."""
+        age = self.r.age
+        if p.sex and self.r.sex != p.sex:
+            return None
+        if (p.age_min is not None or p.age_max is not None) and (
+            age is None or (p.age_min is not None and age < p.age_min) or (p.age_max is not None and age > p.age_max)
+        ):  # sem data de nascimento, o item por idade não vale (não dá para saber se a faixa é a dele)
+            return None
+        if p.months_min is not None or p.months_max is not None:
+            months = protocolos.meses_de_vida(self.r.patient.get("birthDate"), self.now.date())
+            if months is None or (p.months_min is not None and months < p.months_min):
+                return None
+            if p.months_max is not None and months > p.months_max:
+                return None
+        if p.trimester is not None and trimester is not None and p.trimester != trimester:
+            return None
+        if not p.conditions and not p.if_said:
+            return {"refs": []}
+        if p.id in risks:
+            return {"refs": []}
+        for prefix in p.conditions:
+            cond = self.has_condition(prefix)
+            if cond is not None:
+                return {"refs": [f"Condition/{cond['id']}"]}
+        if p.if_said and protocolos.falas_com(segments, p.if_said):
+            return {"refs": []}
+        return None
+
+    def _protocol_record(self, p: knowledge.ProtocolDef) -> tuple[str, str | None, list[str]]:
+        """(status, último, refs) do item pelo que o prontuário prova; `interval_days` 0 = vale uma vez."""
+        limit = p.interval_days or 36500
+        kind, _, spec = p.source.partition(":")
+        if kind == "lab":
+            last = self.latest_lab(spec, max_days=3650)
+            if last is None:
+                return "sem_registro", None, []
+            age = (self.now - last.timestamp).days
+            return (
+                "em_dia" if age <= limit else "pendente",
+                f"{fmt_date(last.timestamp)}: {last.summary.split(': ', 1)[-1]}",
+                [last.source_ref],
+            )
+        if kind == "texto":
+            words = tuple(w for w in spec.split("|") if w)
+            hits = [e for e in self.notes_text(3650) if any(w in norm(e.text or "") for w in words)]
+            hits += [e for e in self.events if e.kind == "procedure" and any(w in norm(e.summary) for w in words)]
+            hits.sort(key=lambda e: e.timestamp)
+            if not hits:
+                return "sem_registro", None, []
+            last = hits[-1]
+            return (
+                "em_dia" if (self.now - last.timestamp).days <= limit else "pendente",
+                f"{fmt_date(last.timestamp)} ({'evolução' if last.kind == 'note' else 'procedimento'})",
+                [last.source_ref],
+            )
+        if kind == "vacina":
+            words = tuple(w for w in spec.split("|") if w)
+            doses = []
+            for imm in self.r.resources.get("Immunization", []):
+                code = imm.get("vaccineCode") or {}
+                label = norm(" ".join([code.get("text", ""), *(c.get("display", "") for c in code.get("coding", []))]))
+                when = parse_dt(imm.get("occurrenceDateTime"))
+                if imm.get("status") != "not-done" and when and any(w in label for w in words):
+                    doses.append((when, f"Immunization/{imm['id']}"))
+            if not doses:
+                return "sem_registro", None, []
+            when, ref = max(doses)
+            return "em_dia" if (self.now - when).days <= limit else "pendente", f"{fmt_date(when)} (vacina)", [ref]
+        if kind == "vital":  # vital:pa:140/90
+            target_s, _, target_d = spec.partition(":")[2].partition("/")
+            pa = [e for e in self.events if e.kind == "vital" and (e.value or {}).get("chave") == "pa"]
+            if not pa:
+                return "sem_registro", None, []
+            last = pa[-1]
+            ok = last.value["sistolica"] < float(target_s) and last.value["diastolica"] < float(target_d)
+            return (
+                "no_alvo" if ok else "fora_do_alvo",
+                f"{fmt_date(last.timestamp)}: {last.value['sistolica']}/{last.value['diastolica']} mmHg",
+                [last.source_ref],
+            )
+        return "sem_registro", None, []  # escala:*, nenhum: só a consulta de hoje prova o item
+
+    def protocols(self, segments=(), escalas: dict | None = None) -> list[ProtocolItem]:
+        """Itens dos protocolos de APS que valem para o paciente (diagnóstico, idade, sexo ou tema da conversa).
+
+        Com as falas da consulta, o item tratado vira "abordado — Fala/N" (se ainda estava pendente) e o gatilho de
+        risco dito (ou o item 9 do PHQ-9 positivo) vira "critico". Sem falas, é só o prontuário."""
+        segments = list(segments)
+        escalas = escalas or {}
+        trimester = protocolos.trimestre_pela_fala(segments)
+        risks = protocolos.criticos(segments)
         out = []
         for p in knowledge.protocols():
-            cond = self.has_condition(p.condition)
-            if cond is None:
+            motive = self._protocol_applies(p, segments, trimester, risks)
+            if motive is None:
                 continue
-            refs = [f"Condition/{cond['id']}"]
+            status, ultimo, refs = self._protocol_record(p)
+            refs = motive["refs"] + refs
             kind, _, spec = p.source.partition(":")
-            if kind == "lab":
-                last = self.latest_lab(spec, max_days=3650)
-                if last is None:
-                    status, ultimo = "sem_registro", None
-                else:
-                    age = (self.now - last.timestamp).days
-                    status = "em_dia" if age <= p.interval_days else "pendente"
-                    ultimo = f"{fmt_date(last.timestamp)}: {last.summary.split(': ', 1)[-1]}"
-                    refs.append(last.source_ref)
-            elif kind == "texto":
-                words = tuple(w for w in spec.split("|") if w)
-                hits = [e for e in self.notes_text(3650) if any(w in norm(e.text or "") for w in words)]
-                hits += [e for e in self.events if e.kind == "procedure" and any(w in norm(e.summary) for w in words)]
-                hits.sort(key=lambda e: e.timestamp)
-                if not hits:
-                    status, ultimo = "sem_registro", None
-                else:
-                    last = hits[-1]
-                    status = "em_dia" if (self.now - last.timestamp).days <= p.interval_days else "pendente"
-                    ultimo = f"{fmt_date(last.timestamp)} ({'evolução' if last.kind == 'note' else 'procedimento'})"
-                    refs.append(last.source_ref)
-            else:  # vital:pa:140/90
-                target_s, _, target_d = spec.partition(":")[2].partition("/")
-                pa = [e for e in self.events if e.kind == "vital" and (e.value or {}).get("chave") == "pa"]
-                if not pa:
-                    status, ultimo = "sem_registro", None
-                else:
-                    last = pa[-1]
-                    ok = last.value["sistolica"] < float(target_s) and last.value["diastolica"] < float(target_d)
-                    status = "no_alvo" if ok else "fora_do_alvo"
-                    ultimo = f"{fmt_date(last.timestamp)}: {last.value['sistolica']}/{last.value['diastolica']} mmHg"
-                    refs.append(last.source_ref)
+            if kind == "escala" and spec in escalas:
+                answers = protocolos.respostas_da_escala(escalas[spec])
+                res = scales.calcular(spec, answers)
+                item9 = protocolos.item9_phq9(answers) if p.critical and spec == "phq9" else None
+                # o item de risco só fica "abordado" pelo PHQ-9 se o item 9 foi respondido (PHQ-9 sem ele não o cobre)
+                if (res.completo or answers) and (not (p.critical and spec == "phq9") or item9 is not None):
+                    status = "abordado"
+                    ultimo = f"abordado — {res.nome} respondido na consulta" + (
+                        f" ({res.total} pontos)" if res.total is not None else ""
+                    )
+                    refs = refs or [f"Patient/{self.r.id}"]
+                if item9 is True:
+                    status, ultimo = "critico", "item 9 do PHQ-9 positivo na consulta"
+                    refs = refs or [f"Patient/{self.r.id}"]
+            talked = protocolos.falas_com(segments, p.said) if p.said else []
+            if p.id in risks:
+                status = "critico"
+                refs = protocolos.refs_das_falas(risks[p.id]) + refs
+                ultimo = "risco dito na consulta — " + ", ".join(protocolos.refs_das_falas(risks[p.id]))
+            elif talked and status in ("pendente", "sem_registro"):
+                status = "abordado"
+                said_refs = protocolos.refs_das_falas(talked)
+                ultimo = "abordado — " + ", ".join(said_refs)
+                refs = said_refs + refs
             out.append(
                 ProtocolItem(
-                    protocolo=p.protocol, item=p.item, status=status, ultimo=ultimo, orientacao=p.guidance, refs=refs
+                    protocolo=p.protocol,
+                    item=p.item,
+                    status=status,
+                    ultimo=ultimo,
+                    orientacao=p.guidance,
+                    refs=refs,
+                    id=p.id,
+                    eixo=p.axis,
+                    fonte=p.citation,
+                    intervalo_dias=p.interval_days,
+                    local=p.local,
+                    pergunta=p.question,
                 )
             )
         return out
