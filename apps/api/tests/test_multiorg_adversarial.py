@@ -121,7 +121,11 @@ def test_alerta_avaliacao_de_alta_e_tarefa_de_outra_organizacao_sao_404(client, 
         r = client.post(f"/alerts/{aid}/status", json={"status": "descartado", "justificativa": "x" * 20}, headers=h)
         assert r.status_code == 404
         assert client.patch(f"/journey/tasks/{tid}", json={"status": "concluida"}, headers=h).status_code == 404
-    # B é médico em consultório: papel permitido na confirmação/override, mas a avaliação não existe para ele
+    # consultório não tem o módulo de alta no plano (#35): 403 antes mesmo de procurar a avaliação
+    assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hm).status_code == 403
+    # com o plano hospitalar ativado, B é médico de outra organização: papel permitido, mas a avaliação não existe
+    org_b = client.get("/auth/me", headers=hm).json()["organizacao"]["id"]
+    assert client.put(f"/orgs/{org_b}/plano", json={"plano": "hospital"}, headers=auth("gestor")).status_code == 200
     assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hm).status_code == 404
     assert (
         client.post(

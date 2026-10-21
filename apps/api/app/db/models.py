@@ -63,6 +63,33 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
+class Plan(Base):
+    """Catálogo comercial (#35): plano, limite de consultas e módulos liberados por padrão."""
+
+    __tablename__ = "plans"
+
+    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)  # teste | profissional | clinica | hospital
+    nome: Mapped[str] = mapped_column(String(60))
+    limite_consultas: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = sem limite
+    modulos_json: Mapped[list] = mapped_column(JsonType, default=list)
+
+
+class Entitlement(Base):
+    """Direito de uso de uma organização (#35): plano contratado, limite, módulos e vigência (ativação manual)."""
+
+    __tablename__ = "entitlements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), unique=True)
+    plano: Mapped[str] = mapped_column(ForeignKey("plans.codigo"))
+    limite_consultas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    modulos_json: Mapped[list] = mapped_column(JsonType, default=list)
+    inicio: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    fim: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)  # None = sem vencimento
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
 class Tenant:
     """Mistura das tabelas com dono: a sessão filtra por `organization_id` e preenche ao gravar (app/db/tenancy.py)."""
 

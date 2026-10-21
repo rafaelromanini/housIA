@@ -8,6 +8,7 @@ from app import clock
 from app.db.models import Alert, DischargeAssessment
 from app.fhir_client import codes
 from app.fhir_client.client import FhirSource
+from app.planos import service as planos
 from app.seed.scenarios import scenario_meta
 from app.timeline.record import PatientRecord, parse_dt, ref_id
 
@@ -46,6 +47,8 @@ def alert_counts(db: Session) -> dict[str, dict[str, int]]:
 
 
 def latest_discharge_risk(db: Session) -> dict[str, str]:
+    if not planos.tem_modulo(db, "alta"):  # plano sem o módulo de alta não expõe o risco antigo (#35)
+        return {}
     sub = (
         select(DischargeAssessment.patient_id, func.max(DischargeAssessment.id).label("mid"))
         .group_by(DischargeAssessment.patient_id)
