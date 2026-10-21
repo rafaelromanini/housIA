@@ -58,9 +58,14 @@ aprovada pelo profissional.
    geriatria, urologia, pediatria, enfermagem, cirurgia geral) adiciona perguntas próprias
    (`consult_questions.csv`, coluna `especialidade`) e muda o foco do prompt.
 
-9. **Protocolos de atenção primária determinísticos.** `care_protocols.csv` checa no prontuário itens da linha de
-   cuidado (HbA1c, TFG, albuminúria, pés, fundo de olho, vacina, PA no alvo, potássio, ECG) por diagnóstico ativo.
-   É uma base de demonstração com recomendações usuais e não substitui a diretriz local.
+9. **Protocolos de atenção primária determinísticos e vivos na conversa.** `data/reference/protocols/*.yaml` (um arquivo
+   por eixo: criança, mulher, adulto crônico, idoso, saúde mental e telessaúde; ver o README da pasta) checa no
+   prontuário os itens da linha de cuidado por diagnóstico, idade, sexo ou tema da conversa, cada um com a fonte
+   (órgão, documento, ano e página ou seção). `chart.protocols(falas, escalas)` lê as falas pelas regras de negação das
+   queixas: item tratado vira "abordado — Fala/N", puxa a próxima pergunta do mesmo protocolo e sai das pendências da
+   nota; gatilho de risco (ideação suicida, item 9 do PHQ-9) vira alerta crítico. `protocols/local/*.yaml` (ou
+   `PROTOCOLOS_LOCAIS_DIR`) troca campos, desliga ou acrescenta itens por instituição ou município. As páginas citadas
+   são capítulos e seções: a instituição confere a edição que adota. Não substitui a diretriz local.
 
 10. **Regras medidas por um corpus público de regressão.** Alerta falso destrói o diferencial "regras antes da IA".
     `data/consultations/regressao_falas.json` reúne frases de consulta real (sem pontuação, com vocativo, negação,

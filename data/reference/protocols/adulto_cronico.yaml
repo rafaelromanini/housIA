@@ -1,0 +1,157 @@
+eixo: Adulto crônico
+fontes:
+  cab36:
+    documento: "Caderno de Atenção Básica nº 36: Estratégias para o cuidado da pessoa com doença crônica, Diabetes Mellitus"
+    orgao: Ministério da Saúde
+    ano: 2013
+    pagina: "cap. 5, acompanhamento e complicações crônicas"
+  sbd:
+    documento: "Diretriz da Sociedade Brasileira de Diabetes"
+    orgao: Sociedade Brasileira de Diabetes
+    ano: 2024
+    pagina: "cap. de metas glicêmicas e rastreio de complicações"
+  cab37:
+    documento: "Caderno de Atenção Básica nº 37: Estratégias para o cuidado da pessoa com doença crônica, Hipertensão Arterial Sistêmica"
+    orgao: Ministério da Saúde
+    ano: 2013
+    pagina: "cap. 4, acompanhamento da pessoa hipertensa"
+  dbha:
+    documento: "Diretrizes Brasileiras de Hipertensão Arterial"
+    orgao: Sociedade Brasileira de Cardiologia
+    ano: 2020
+    pagina: "cap. de avaliação inicial e metas"
+  drc:
+    documento: "Diretrizes Clínicas para o Cuidado ao paciente com Doença Renal Crônica no SUS"
+    orgao: Ministério da Saúde
+    ano: 2014
+    pagina: "cap. de monitoramento da função renal"
+itens:
+  - id: cronico.dm2.hba1c
+    protocolo: Diabetes tipo 2
+    condicao: [E11]
+    item: Hemoglobina glicada (HbA1c)
+    fonte: sbd
+    registro: "lab:hba1c"
+    intervalo_dias: 180
+    orientacao: A cada 3–6 meses; meta individualizada (em geral < 7%).
+    fala: [hemoglobina glicada, hba1c, glicada]
+    pergunta: A última hemoglobina glicada foi há quanto tempo?
+  - id: cronico.dm2.creatinina
+    protocolo: Diabetes tipo 2
+    condicao: [E11]
+    item: Creatinina e TFG estimada
+    fonte: sbd
+    registro: "lab:creatinina"
+    intervalo_dias: 365
+    orientacao: Pelo menos 1x/ano (mais vezes se DRC).
+    fala: [creatinina, funcao dos rins, funcao renal]
+  - id: cronico.dm2.albuminuria
+    protocolo: Diabetes tipo 2
+    condicao: [E11]
+    item: Albuminúria (relação albumina/creatinina)
+    fonte: sbd
+    registro: "texto:albuminuria|microalbumin|relacao albumina"
+    intervalo_dias: 365
+    orientacao: Anual.
+    fala: [albuminuria, microalbumin, albumina na urina]
+    pergunta: Já fez o exame de albuminúria (albumina na urina) no último ano?
+  - id: cronico.dm2.ldl
+    protocolo: Diabetes tipo 2
+    condicao: [E11]
+    item: Perfil lipídico (LDL)
+    fonte: sbd
+    registro: "lab:ldl"
+    intervalo_dias: 365
+    orientacao: Anual.
+    fala: [ldl, colesterol, perfil lipidico]
+    pergunta: Quando foi o último exame de colesterol (perfil lipídico)?
+  - id: cronico.dm2.pes
+    protocolo: Diabetes tipo 2
+    condicao: [E11]
+    item: Exame dos pés (monofilamento)
+    fonte: cab36
+    registro: "texto:exame dos pes|monofilamento|pe diabetico"
+    intervalo_dias: 365
+    orientacao: Anual (mais vezes se risco).
+    fala:
+      - "examin+ pes "
+      - exame dos pes
+      - monofilamento
+      - pe diabetico
+      - "avali+ pes "
+      - "sensibilidade+ pes "
+    pergunta: Posso examinar os seus pés hoje (inspeção e monofilamento)?
+  - id: cronico.dm2.fundo_de_olho
+    protocolo: Diabetes tipo 2
+    condicao: [E11]
+    item: Avaliação oftalmológica (fundo de olho)
+    fonte: cab36
+    registro: "texto:fundo de olho|oftalmolog|retinopatia"
+    intervalo_dias: 365
+    orientacao: Anual.
+    fala: [fundo de olho, oftalmolog, retinopatia, oculista]
+    pergunta: Quando foi a última avaliação dos olhos (fundo de olho)?
+  - id: cronico.dm2.influenza
+    protocolo: Diabetes tipo 2
+    condicao: [E11]
+    item: Vacina contra influenza
+    fonte: cab36
+    registro: "texto:vacina influenza|vacina da gripe|influenza"
+    intervalo_dias: 365
+    orientacao: Anual.
+    fala: [vacina da gripe, vacina contra gripe, vacina influenza]
+  - id: cronico.has.pa
+    protocolo: Hipertensão
+    condicao: [I10]
+    item: PA no alvo na última medida
+    fonte: dbha
+    registro: "vital:pa:140/90"
+    intervalo_dias: 0
+    orientacao: Alvo usual < 140/90 mmHg (< 130/80 em alto risco).
+    fala: [pressao arterial hoje, medi a pressao, medir a pressao, aferi a pressao]
+  - id: cronico.has.potassio
+    protocolo: Hipertensão
+    condicao: [I10]
+    item: Potássio
+    fonte: cab37
+    registro: "lab:potassio"
+    intervalo_dias: 365
+    orientacao: Anual e após iniciar/ajustar IECA, BRA ou diurético.
+    fala: [potassio]
+  - id: cronico.has.ecg
+    protocolo: Hipertensão
+    condicao: [I10]
+    item: Eletrocardiograma
+    fonte: cab37
+    registro: "texto:eletrocardiograma|ecg"
+    intervalo_dias: 365
+    orientacao: Anual.
+    fala: [eletrocardiograma, ecg]
+    pergunta: Quando foi o último eletrocardiograma?
+  - id: cronico.drc.creatinina
+    protocolo: Doença renal crônica
+    condicao: [N18]
+    item: Creatinina e TFG estimada
+    fonte: drc
+    registro: "lab:creatinina"
+    intervalo_dias: 180
+    orientacao: A cada 3–6 meses no estágio 3.
+    fala: [creatinina, funcao dos rins, funcao renal]
+  - id: cronico.drc.potassio
+    protocolo: Doença renal crônica
+    condicao: [N18]
+    item: Potássio
+    fonte: drc
+    registro: "lab:potassio"
+    intervalo_dias: 180
+    orientacao: A cada 3–6 meses.
+    fala: [potassio]
+  - id: cronico.drc.hemoglobina
+    protocolo: Doença renal crônica
+    condicao: [N18]
+    item: Hemoglobina (anemia da DRC)
+    fonte: drc
+    registro: "lab:hemoglobina"
+    intervalo_dias: 365
+    orientacao: Anual no estágio 3.
+    fala: [hemoglobina, anemia]

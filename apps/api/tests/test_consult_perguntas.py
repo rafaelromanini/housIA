@@ -50,6 +50,8 @@ def say(client, h, cid, *falas: tuple[str | None, str]) -> dict:
 
 def row_of(question: dict) -> knowledge.QuestionDef:
     """A linha de consult_questions.csv de uma pergunta devolvida pela API (o id vem como `qNNN` ou `qNNN:chave`)."""
+    if question["id"].startswith("protocolo:"):  # pergunta de protocolo (#28): vem do YAML, sem linha no CSV
+        return knowledge.QuestionDef(question["id"], "protocolo:*", question["pergunta"], "", (), "media", "", "")
     return next(q for q in knowledge.questions() if q.id == question["id"].split(":")[0])
 
 
@@ -238,7 +240,11 @@ def test_crianca_em_pediatria_recebe_as_perguntas_da_aidpi(record):
     ins = eng.run()
     assert eng.r.age == 4
     assert {t.rotulo for t in ins.queixas} >= {"Febre na criança", "Vômitos na criança"}
-    rows = [next(q for q in knowledge.questions() if q.id == p.id.split(":")[0]) for p in ins.perguntas]
+    rows = [
+        next(q for q in knowledge.questions() if q.id == p.id.split(":")[0])
+        for p in ins.perguntas
+        if not p.id.startswith("protocolo:")  # protocolos vivos (#28) vêm do YAML, não do CSV de perguntas
+    ]
     assert sum(r.specialty == "pediatria" for r in rows) >= 4
     assert any(r.trigger == "sintoma:febre_crianca" for r in rows)
     assert all("AIDPI" in r.source for r in rows if r.trigger.startswith("sintoma:") and r.age_max == 11)
@@ -805,8 +811,9 @@ def test_lista_de_perguntas_do_cen6_tem_limite_para_caber_no_tablet(client, auth
     roteiro = json.loads((clock_root() / "data" / "consultations" / "cen6_consulta.json").read_text(encoding="utf-8"))
     segs = [{"falante": f["falante"], "texto": f["texto"]} for f in roteiro["falas"]]
     ins = client.post(f"/consultations/{cid}/segments", json={"segmentos": segs}, headers=h).json()["insights"]
-    semio = [q for q in ins["perguntas"] if row_of(q).trigger.startswith("semiologia:")]
-    assert len(ins["perguntas"]) - len(semio) <= 10 and len(semio) <= 8
+    proto = [q for q in ins["perguntas"] if q["id"].startswith("protocolo:")]  # protocolos vivos (#28): até 3, na cauda
+    semio = [q for q in ins["perguntas"] if q not in proto and row_of(q).trigger.startswith("semiologia:")]
+    assert len(ins["perguntas"]) - len(semio) - len(proto) <= 10 and len(semio) <= 8 and len(proto) <= 3
     assert len({q["pergunta"] for q in ins["perguntas"]}) == len(ins["perguntas"])
 
 

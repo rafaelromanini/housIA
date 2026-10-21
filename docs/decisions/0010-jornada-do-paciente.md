@@ -14,7 +14,7 @@ Módulo `apps/api/app/journey/` (rules, service, metrics, router) e tela `/jorna
   1. alta de alto risco sem contato em 72 h (LACE + social, do Waze da alta);
   2. retorno pós-alta não agendado (nenhum Appointment depois da alta, carência de 48 h);
   3. falta (Appointment `noshow`) sem remarcação nem contato depois;
-  4. protocolo de APS vencido (mesma base `care_protocols.csv` da Consulta com IA);
+  4. protocolo de APS vencido (base `data/reference/protocols`, eixo Adulto crônico, da Consulta com IA);
   5. sinal de não adesão numa consulta recente (sugestão de adesão das regras da consulta, com as falas citadas);
   6. medicamento trocado (`priorPrescription`) sem reconciliação medicamentosa executada depois da troca.
 - **Alta**: o fim do `Encounter` IMP ou, se o prontuário ainda o mostra aberto, a confirmação da alta no HousIA (o

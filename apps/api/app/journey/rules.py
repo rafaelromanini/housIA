@@ -330,20 +330,18 @@ def protocolo_aps_vencido(ctx: Ctx) -> list[Item]:
         s = parse_dt(a.get("start"))
         if s and s > ctx.now and a.get("status") in ("booked", "pending", "proposed"):
             return []
-    wanted = {p.condition for p in knowledge.protocols()}
+    wanted = {c for p in knowledge.protocols() if p.axis == "Adulto crônico" for c in p.conditions}
     prefixes = {
         (coding(c.get("code"), codes.ICD10) or {}).get("code", "").replace(".", "") for c in r.active_conditions
     }
     if not any(code.startswith(w) for code in prefixes for w in wanted):
         return []
     chart = ChartView(r, build_timeline(r), build_context(r), ctx.now)
-    interval = {(p.protocol, p.item): p.interval_days for p in knowledge.protocols()}
-    late = [i for i in chart.protocols() if i.status == "pendente"]
+    late = [i for i in chart.protocols() if i.status == "pendente" and i.eixo == "Adulto crônico"]
     if not late:
         return []
     lines = [
-        f"{i.protocolo} — {i.item}: último {i.ultimo or 'sem data'} (intervalo {interval[(i.protocolo, i.item)]} dias)"
-        for i in late
+        f"{i.protocolo} — {i.item}: último {i.ultimo or 'sem data'} (intervalo {i.intervalo_dias} dias)" for i in late
     ]
     refs = list(dict.fromkeys(ref for i in late for ref in i.refs))
     stamps = [e.timestamp for e in chart.events if f"{e.source_ref}" in refs and e.kind in ("lab", "note", "procedure")]
