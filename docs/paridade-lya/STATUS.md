@@ -244,6 +244,10 @@ Branch `claude/onda3-12-pwa-celular-tablet`. Sem migração (o `client_id` fica 
   a consulta e ao sair da conta. Não protege contra script na própria página nem contra quem usa o navegador aberto.
   Erro de servidor (não de rede) no reenvio para o reenvio automático e mantém as falas até "tentar agora".
 - Testes: `tests/test_consult_fila_offline.py` (pytest) e `e2e/mobile.spec.ts` (manifest, Digitar, Simular, offline com
-  `setOffline`, Wake Lock mockado); projetos WebKit "iPhone 13" e "iPad" (iPad gen 7) no playwright.config rodam só esse
-  spec. Os e2e não foram executados aqui (sem Playwright/WebKit no ambiente).
+  `setOffline`, Wake Lock mockado); projetos "iPhone 13" e "iPad" (iPad gen 7) no playwright.config rodam só esse
+  spec, em **Chromium com emulação de aparelho** (viewport, userAgent, toque, isMobile), porque o CI só instala o
+  Chromium. **WebKit real pendente** (Safari/iOS não validado). Os e2e não foram executados nesta verificação.
+- Verificação: validade agora por fala (antes a fila inteira renovava a cada gravação), checada na leitura; troca de
+  usuário no mesmo aparelho apaga a fila (`garantirDono`, guarda só o id do usuário); gravação em andamento não
+  ressuscita a fila após o logout (época). 401 não apaga a fila (a sessão pode voltar), mas outro usuário não a herda.
 - Não depende do hook de STT por streaming do #11.

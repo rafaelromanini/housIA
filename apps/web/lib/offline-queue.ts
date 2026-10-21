@@ -15,6 +15,7 @@ export interface FalaPendente {
   t?: number;
   origem: string;
   idioma?: string;
+  criado?: number; // quando entrou na fila (validade por fala, não da fila inteira)
 }
 
 const DB = "housia-offline";
@@ -24,7 +25,14 @@ export const VALIDADE_MS = 12 * 60 * 60 * 1000;
 
 const memoria = new Map<number, FalaPendente[]>();
 const carregadas = new Set<number>();
+let epoca = 0; // sobe a cada limparTudo: uma gravação em andamento não ressuscita o que foi apagado
+const DONO = "housia-offline-dono";
 let dbPromise: Promise<IDBDatabase | null> | null = null;
+
+function vigentes(itens: FalaPendente[]): FalaPendente[] {
+  const agora = Date.now();
+  return itens.filter((f) => typeof f.criado === "number" && agora - f.criado <= VALIDADE_MS);
+}
 
 export function novoClientId(): string {
   const c = typeof crypto !== "undefined" ? crypto : null;
@@ -81,8 +89,10 @@ async function chave(db: IDBDatabase): Promise<CryptoKey | null> {
 async function gravar(consultaId: number): Promise<void> {
   const db = await abrir();
   if (!db) return;
+  const minha = epoca;
   try {
-    const itens = memoria.get(consultaId) ?? [];
+    const itens = vigentes(memoria.get(consultaId) ?? []);
+    memoria.set(consultaId, itens);
     if (itens.length === 0) {
       await pedido(db, FILAS, "readwrite", (s) => s.delete(consultaId));
       return;
@@ -91,6 +101,7 @@ async function gravar(consultaId: number): Promise<void> {
     if (!k) return; // sem chave não grava nada em disco
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const dados = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(JSON.stringify(itens)));
+    if (minha !== epoca) return; // saiu da conta durante a cifragem: não grava
     await pedido(db, FILAS, "readwrite", (s) => s.put({ iv, dados, atualizado: Date.now() }, consultaId));
   } catch {
     /* fila só em memória */
@@ -106,9 +117,9 @@ export async function carregarFila(consultaId: number): Promise<FalaPendente[]> 
       try {
         const rec = await pedido<{ iv: Uint8Array; dados: ArrayBuffer; atualizado: number }>(db, FILAS, "readonly", (s) => s.get(consultaId));
         const k = rec ? await chave(db) : null;
-        if (rec && k && Date.now() - rec.atualizado <= VALIDADE_MS) {
+        if (rec && k && Date.now() - rec.atualizado <= VALIDADE_MS + 60_000) {
           const claro = await crypto.subtle.decrypt({ name: "AES-GCM", iv: rec.iv as BufferSource }, k, rec.dados);
-          const lidas = JSON.parse(new TextDecoder().decode(claro)) as FalaPendente[];
+          const lidas = vigentes(JSON.parse(new TextDecoder().decode(claro)) as FalaPendente[]); // validade por fala, na leitura
           const atuais = memoria.get(consultaId) ?? [];
           const ids = new Set(atuais.map((f) => f.client_id));
           memoria.set(consultaId, [...lidas.filter((f) => !ids.has(f.client_id)), ...atuais]);
@@ -120,17 +131,20 @@ export async function carregarFila(consultaId: number): Promise<FalaPendente[]> 
       }
     }
   }
-  return [...(memoria.get(consultaId) ?? [])];
+  return pendentes(consultaId);
 }
 
 export function pendentes(consultaId: number): FalaPendente[] {
-  return [...(memoria.get(consultaId) ?? [])];
+  const vivas = vigentes(memoria.get(consultaId) ?? []);
+  memoria.set(consultaId, vivas);
+  return [...vivas];
 }
 
 export async function enfileirar(consultaId: number, falas: FalaPendente[]): Promise<void> {
-  const atuais = memoria.get(consultaId) ?? [];
+  const atuais = pendentes(consultaId);
   const ids = new Set(atuais.map((f) => f.client_id));
-  memoria.set(consultaId, [...atuais, ...falas.filter((f) => !ids.has(f.client_id))]);
+  const agora = Date.now();
+  memoria.set(consultaId, [...atuais, ...falas.filter((f) => !ids.has(f.client_id)).map((f) => ({ ...f, criado: agora }))]);
   await gravar(consultaId);
 }
 
@@ -151,10 +165,32 @@ export async function limparFila(consultaId: number): Promise<void> {
 
 /** Apaga tudo, inclusive a chave (ao sair da conta). */
 export async function limparTudo(): Promise<void> {
+  epoca += 1;
+  try {
+    localStorage.removeItem(DONO);
+  } catch {
+    /* sem localStorage */
+  }
   memoria.clear();
   carregadas.clear();
   const db = await abrir();
   if (!db) return;
   await pedido(db, FILAS, "readwrite", (s) => s.clear());
   await pedido(db, CHAVES, "readwrite", (s) => s.clear());
+}
+
+/** Troca de usuário no mesmo aparelho: a fila de outra pessoa é apagada antes de qualquer uso (guarda só o id do usuário). */
+export async function garantirDono(userId: string | number): Promise<void> {
+  let anterior: string | null = null;
+  try {
+    anterior = localStorage.getItem(DONO);
+  } catch {
+    /* sem localStorage: trata como desconhecido */
+  }
+  if (anterior !== String(userId)) await limparTudo();
+  try {
+    localStorage.setItem(DONO, String(userId));
+  } catch {
+    /* ignora */
+  }
 }

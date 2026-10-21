@@ -42,3 +42,35 @@ def test_client_id_repetido_no_mesmo_lote_e_invalido_e_opcional(client):
     assert len(_post(client, h, cid, [{"falante": "medico", "texto": "Sem id."}])["novos"]) == 1
     bad = client.post(f"/consultations/{cid}/segments", json={"segmentos": [{**dup, "client_id": "a b/<>"}]}, headers=h)
     assert bad.status_code == 422
+
+
+def test_client_id_so_vale_dentro_da_propria_consulta(client):
+    """O mesmo client_id em outra consulta não é descartado, e a lista da consulta A não vaza para a B."""
+    h = login(client)
+    a = start(client, h)["id"]
+    fala = {"falante": "paciente", "texto": "Tenho alergia a dipirona.", "client_id": "c-igual"}
+    assert len(_post(client, h, a, [fala])["novos"]) == 1
+    client.post(f"/consultations/{a}/finish", json={"segmentos": []}, headers=h)
+    b = start(client, h)["id"]
+    assert b != a
+    assert len(_post(client, h, b, [fala])["novos"]) == 1
+
+
+def test_client_id_reaproveitado_com_outro_texto_nao_altera_a_fala_original(client):
+    h = login(client)
+    cid = start(client, h)["id"]
+    _post(client, h, cid, [{"falante": "medico", "texto": "Original.", "client_id": "k-1"}])
+    again = _post(client, h, cid, [{"falante": "medico", "texto": "Adulterada.", "client_id": "k-1"}])
+    assert again["novos"] == []
+    segs = client.get(f"/consultations/{cid}", headers=h).json()["segmentos"]
+    assert [s["texto"] for s in segs] == ["Original."]
+
+
+def test_finish_nao_duplica_fala_ja_enviada_pela_fila(client):
+    h = login(client)
+    cid = start(client, h)["id"]
+    fala = {"falante": "paciente", "texto": "Sinto falta de ar.", "client_id": "k-fin"}
+    _post(client, h, cid, [fala])
+    res = client.post(f"/consultations/{cid}/finish", json={"segmentos": [fala]}, headers=h)
+    assert res.status_code == 200, res.text
+    assert [s["texto"] for s in res.json()["segmentos"]] == ["Sinto falta de ar."]
