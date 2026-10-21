@@ -24,9 +24,11 @@ from app.config import get_settings
 from app.consult import knowledge
 from app.consult.chart import ChartView
 from app.db.models import AuditLog, Consultation, DischargeAssessment, DischargeOverride, MedrecRun
+from app.db.tenancy import current_org
 from app.fhir_client import codes
 from app.fhir_client.client import FhirSource
 from app.llm.client import generate_structured
+from app.patients import avulso
 from app.patients.service import bed_panel
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
@@ -334,7 +336,10 @@ def _surgeries(c: Ctx) -> list[tuple[Consultation, dict]]:
         for cons in c.db.scalars(
             select(Consultation)
             .where(
-                Consultation.kind == "cirurgia", Consultation.created_at >= c.start, Consultation.created_at <= c.end
+                Consultation.kind == "cirurgia",
+                Consultation.sandbox.is_(False),
+                Consultation.created_at >= c.start,
+                Consultation.created_at <= c.end,
             )
             .order_by(Consultation.id)
         ):
@@ -417,7 +422,7 @@ def cids_frequentes(c: Ctx) -> dict:
     linhas, contagem, nomes = [], defaultdict(int), {}
     for cid, _ in sorted(sent.items()):
         cons = c.db.get(Consultation, cid)
-        if cons is None or cons.kind == "cirurgia":
+        if cons is None or cons.kind == "cirurgia" or cons.sandbox:  # sandbox é teste (#34)
             continue
         for item in (cons.note_json or {}).get("cids") or []:
             if item.get("tipo") == "hipotese":
@@ -453,6 +458,8 @@ def cids_frequentes(c: Ctx) -> dict:
 def adesao_protocolos(c: Ctx) -> dict:
     linhas = []
     for patient in c.fhir.list_patients():
+        if not avulso.visible(patient["id"], current_org(c.db)):
+            continue
         record = PatientRecord.load(c.fhir, patient["id"])
         if record is None:
             continue

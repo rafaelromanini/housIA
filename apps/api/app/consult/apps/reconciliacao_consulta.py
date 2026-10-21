@@ -26,7 +26,7 @@ def run(ctx: AppContext) -> list[AppItem]:
     items = []
     for m in ctx.ins.medicamentos:
         label, severity = SITUACAO[m.status]
-        in_chart = any(r.startswith("MedicationRequest/") for r in m.refs)
+        in_chart = any(r.startswith(("MedicationRequest/", "MedicationStatement/")) for r in m.refs)
         said = any(r.startswith("Fala/") for r in m.refs)
         items.append(
             AppItem(

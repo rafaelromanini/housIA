@@ -3,29 +3,26 @@
 import { CheckCircle2, Circle } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { OnboardingConsultorio } from "@/lib/api";
 import { useApi } from "@/lib/use-api";
 import { useAuth } from "@/lib/auth";
 
-interface Passo {
-  chave: string;
-  titulo: string;
-  feito: boolean;
-}
-
-/** Onboarding do consultório: some quando a primeira nota é aprovada. */
+/** Onboarding do consultório em 3 passos: some quando a primeira nota é aprovada no sandbox. */
 export function Onboarding() {
   const { user } = useAuth();
-  const orgId = user?.organizacao?.tipo === "consultorio" ? user.organizacao.id : undefined;
-  const { data } = useApi<{ passos: Passo[]; concluido: boolean }>(orgId ? `/orgs/${orgId}/onboarding` : null);
+  const consultorio = user?.organizacao?.tipo === "consultorio";
+  const { data } = useApi<OnboardingConsultorio>(consultorio ? "/consult/onboarding" : null);
   if (!data || data.concluido) return null;
   const feitos = data.passos.filter((p) => p.feito).length;
   return (
-    <Card className="mb-4">
+    <Card className="mb-4" data-testid="onboarding">
       <CardHeader>
         <CardTitle className="text-base">
           Primeiros passos ({feitos} de {data.passos.length})
         </CardTitle>
-        <CardDescription>Falta pouco: o onboarding termina na sua primeira nota aprovada.</CardDescription>
+        <CardDescription>
+          Teste sem gastar o teste grátis: na aba Sandbox, escolha um cenário sintético. O onboarding termina na sua primeira nota aprovada.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <ol className="space-y-1.5">

@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -235,6 +236,8 @@ class Consultation(Tenant, Base):
     specialty: Mapped[str] = mapped_column(String(40))
     patient_language: Mapped[str] = mapped_column(String(10), default="pt-BR")
     status: Mapped[str] = mapped_column(String(20), default="em_andamento")  # em_andamento | finalizada | enviada
+    # sandbox (#34): cenário sintético, fora do contador do plano; nunca vai ao prontuário
+    sandbox: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), index=True)
     segments_json: Mapped[list] = mapped_column(EncryptedJson(), default=list)
     insights_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
     ai_meta_json: Mapped[dict | None] = mapped_column(EncryptedJson(), nullable=True)
