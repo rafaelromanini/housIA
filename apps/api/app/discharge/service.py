@@ -13,7 +13,7 @@ from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import idiomas
 from app.db.models import Alert, DischargeAssessment, DischargeDocument, DischargeOverride, User
-from app.discharge.documents import DischargeDocsOutput, home_meds, mock_documents
+from app.discharge.documents import DischargeDocsOutput, consult_fields, consult_note, home_meds, mock_documents
 from app.discharge.scoring import SocialChecklist, final_risk, lace, lace_band, social_band, social_score
 from app.discharge.suggestions import DischargeLLMOutput, mock_suggestions
 from app.fhir_client.client import FhirSource
@@ -330,6 +330,7 @@ def generate_documents(db: Session, fhir: FhirSource, user: User, patient_id: st
     meds = home_meds(record)
     ctx = build_context(record)
 
+    prev = consult_note(events)  # a nota da consulta feita no HousIA entra no sumário de alta (#17)
     recent = [e for e in events if e.timestamp >= now - timedelta(hours=24) and e.kind in ("vital", "lab", "note")]
     pseudo = Pseudonymizer(**record.identifiers_for_pseudonymization())
     variables = pseudo.apply(
@@ -355,6 +356,9 @@ def generate_documents(db: Session, fhir: FhirSource, user: User, patient_id: st
                 }
                 for e in recent
             ],
+            "consulta_previa": {"ref": prev.source_ref, "data": _local(prev.timestamp), **consult_fields(prev)}
+            if prev and consult_fields(prev)
+            else "sem nota de consulta do HousIA",
             "medicamentos": [{"ref": m.ref, "texto": m.text, "classe": m.drug_class} for m in meds],
             "avaliacao": {
                 "risco": assessment["final_risk"],

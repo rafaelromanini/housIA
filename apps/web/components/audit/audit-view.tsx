@@ -76,6 +76,10 @@ const ACTION_LABEL: Record<string, string> = {
   "paciente.avulso_criado": "Paciente avulso cadastrado",
   "consulta.envio_com_pendencia": "Nota enviada com pendência crítica justificada",
   "consulta.enviada": "Nota enviada ao prontuário",
+  "consulta.envio_erro": "Envio ao prontuário falhou (a nota ficou na fila para reenvio)",
+  "consulta.expurgada": "Consulta expurgada pelo prazo de retenção",
+  "consulta.dados_excluidos": "Dados da consulta excluídos a pedido do titular",
+  "consulta.propostas": "Propostas para o prontuário aceitas pelo profissional",
   "cirurgia.prontidao": "Prontidão para faturamento verificada",
   "impacto.linha_de_base": "Linha de base de tempo informada (Impacto)",
   "gestao.resumo_semanal": "Resumo semanal da gestão gerado",
@@ -161,6 +165,10 @@ function summarize(e: AuditEntry): string {
       return `${p.editado_pct ?? 0}% do texto editado (${p.palavras_alteradas ?? 0} palavra(s))`;
     case "consulta.envio_com_pendencia":
       return `${p.quantidade ?? 0} pendência(s) crítica(s) justificada(s)`;
+    case "consulta.propostas":
+      return `${(p.aceitas as string[] | undefined)?.length ?? 0} proposta(s) aceita(s)`;
+    case "consulta.envio_erro":
+      return `tentativa ${p.tentativa ?? "?"}: ${p.erro ?? ""}`;
     case "consulta.enviada":
     case "consulta.exportada":
       return p.tempo_ate_envio_s == null ? "" : `${Math.round(Number(p.tempo_ate_envio_s) / 60)} min após a finalização`;

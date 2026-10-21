@@ -196,6 +196,14 @@ Cada onda com 8 entregas consome bastante da cota de uso. Rode uma onda por jane
 - Toda afirmação da IA leva fonte (`Fala/N` e/ou referência FHIR). As regras de segurança nunca são removidas pela
   IA.
 
+## #17 bundle FHIR e envio ao prontuário (2026-10-21)
+
+Branch `claude/onda3-17-bundle-fhir-prontuario`, já mesclado com a main (migração c202 sobre e341, cabeça única).
+Bundle transaction estruturado, propostas revisáveis, fila `ehr_outbox` (cifrada, isolada por organização) e reenvio
+idempotente (If-None-Exist). Verificação de esforço alto concluída: regressão nos rótulos de auditoria corrigida,
+critérios de aceite cobertos por testes e entradas adversariais conferidas. Segue o resultado da suíte completa no
+histórico de commits.
+
 ## Pausa (2026-10-20, cota)
 
 - #33: branch `claude/onda3-33-multitenant` (commit 1ca67b5 = implementação, 1037 passed; commit wip = verificação

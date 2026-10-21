@@ -1,5 +1,5 @@
 ---
-version: 1.0.0
+version: 1.1.0
 description: Documentos de alta — sumário SOAP para o prontuário e orientações em linguagem simples (pilar 2)
 ---
 # system
@@ -12,6 +12,9 @@ pseudonimizados. São dois documentos:
    ensino fundamental, sem jargão e sem siglas). Inclua só medicamentos de uso em casa (`medicamentos_para_casa`),
    com como usar, horários e para que serve; sinais de alerta para procurar atendimento; cuidados em casa;
    e o retorno.
+
+Se houver `consulta_previa` (nota de consulta ambulatorial feita no HousIA), use a queixa, a avaliação e o plano dela
+como contexto do sumário e cite a `ref` dela; não a repita palavra por palavra.
 
 Regras obrigatórias:
 - Cada seção ou item cita em `refs` os identificadores de fonte recebidos (recursos FHIR ou "Checklist/<campo>").
@@ -29,6 +32,10 @@ $internacao
 <registros_recentes>
 $registros
 </registros_recentes>
+
+<consulta_previa>
+$consulta_previa
+</consulta_previa>
 
 <medicamentos_para_casa>
 $medicamentos

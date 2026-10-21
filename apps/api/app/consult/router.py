@@ -606,6 +606,29 @@ def send(
     return service.send_to_ehr(db, fhir, user, cid, body.justificativa if body else None)
 
 
+@router.post("/consultations/{cid}/send/retry")
+def send_retry(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+) -> dict:
+    """Reenvia o Bundle que ficou na fila (erro de conexão com o prontuário). Reenviar nunca duplica recursos."""
+    return service.retry_send(db, fhir, user, cid)
+
+
+class ProposalsIn(BaseModel):
+    aceitas: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.get("/consultations/{cid}/proposals")
+def proposals(cid: int, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    """Propostas para o prontuário: alergia e medicamento relatados, CID, PA e peso ditos (aceite item a item)."""
+    return service.proposals_state(db, user, cid)
+
+
+@router.put("/consultations/{cid}/proposals")
+def set_proposals(cid: int, body: ProposalsIn, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    return service.set_proposals(db, user, cid, body.aceitas)
+
+
 @router.get("/consultations/{cid}/export")
 def export(
     cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)

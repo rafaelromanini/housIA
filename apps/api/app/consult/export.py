@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import base64
+import html
+import re
 import uuid
 from datetime import datetime
+from urllib.parse import quote
 
 from app.consult import idiomas, note_templates
 from app.fhir_client import codes
@@ -370,5 +373,264 @@ def transaction_bundle(entries: list[tuple[str, dict]]) -> dict:
         "entry": [
             {"fullUrl": url, "resource": r, "request": {"method": "POST", "url": r["resourceType"]}}
             for url, r in entries
+        ],
+    }
+
+
+# ---------- Bundle estruturado do prontuário (#17): Composition + DocumentReference + Provenance ----------
+URN_SYSTEM = "urn:ietf:rfc:3986"
+TAG_SYSTEM = "urn:housia:consultation"
+PROVENANCE_PARTICIPANT = "http://terminology.hl7.org/CodeSystem/provenance-participant-type"
+SECTION_LOINC = {
+    "queixa_principal": ("10154-3", "Chief complaint Narrative - Reported"),
+    "hda": ("10164-2", "History of Present illness Narrative"),
+    "antecedentes": ("11348-0", "History of Past illness Narrative"),
+    "medicacoes": ("10160-0", "History of Medication use Narrative"),
+    "alergias": ("48765-2", "Allergies and adverse reactions Document"),
+    "exame_fisico": ("29545-1", "Physical findings Narrative"),
+    "exames_complementares": ("30954-2", "Relevant diagnostic tests/laboratory data Narrative"),
+    "avaliacao": ("51848-0", "Evaluation note"),
+    "plano": ("18776-5", "Plan of care note"),
+}
+# em que seção da Composition entra cada tipo de recurso aceito
+SECTION_OF = {
+    "AllergyIntolerance": "alergias",
+    "MedicationStatement": "medicacoes",
+    "Condition": "avaliacao",
+    "Observation": "exame_fisico",
+}
+FHIR_REF = re.compile(r"^[A-Z][A-Za-z]+/[A-Za-z0-9\-.]{1,64}$")
+
+
+def consultation_identifier(consultation_id: int) -> str:
+    return f"urn:housia:consultation:{consultation_id}"
+
+
+def _if_none_exist_tag(consultation_id: int, key: str) -> str:
+    return f"_tag={quote(TAG_SYSTEM, safe='')}%7C{quote(f'{consultation_id}:{key}', safe='')}"
+
+
+def _if_none_exist_identifier(system: str, value: str) -> str:
+    return f"identifier={quote(system, safe='')}%7C{quote(value, safe='')}"
+
+
+def _narrative(text: str) -> dict:
+    paragraphs = "".join(f"<p>{html.escape(line)}</p>" for line in text.splitlines() if line.strip()) or "<p>—</p>"
+    return {"status": "generated", "div": f'<div xmlns="http://www.w3.org/1999/xhtml">{paragraphs}</div>'}
+
+
+def _tagged(resource: dict, consultation_id: int, key: str) -> dict:
+    tags = [t for t in (resource.get("meta") or {}).get("tag", []) if t.get("system") != TAG_SYSTEM]
+    return resource | {"meta": {"tag": [*tags, {"system": TAG_SYSTEM, "code": f"{consultation_id}:{key}"}]}}
+
+
+def cited_fhir_refs(note: dict) -> list[str]:
+    """Recursos do prontuário citados nas seções e nos CIDs da nota (as falas "Fala/N" não são recursos)."""
+    refs: list[str] = []
+    for value in note.values():
+        blocks = value if isinstance(value, list) else [value]
+        for b in blocks:
+            for r in b.get("refs", []) if isinstance(b, dict) else []:
+                if FHIR_REF.match(r) and not r.startswith("Fala/") and r not in refs:
+                    refs.append(r)
+    return refs
+
+
+def composition_resource(
+    *,
+    note: dict,
+    kind: str,
+    patient_id: str,
+    patient_name: str,
+    encounter_id: str | None,
+    author_ref: str,
+    when: datetime,
+    consultation_id: int,
+    loinc: tuple[str, str] | None,
+    title: str | None,
+    approved: bool,
+    accepted: list[tuple[str, dict]],
+) -> dict:
+    """Composition da nota: uma section por seção do modelo (LOINC quando a seção é clássica) e, nelas, os recursos
+    estruturados aceitos pelo profissional como `entry`."""
+    code, display = loinc or (LOINC_OPERATIVE_NOTE if kind == "cirurgia" else LOINC_CONSULT_NOTE)
+    label = title or KIND_TITLE.get(kind, "Nota clínica")
+    views = note_templates.sections_for_view(note) or [
+        (key, lbl, note.get(key, {}).get("texto", "")) for key, lbl in NOTE_SECTIONS
+    ]
+    by_section: dict[str, list[str]] = {}
+    for url, res in accepted:
+        by_section.setdefault(SECTION_OF.get(res["resourceType"], ""), []).append(url)
+    sections = []
+    for key, lbl, text in views:
+        entries = by_section.pop(key, [])
+        if not (text or "").strip() and not entries:
+            continue
+        section: dict = {"title": lbl, "text": _narrative(text or "")}
+        if key in SECTION_LOINC:
+            c, d = SECTION_LOINC[key]
+            section["code"] = {"coding": [{"system": codes.LOINC, "code": c, "display": d}]}
+        if entries:
+            section["entry"] = [{"reference": u} for u in entries]
+        sections.append(section)
+    leftovers = [u for urls in by_section.values() for u in urls]  # seção que o modelo da nota não traz
+    if leftovers:
+        sections.append(
+            {
+                "title": "Registros estruturados aceitos",
+                "text": _narrative("Recursos aceitos pelo profissional na revisão."),
+                "entry": [{"reference": u} for u in leftovers],
+            }
+        )
+    return {
+        "resourceType": "Composition",
+        "identifier": {"system": URN_SYSTEM, "value": consultation_identifier(consultation_id)},
+        "status": "final" if approved else "preliminary",
+        "type": {"coding": [{"system": codes.LOINC, "code": code, "display": display}], "text": label},
+        "subject": {"reference": f"Patient/{patient_id}", "display": patient_name},
+        **({"encounter": {"reference": f"Encounter/{encounter_id}"}} if encounter_id else {}),
+        "date": when.isoformat(),
+        "author": [{"reference": author_ref}],
+        "title": f"{label} (HousIA)",
+        "section": sections,
+    }
+
+
+def bundle_transaction(
+    *,
+    consultation_id: int,
+    kind: str,
+    patient_id: str,
+    patient_name: str,
+    encounter_id: str | None,
+    author: str,
+    author_id: int,
+    when: datetime,
+    text: str,
+    note: dict,
+    interpretacao: str | None,
+    approved: bool,
+    model: str,
+    prompt_version: str,
+    accepted: list[tuple[str, dict]],
+    orders: list[dict],
+    fala_evidence: dict[str, str] | None = None,
+) -> dict:
+    """Bundle de transação do envio estruturado: Practitioner revisor, Device HousIA, Composition, DocumentReference,
+    os recursos aceitos item a item, os pedidos assinados e o Provenance (quem escreveu, qual modelo, de onde veio).
+
+    Reenviar não duplica: cada entrada tem `If-None-Exist` (identifier `urn:housia:consultation:{id}` na Composition
+    e no DocumentReference; a etiqueta `{id}:{chave}` nos demais) e o Practitioner/Device são criados uma vez só."""
+    cid = consultation_id
+    loinc = note_templates.loinc_of(note)
+    title = (note.get("modelo") or {}).get("titulo")
+    u_prac, u_dev = urn(cid, "practitioner"), urn(cid, "device")
+    u_comp, u_doc, u_prov = urn(cid, "composition"), urn(cid, "doc"), urn(cid, "provenance")
+
+    practitioner = {
+        "resourceType": "Practitioner",
+        "identifier": [{"system": "urn:housia:user", "value": str(author_id)}],
+        "name": [{"text": author}],
+    }
+    device = {
+        "resourceType": "Device",
+        "identifier": [{"system": "urn:housia:device", "value": f"housia-consulta:{model}:{prompt_version}"}],
+        "status": "active",
+        "deviceName": [{"name": "HousIA — Consulta com IA", "type": "user-friendly-name"}],
+        "type": {"text": "Assistente de documentação clínica por IA"},
+        "version": [
+            {"type": {"text": "modelo"}, "value": model},
+            {"type": {"text": "prompt_version"}, "value": prompt_version},
+        ],
+    }
+    accepted_entries = [(urn(cid, "aceito", i), r) for i, (_, r) in enumerate(accepted)]
+    composition = composition_resource(
+        note=note,
+        kind=kind,
+        patient_id=patient_id,
+        patient_name=patient_name,
+        encounter_id=encounter_id,
+        author_ref=u_prac,
+        when=when,
+        consultation_id=cid,
+        loinc=loinc,
+        title=title,
+        approved=approved,
+        accepted=accepted_entries,
+    )
+    doc = document_reference(
+        kind=kind,
+        patient_id=patient_id,
+        patient_name=patient_name,
+        encounter_id=encounter_id,
+        author=author,
+        when=when,
+        text=text,
+        consultation_id=cid,
+        interpretacao=interpretacao,
+        loinc=loinc,
+        title=title,
+        approved=approved,
+    )
+    doc["identifier"] = [*doc["identifier"], {"system": URN_SYSTEM, "value": consultation_identifier(cid)}]
+    doc["author"] = [{"reference": u_prac, "display": author}]
+    doc["context"] = (doc.get("context") or {}) | {"related": [{"reference": u_comp}]}
+
+    entities = [{"role": "source", "what": {"reference": r}} for r in cited_fhir_refs(note)]
+    for ref, quote_ in (fala_evidence or {}).items():
+        entities.append({"role": "source", "what": {"display": f"{ref}: {quote_}"}})
+    provenance = {
+        "resourceType": "Provenance",
+        "target": [{"reference": u} for u in (u_comp, u_doc, *[u for u, _ in accepted_entries])],
+        "recorded": when.isoformat(),
+        "activity": {
+            "coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-DataOperation", "code": "CREATE"}]
+        },
+        "agent": [
+            {
+                "type": {"coding": [{"system": PROVENANCE_PARTICIPANT, "code": "author", "display": "Author"}]},
+                "who": {"reference": u_prac, "display": author},
+            },
+            {
+                "type": {"coding": [{"system": PROVENANCE_PARTICIPANT, "code": "assembler", "display": "Assembler"}]},
+                "who": {"reference": u_dev, "display": "HousIA"},
+            },
+        ],
+        "entity": entities,
+    }
+    entries: list[tuple[str, dict, str]] = [
+        (u_prac, practitioner, _if_none_exist_identifier("urn:housia:user", str(author_id))),
+        (u_dev, device, _if_none_exist_identifier("urn:housia:device", device["identifier"][0]["value"])),
+        (
+            u_comp,
+            _tagged(composition, cid, "composition"),
+            _if_none_exist_identifier(URN_SYSTEM, consultation_identifier(cid)),
+        ),
+        (u_doc, _tagged(doc, cid, "doc"), _if_none_exist_identifier(URN_SYSTEM, consultation_identifier(cid))),
+    ]
+    for (url, res), (pid, _) in zip(accepted_entries, accepted, strict=True):
+        key = f"aceito:{pid}"
+        entries.append((url, _tagged(res, cid, key), _if_none_exist_tag(cid, key)))
+    for i, order in enumerate(orders):
+        link = "supportingInformation" if order["resourceType"] == "MedicationRequest" else "supportingInfo"
+        key = f"pedido:{i}"
+        entries.append(
+            (
+                urn(cid, "pedido", i),
+                _tagged(order | {link: [{"reference": u_doc}]}, cid, key),
+                _if_none_exist_tag(cid, key),
+            )
+        )
+    entries.append((u_prov, _tagged(provenance, cid, "provenance"), _if_none_exist_tag(cid, "provenance")))
+    return {
+        "resourceType": "Bundle",
+        "type": "transaction",
+        "entry": [
+            {
+                "fullUrl": url,
+                "resource": r,
+                "request": {"method": "POST", "url": r["resourceType"], "ifNoneExist": cond},
+            }
+            for url, r, cond in entries
         ],
     }

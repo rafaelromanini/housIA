@@ -13,6 +13,7 @@ import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Protocol
+from urllib.parse import parse_qsl
 
 import httpx
 
@@ -50,6 +51,44 @@ class FhirUnavailable(RuntimeError):
     pass
 
 
+def location_refs(response: dict) -> list[str]:
+    """ "Tipo/id" de cada entrada de um Bundle transaction-response (a localização pode vir com /_history/N)."""
+    refs = []
+    for entry in response.get("entry", []):
+        parts = ((entry.get("response") or {}).get("location") or "").split("/")
+        refs.append("/".join(parts[:2]) if len(parts) >= 2 else "")
+    return refs
+
+
+def _matches_condition(resource: dict, query: str) -> bool:
+    """If-None-Exist local: `identifier=sistema|valor` e `_tag=sistema|código` (os dois que o HousIA usa)."""
+    for key, value in parse_qsl(query, keep_blank_values=True):
+        system, _, code = value.partition("|")
+        if key == "identifier":
+            ids = resource.get("identifier") or []
+            found = [
+                (i.get("system"), i.get("value")) for i in ([ids] if isinstance(ids, dict) else ids)
+            ]  # Composition: 0..1
+        elif key == "_tag":
+            found = [(t.get("system"), t.get("code")) for t in (resource.get("meta") or {}).get("tag") or []]
+        else:
+            return False
+        if not system or not code or (system, code) not in found:
+            return False
+    return True
+
+
+def _rewrite_refs(node, mapping: dict[str, str]):
+    if isinstance(node, dict):
+        return {
+            k: (mapping.get(v, v) if k == "reference" and isinstance(v, str) else _rewrite_refs(v, mapping))
+            for k, v in node.items()
+        }
+    if isinstance(node, list):
+        return [_rewrite_refs(i, mapping) for i in node]
+    return node
+
+
 class FhirSource(Protocol):
     def list_patients(self) -> list[dict]: ...
 
@@ -66,6 +105,8 @@ class FhirSource(Protocol):
     def appointments(self) -> list[dict]: ...
 
     def create(self, resource: dict) -> dict: ...
+
+    def transaction(self, bundle: dict) -> dict: ...
 
     def update(self, resource: dict) -> dict: ...
 
@@ -147,6 +188,15 @@ class HapiFhirClient:
             raise FhirUnavailable(f"Servidor FHIR indisponível: {exc}") from exc
         return r.json()
 
+    def transaction(self, bundle: dict) -> dict:
+        """POST do Bundle de transação na raiz do servidor: tudo ou nada; os recursos com If-None-Exist não duplicam."""
+        try:
+            r = self._client.post(self.base_url, json=bundle, headers={"Content-Type": "application/fhir+json"})
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise FhirUnavailable(f"Servidor FHIR indisponível: {exc}") from exc
+        return r.json()
+
     def locations(self) -> dict[str, dict]:
         return {loc["id"]: loc for loc in self._search("Location", {})}
 
@@ -196,6 +246,60 @@ class LocalFhirStore:
         stored = resource | {"id": rid}
         self.resources[resource["resourceType"]][rid] = stored
         return stored
+
+    def _new_id(self, rtype: str) -> str:
+        n = len(self.resources[rtype]) + 1
+        while f"housia-{n}" in self.resources[rtype]:
+            n += 1
+        return f"housia-{n}"
+
+    def transaction(self, bundle: dict) -> dict:
+        """Mesma semântica do HAPI: tudo ou nada, fullUrl urn:uuid resolvido, If-None-Exist devolve o existente."""
+        entries = bundle.get("entry", [])
+        for e in entries:
+            if not (e.get("resource") or {}).get("resourceType") or (e.get("request") or {}).get("method") != "POST":
+                raise FhirUnavailable("Bundle de transação inválido")
+        plan: list[tuple[dict, bool]] = []  # (recurso com id, novo?)
+        mapping: dict[str, str] = {}
+        pending: dict[str, list[dict]] = defaultdict(list)  # recursos novos deste Bundle, por tipo
+        for e in entries:
+            resource = e["resource"]
+            rtype = resource["resourceType"]
+            cond = (e.get("request") or {}).get("ifNoneExist")
+            existing = None
+            if cond:
+                candidates = [*self.resources[rtype].values(), *pending[rtype]]
+                existing = next((r for r in candidates if _matches_condition(r, cond)), None)
+            if existing is not None:
+                plan.append((existing, False))
+            else:
+                taken = {r["id"] for r in pending[rtype]}
+                rid = resource.get("id")
+                if not rid or rid in self.resources[rtype] or rid in taken:
+                    rid = self._new_id(rtype)
+                    while rid in taken:
+                        rid += "x"
+                resource = resource | {"id": rid}
+                pending[rtype].append(resource)
+                plan.append((resource, True))
+                existing = resource
+            if e.get("fullUrl"):
+                mapping[e["fullUrl"]] = f"{rtype}/{existing['id']}"
+        out = []
+        for resource, new in plan:
+            if new:
+                resource = _rewrite_refs(resource, mapping)
+                self.resources[resource["resourceType"]][resource["id"]] = resource
+            out.append(
+                {
+                    "response": {
+                        "status": "201 Created" if new else "200 OK",
+                        "location": f"{resource['resourceType']}/{resource['id']}",
+                    },
+                    "resource": resource,
+                }
+            )
+        return {"resourceType": "Bundle", "type": "transaction-response", "entry": out}
 
     def locations(self) -> dict[str, dict]:
         return dict(self.resources["Location"])
