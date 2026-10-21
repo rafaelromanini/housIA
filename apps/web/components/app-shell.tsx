@@ -40,8 +40,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // Leitos concentra os módulos hospitalares (passagem de plantão, reconciliação, alta): sem nenhum no plano, some do menu
+  const temModuloHospitalar = (user.plano?.modulos.length ?? 0) > 0;
   const nav = [
-    { href: "/leitos", label: "Leitos", Icon: BedDouble, show: true },
+    { href: "/leitos", label: "Leitos", Icon: BedDouble, show: temModuloHospitalar },
     { href: "/consultas", label: "Consultas", Icon: CalendarClock, show: user.role !== "gestor" },
     { href: "/jornada", label: "Jornada", Icon: Route, show: user.role !== "medico" },
     { href: "/gestao", label: "Gestão", Icon: ClipboardList, show: user.role === "gestor" },

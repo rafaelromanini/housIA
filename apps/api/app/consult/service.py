@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import re
 import time
+from contextlib import nullcontext
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -77,6 +78,7 @@ from app.fhir_client.client import FhirSource, FhirUnavailable, get_fhir, locati
 from app.llm.client import LLMError
 from app.llm.pseudonymize import Pseudonymizer
 from app.patients.service import load_record
+from app.planos import service as planos
 from app.reference import icd_entry, icd_problem, norm_icd
 from app.timeline.context import PatientContext, build_context
 from app.timeline.events import ClinicalEvent, build_timeline
@@ -373,6 +375,11 @@ def _pick_encounter(record: PatientRecord, wanted: str | None) -> str | None:
 
 
 def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: ConsultCreate) -> dict:
+    with nullcontext() if body.sandbox else planos.INICIO_LOCK:  # conferir o limite e gravar são um passo só
+        return _create(db, fhir, user, patient_id, body)
+
+
+def _create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: ConsultCreate) -> dict:
     if body.especialidade not in knowledge.SPECIALTIES:
         raise HTTPException(422, "Especialidade desconhecida")
     record, events, ctx = _chart(fhir, patient_id)

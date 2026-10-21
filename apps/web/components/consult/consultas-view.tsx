@@ -76,17 +76,33 @@ export function ConsultasView() {
 function PlanoResumo({ plano }: { plano: PlanoUso | null }) {
   if (!plano) return <Skeleton className="h-6 w-64" />;
   return (
-    <p className="text-sm text-muted-foreground" data-testid="plano-uso">
-      {plano.limite === null ? (
-        <>Plano sem limite de consultas.</>
-      ) : (
-        <>
-          <strong className="text-foreground">Teste grátis:</strong> {plano.usadas} de {plano.limite} consultas usadas
-          {plano.restantes !== null && ` (${plano.restantes} restantes)`}.
-        </>
-      )}{" "}
-      O sandbox não conta ({plano.sandbox} {plano.sandbox === 1 ? "consulta" : "consultas"} de teste).
-    </p>
+    <div className="space-y-1">
+      <p className="text-sm text-muted-foreground" data-testid="plano-uso">
+        {plano.limite === null ? (
+          <>
+            <strong className="text-foreground">Plano {plano.nome}:</strong> sem limite de consultas.
+          </>
+        ) : (
+          <>
+            <strong className="text-foreground">
+              {plano.usadas} de {plano.limite} consultas grátis
+            </strong>{" "}
+            usadas ({plano.restantes} restantes).
+          </>
+        )}{" "}
+        O sandbox não conta ({plano.sandbox} {plano.sandbox === 1 ? "consulta" : "consultas"} de teste).
+      </p>
+      {plano.aviso && (
+        <p role="status" className="text-sm font-bold text-amber-700" data-testid="plano-aviso">
+          {plano.aviso}
+        </p>
+      )}
+      {plano.vencido && (
+        <p role="alert" className="text-sm font-bold text-destructive">
+          O plano venceu. Peça a renovação para abrir novas consultas.
+        </p>
+      )}
+    </div>
   );
 }
 
