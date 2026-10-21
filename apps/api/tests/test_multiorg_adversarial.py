@@ -121,11 +121,14 @@ def test_alerta_avaliacao_de_alta_e_tarefa_de_outra_organizacao_sao_404(client, 
         assert client.patch(f"/journey/tasks/{tid}", json={"status": "concluida"}, headers=h).status_code == 404
     # consultório não tem o módulo de alta no plano (#35): 403 antes mesmo de procurar a avaliação
     assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hm).status_code == 403
-    # B é gestor de outro hospital: papel permitido na confirmação/override, mas a avaliação não existe para ele
-    assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hb).status_code in (403, 404)
-    assert client.post(
-        f"/discharge-assessments/{ava['id']}/override", json={"justification": "x" * 30}, headers=hb
-    ).status_code in (403, 404)
+    # B é gestor de outro hospital (o plano libera a alta): papel permitido, mas a avaliação não existe para ele
+    assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hb).status_code == 404
+    assert (
+        client.post(
+            f"/discharge-assessments/{ava['id']}/override", json={"justification": "x" * 30}, headers=hb
+        ).status_code
+        == 404
+    )
     with db_session.SessionLocal() as db:
         assert db.get(Alert, aid).status == "aberto"
         assert db.get(JourneyTask, tid).status == "aberta"
