@@ -169,7 +169,14 @@ def test_purge_com_n_zero_apaga_o_texto_e_a_nota_mantem_as_refs_com_hash(client,
     after = client.get(f"/consultations/{cid}", headers=h).json()
     assert all(s["texto"] == "" and s["expurgada"] for s in after["segmentos"])
     assert "Tomo glibenclamida" not in json.dumps(after, ensure_ascii=False)
-    assert after["nota"] == before["nota"]  # a nota e as refs continuam
+    # a nota e as refs continuam; só a frase literal copiada da fala (#18) sai do CID, junto com o texto das falas
+    sem_frase = {
+        **before["nota"],
+        "cids": [
+            c | ({"frase": ""} if any(r.startswith("Fala/") for r in c["refs"]) else {}) for c in before["nota"]["cids"]
+        ],
+    }
+    assert any(c["frase"] for c in before["nota"]["cids"]) and after["nota"] == sem_frase
     with db_session.SessionLocal() as db:
         hashes = db.get(Consultation, cid).extra_json["falas_hash"]
     cited = {r for r in refs if r.startswith("Fala/")}

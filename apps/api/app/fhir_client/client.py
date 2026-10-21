@@ -257,8 +257,11 @@ class LocalFhirStore:
         """Mesma semântica do HAPI: tudo ou nada, fullUrl urn:uuid resolvido, If-None-Exist devolve o existente."""
         entries = bundle.get("entry", [])
         for e in entries:
-            if not (e.get("resource") or {}).get("resourceType") or (e.get("request") or {}).get("method") != "POST":
+            method = (e.get("request") or {}).get("method")
+            if not (e.get("resource") or {}).get("resourceType") or method not in ("POST", "PATCH"):
                 raise FhirUnavailable("Bundle de transação inválido")
+        patches = [e for e in entries if e["request"]["method"] == "PATCH"]
+        entries = [e for e in entries if e["request"]["method"] == "POST"]
         plan: list[tuple[dict, bool]] = []  # (recurso com id, novo?)
         mapping: dict[str, str] = {}
         pending: dict[str, list[dict]] = defaultdict(list)  # recursos novos deste Bundle, por tipo
@@ -299,7 +302,27 @@ class LocalFhirStore:
                     "resource": resource,
                 }
             )
+        for e in patches:
+            out.append(self._patch_diagnosis(e, mapping))
         return {"resourceType": "Bundle", "type": "transaction-response", "entry": out}
+
+    def _patch_diagnosis(self, entry: dict, mapping: dict[str, str]) -> dict:
+        """FHIR Patch `add Encounter.diagnosis` (única operação aceita): liga o Condition ao encontro."""
+        rtype, _, rid = entry["request"]["url"].partition("/")
+        target = self.resources[rtype].get(rid)
+        if rtype != "Encounter" or target is None:
+            raise FhirUnavailable("Patch sobre recurso inexistente")
+        for param in entry["resource"].get("parameter", []):
+            parts = {p["name"]: p for p in param.get("part", [])}
+            if (parts.get("name") or {}).get("valueString") != "diagnosis":
+                raise FhirUnavailable("Operação de patch não suportada")
+            fields = {p["name"]: p for p in (parts.get("value") or {}).get("part", [])}
+            ref = fields["condition"]["valueReference"]["reference"]
+            ref = mapping.get(ref, ref)
+            known = target.setdefault("diagnosis", [])
+            if not any((d.get("condition") or {}).get("reference") == ref for d in known):
+                known.append({"condition": {"reference": ref}, "rank": (fields.get("rank") or {}).get("valueInteger")})
+        return {"response": {"status": "200 OK", "location": f"Encounter/{rid}"}, "resource": target}
 
     def locations(self) -> dict[str, dict]:
         return dict(self.resources["Location"])

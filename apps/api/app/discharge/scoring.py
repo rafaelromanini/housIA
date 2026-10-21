@@ -58,13 +58,20 @@ def _l_points(days: int) -> int:
     return 7
 
 
+VERIFICATION_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-ver-status"
+UNCONFIRMED = frozenset({"provisional", "differential", "refuted", "entered-in-error"})
+
+
 def charlson_index(record: PatientRecord) -> tuple[int, list[dict]]:
     """Charlson simplificado: categoria por prefixo de CID-10; dentro do mesmo grupo vale o maior peso."""
     table = charlson()
     best: dict[str, dict] = {}
     for c in record.resources.get("Condition", []):
         icd = coding(c.get("code"), codes.ICD10)
-        if not icd:
+        status = (coding(c.get("verificationStatus"), VERIFICATION_SYSTEM) or {}).get("code", "")
+        if (
+            not icd or status in UNCONFIRMED
+        ):  # hipótese (provisória/diferencial), refutada ou lançada por engano não pontua
             continue
         code = icd["code"].replace(".", "").upper()
         for row in table:

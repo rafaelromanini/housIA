@@ -495,6 +495,18 @@ class Readiness(BaseModel):
     versao: str = ""
 
 
+class ProcedimentoSus(BaseModel):
+    """Procedimento SIGTAP sugerido ao relatório cirúrgico (só se estiver na tabela e combinar com o CID)."""
+
+    codigo: str
+    descricao: str
+    compativel: bool
+    motivo: str = ""
+    competencia: str = ""
+    fonte: str = ""
+    refs: list[str] = []
+
+
 class SurgicalReport(BaseModel):
     campos: list[ReportField]
     opme: list[OpmeLine]
@@ -506,6 +518,7 @@ class SurgicalReport(BaseModel):
     pedidos: list[ProposedOrder] = []
     perioperatorio: list["SurgeryItem"] = []
     prontidao: Readiness | None = None
+    procedimento_sus: ProcedimentoSus | None = None
 
 
 # ---------- pedidos e prescrições em rascunho (ambient orders) ----------
@@ -702,11 +715,24 @@ class SecaoModelo(BaseModel):
     refs: list[str]
 
 
+class CodigoEspecifico(BaseModel):
+    """Código mais específico que o ditado sustenta (K35.9 → K35.8), com a frase que o justifica."""
+
+    codigo: str
+    descricao: str
+    frase: str
+    refs: list[str]
+
+
 class CidSuggestion(BaseModel):
     codigo: str
     descricao: str
     tipo: Literal["principal", "secundario", "hipotese"]
     refs: list[str]
+    frase: str = ""  # a fala (ou o registro do prontuário) literal que justifica o código
+    mais_especificos: list[CodigoEspecifico] = []  # refinamentos sustentados pelo ditado
+    lacunas: list[str] = []  # o que falta para fechar a especificidade
+    ciap2: str = ""  # "K86 Hipertensão sem complicações" (APS)
 
 
 ChronoKind = Literal["queixa", "negativa", "achado", "medicamento", "exame", "orientacao", "retorno", "emocao"]

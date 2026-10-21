@@ -1,0 +1,4 @@
+codigo,descricao,tipo,sexo,fonte
+K35.2,Apendicite aguda com peritonite generalizada,subcategoria,,CID-10 da OMS (revisões posteriores à de 2008 do DATASUS; K35.0 e K35.1 da tabela do DATASUS foram reorganizadas em K35.2 a K35.8)
+K35.3,Apendicite aguda com peritonite localizada,subcategoria,,CID-10 da OMS (revisões posteriores à de 2008 do DATASUS)
+K35.8,Outras formas e as não especificadas de apendicite aguda,subcategoria,,CID-10 da OMS (revisões posteriores à de 2008 do DATASUS)

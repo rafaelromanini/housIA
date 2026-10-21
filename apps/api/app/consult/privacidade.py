@@ -111,6 +111,18 @@ def _reference_date(c: Consultation):
     return c.finished_at if c.status in ("finalizada", "enviada") else None
 
 
+def _scrub_frases(obj):
+    """A frase literal que justifica um CID (#18) é cópia da fala: sai no expurgo; código e refs (com hash) ficam."""
+    if isinstance(obj, list):
+        return [_scrub_frases(x) for x in obj]
+    if isinstance(obj, dict):
+        out = {k: _scrub_frases(v) for k, v in obj.items()}
+        if out.get("frase") and any(str(r).startswith("Fala/") for r in out.get("refs", [])):
+            out["frase"] = ""
+        return out
+    return obj
+
+
 def purge_consultation(db: Session, c: Consultation, days: int) -> None:
     """Apaga o texto das falas; a nota fica, com o SHA-256 de cada fala que ela cita."""
     cited: set[int] = set()
@@ -136,10 +148,12 @@ def purge_consultation(db: Session, c: Consultation, days: int) -> None:
             }
         )
     c.segments_json = segments
+    if c.note_json:
+        c.note_json = _scrub_frases(c.note_json)
     c.insights_json = _scrub_quotes(c.insights_json, texts) if c.insights_json else c.insights_json
     if c.note_meta_json:  # "fora" lista falas inteiras; o rascunho da IA espelha a nota, que fica
         c.note_meta_json = {
-            k: v if k == "rascunho_ia" else _scrub_quotes(v, texts) for k, v in c.note_meta_json.items()
+            k: _scrub_frases(v) if k == "rascunho_ia" else _scrub_quotes(v, texts) for k, v in c.note_meta_json.items()
         }
     meta = dict(c.ai_meta_json or {})
     meta.pop("saida", None)

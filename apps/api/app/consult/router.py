@@ -555,10 +555,11 @@ def recompute_surgical(
     cid: int,
     note: dict = Body(...),
     db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
     user: User = Depends(clinician),
 ) -> dict:
     """Recalcula OPME, pendências e prontidão do relatório cirúrgico editado na revisão, sem salvar a nota."""
-    return service.recompute_surgical(db, user, cid, note)
+    return service.recompute_surgical(db, user, cid, note, fhir)
 
 
 class NoteTemplateIn(BaseModel):
