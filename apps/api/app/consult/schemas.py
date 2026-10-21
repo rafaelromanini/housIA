@@ -41,6 +41,7 @@ class Segment(BaseModel):
         default_factory=list, description="diferenças de números, doses e medicamentos entre a fala e a tradução"
     )
     origem: CaptureSource = "digitado"
+    client_id: str | None = None  # id gerado pelo cliente (dedupe de reenvio); não é dado clínico
     relevancia: Literal["clinica", "social", "administrativa"] | None = None  # None: ainda não classificada
     relevancia_origem: Literal["regra", "ia"] = "regra"
     # edição pelo profissional (#2): o texto e o falante originais ficam guardados; o selo "editada" vem de editado_em
@@ -66,6 +67,8 @@ class SegmentIn(BaseModel):
     t: float | None = None
     idioma: Annotated[str, AfterValidator(idiomas.validar)] | None = None
     origem: CaptureSource = "digitado"
+    # idempotência do reenvio (fila offline): a mesma fala reenviada com o mesmo client_id não vira fala nova
+    client_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
 
 
 class SegmentsIn(BaseModel):

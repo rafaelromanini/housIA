@@ -20,5 +20,10 @@ export default defineConfig({
     timezoneId: "America/Sao_Paulo",
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {},
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // celular e tablet (#12): WebKit roda só os fluxos de captura (Digitar, Simular, fila offline)
+    { name: "iPhone 13", use: { ...devices["iPhone 13"] }, testMatch: /mobile\.spec\.ts/ },
+    { name: "iPad", use: { ...devices["iPad (gen 7)"] }, testMatch: /mobile\.spec\.ts/ },
+  ],
 });

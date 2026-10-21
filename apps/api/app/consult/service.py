@@ -483,10 +483,15 @@ def _add_segments(c: Consultation, segments: list[Segment], items: list[SegmentI
     """Acrescenta as falas (numeração, falante automático, relevância) sem confirmar a transação."""
     elapsed = max(0.0, (clock.now() - c.created_at).total_seconds())
     new: list[Segment] = []
+    seen = {s.client_id for s in segments if s.client_id}
     for item in items:
         text = item.texto.strip()
         if not text:
             continue
+        if item.client_id:
+            if item.client_id in seen:
+                continue  # reenvio da fila offline: a fala já está na consulta
+            seen.add(item.client_id)
         speaker, auto = item.falante, False
         if speaker == "desconhecido":
             speaker, auto = infer_speaker(text), True
@@ -500,6 +505,7 @@ def _add_segments(c: Consultation, segments: list[Segment], items: list[SegmentI
             texto=text,
             idioma=language,
             origem="digitado" if item.origem == "marco" else item.origem,  # marco só nasce em /marker
+            client_id=item.client_id,
             relevancia=relevancia.classify(text, previous, speaker),
         )
         segments.append(seg)

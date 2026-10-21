@@ -3,6 +3,7 @@ import { Atkinson_Hyperlegible } from "next/font/google";
 
 import { DemoBanner, Disclaimer } from "@/components/demo-banner";
 import { Providers } from "@/components/providers";
+import { ServiceWorker } from "@/components/service-worker";
 
 import "./globals.css";
 
@@ -16,6 +17,9 @@ const atkinson = Atkinson_Hyperlegible({
 export const metadata: Metadata = {
   title: { default: "HousIA", template: "%s · HousIA" },
   description: "Suporte à decisão em transições de cuidado — ambiente de demonstração com dados sintéticos.",
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
+  appleWebApp: { capable: true, title: "HousIA", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
@@ -31,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <DemoBanner />
         <div className="flex-1 flex flex-col">
           <Providers>{children}</Providers>
+          <ServiceWorker />
         </div>
         <Disclaimer />
       </body>

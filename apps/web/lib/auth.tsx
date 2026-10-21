@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useRouter } from "next/navigation";
 
 import { api, ApiError, endSession, type User } from "@/lib/api";
+import { limparTudo } from "@/lib/offline-queue";
 
 interface AuthState {
   user: User | null;
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     setUser(null);
+    void limparTudo(); // falas pendentes na fila offline não sobrevivem à saída da conta
     void endSession().then(() => router.push("/login"));
   }, [router]);
 

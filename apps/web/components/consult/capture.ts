@@ -52,7 +52,7 @@ export function useSpeechCapture(lang: string, onFinal: (text: string) => void) 
   const start = useCallback(() => {
     const Ctor = recognitionCtor();
     if (!Ctor) {
-      setError("Este navegador não tem reconhecimento de fala. Use Chrome ou Edge, ou o modo Digitar.");
+      setError("Este navegador não tem reconhecimento de fala. Use o modo Servidor (se disponível) ou Digitar.");
       return;
     }
     const r = new Ctor();
@@ -206,7 +206,7 @@ export function usePushToTalk(onText: (text: string) => void, onBegin?: () => vo
 }
 
 /* ---------- Gravação para transcrição no servidor (Whisper on-premise etc.) ---------- */
-export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
+export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8, deviceId = "") {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -216,10 +216,13 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
   const stopped = useRef<(() => void)[]>([]);
   const onChunkRef = useRef(onChunk);
   onChunkRef.current = onChunk;
+  const deviceRef = useRef(deviceId);
+  deviceRef.current = deviceId;
 
   const cycle = useCallback(() => {
     if (!stream.current) return;
-    const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    // Chrome/Edge gravam webm; o Safari (iOS) só grava mp4/aac
+    const mime = ["audio/webm", "audio/mp4"].find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
     const r = new MediaRecorder(stream.current, mime ? { mimeType: mime } : undefined);
     const chunks: Blob[] = [];
     r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
@@ -237,7 +240,9 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
 
   const start = useCallback(async () => {
     try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current = await navigator.mediaDevices.getUserMedia({
+        audio: deviceRef.current ? { deviceId: { exact: deviceRef.current } } : true,
+      });
     } catch {
       setError("Não foi possível acessar o microfone.");
       return;
@@ -276,6 +281,171 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
     [stop],
   );
   return { recording, error, start, stop };
+}
+
+/* ---------- Tela acesa durante a captura (Wake Lock) ---------- */
+interface WakeLockSentinelLike {
+  release(): Promise<void>;
+  addEventListener(type: "release", cb: () => void): void;
+}
+
+/** Mantém a tela acesa enquanto `active`: sem isso o celular bloqueia e a captura para. O sistema libera o bloqueio
+ * quando a aba fica oculta, então ele é pedido de novo no visibilitychange. Sem suporte (ou negado), segue sem. */
+export function useWakeLock(active: boolean) {
+  const [held, setHeld] = useState(false);
+  const sentinel = useRef<WakeLockSentinelLike | null>(null);
+
+  useEffect(() => {
+    const wl = typeof navigator !== "undefined" ? (navigator as unknown as { wakeLock?: { request(t: "screen"): Promise<WakeLockSentinelLike> } }).wakeLock : undefined;
+    if (!active || !wl) return;
+    let cancelled = false;
+    const acquire = async () => {
+      if (cancelled || sentinel.current || document.visibilityState !== "visible") return;
+      try {
+        const s = await wl.request("screen");
+        if (cancelled) {
+          void s.release();
+          return;
+        }
+        sentinel.current = s;
+        setHeld(true);
+        s.addEventListener("release", () => {
+          if (sentinel.current === s) sentinel.current = null;
+          setHeld(false);
+        });
+      } catch {
+        /* negado (economia de bateria, etc.): a captura segue, só a tela pode apagar */
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void acquire();
+    };
+    void acquire();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      const s = sentinel.current;
+      sentinel.current = null;
+      setHeld(false);
+      if (s) void s.release().catch(() => undefined);
+    };
+  }, [active]);
+
+  return held;
+}
+
+/* ---------- Escolha de microfone e medidor de nível ---------- */
+const MIC_KEY = "housia.microfone";
+
+function readMicPref(): string {
+  try {
+    return window.localStorage.getItem(MIC_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Lista os microfones (enumerateDevices) e guarda a escolha (só o deviceId) no localStorage, sem depender dele. */
+export function useMicrofones() {
+  const [devices, setDevices] = useState<{ id: string; label: string }[]>([]);
+  const [deviceId, setDeviceIdState] = useState("");
+
+  const refresh = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      const mics = all
+        .filter((d) => d.kind === "audioinput" && d.deviceId)
+        .map((d, i) => ({ id: d.deviceId, label: d.label || `Microfone ${i + 1}` }));
+      setDevices(mics);
+      // escolha guardada que não existe mais (fone desconectado): volta ao padrão do aparelho
+      setDeviceIdState((cur) => (cur && !mics.some((m) => m.id === cur) ? "" : cur));
+    } catch {
+      setDevices([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    setDeviceIdState(readMicPref());
+    void refresh();
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    md?.addEventListener?.("devicechange", refresh);
+    return () => md?.removeEventListener?.("devicechange", refresh);
+  }, [refresh]);
+
+  const setDeviceId = useCallback((id: string) => {
+    setDeviceIdState(id);
+    try {
+      if (id) window.localStorage.setItem(MIC_KEY, id);
+      else window.localStorage.removeItem(MIC_KEY);
+    } catch {
+      /* sem armazenamento: vale só nesta sessão */
+    }
+  }, []);
+
+  return { devices, deviceId, setDeviceId, refresh };
+}
+
+/** 'Testar áudio': abre o microfone escolhido e mostra o nível (AnalyserNode). Só local: nada é gravado nem enviado,
+ * e o teste se encerra sozinho em 10 s. */
+export function useTesteDeAudio(deviceId: string, onPermission?: () => void) {
+  const [testing, setTesting] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const cleanup = useRef<(() => void) | null>(null);
+
+  const stop = useCallback(() => {
+    cleanup.current?.();
+    cleanup.current = null;
+    setTesting(false);
+    setLevel(0);
+  }, []);
+
+  const start = useCallback(async () => {
+    if (cleanup.current) return;
+    setError(null);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { deviceId: { exact: deviceId } } : true });
+    } catch {
+      setError("Não foi possível acessar o microfone. Libere a permissão no navegador.");
+      return;
+    }
+    onPermission?.();
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) {
+      stream.getTracks().forEach((t) => t.stop());
+      setError("Este navegador não mede o nível do microfone.");
+      return;
+    }
+    const ctx = new Ctx();
+    void ctx.resume().catch(() => undefined);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Uint8Array(analyser.fftSize);
+    let raf = 0;
+    const tick = () => {
+      analyser.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+      setLevel(Math.min(1, peak / 64));
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    const timer = window.setTimeout(() => stop(), 10_000);
+    cleanup.current = () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf);
+      stream.getTracks().forEach((t) => t.stop());
+      void ctx.close().catch(() => undefined);
+    };
+    setTesting(true);
+  }, [deviceId, onPermission, stop]);
+
+  useEffect(() => () => cleanup.current?.(), []);
+  return { testing, level, error, start, stop };
 }
 
 /* ---------- Simulação com roteiro sintético (demo sem microfone) ---------- */
