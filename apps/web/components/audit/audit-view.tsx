@@ -67,6 +67,7 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.pedido_assinado": "Pedido ou prescrição assinado",
   "consulta.pedido_recusado": "Pedido ou prescrição recusado",
   "consulta.pedido_revertido": "Pedido ou prescrição voltou a pendente",
+  "consulta.encaminhamento": "Escolha no card Antes de encaminhar",
   "consulta.copiloto": "Pergunta ao copiloto",
   "consulta.copiloto_inserido": "Resposta do copiloto inserida na nota",
   "consulta.finalizada": "Consulta finalizada (nota gerada)",

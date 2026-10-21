@@ -196,6 +196,21 @@ Cada onda com 8 entregas consome bastante da cota de uso. Rode uma onda por jane
 - Toda afirmação da IA leva fonte (`Fala/N` e/ou referência FHIR). As regras de segurança nunca são removidas pela
   IA.
 
+## #35 Planos e teste grátis (2026-10-21)
+
+- Tabelas `plans` e `entitlements` (migração e351, sobre e341, cabeça única). Planos: teste (10 consultas), profissional,
+  clínica (plantão e reconciliação) e hospital (todos os módulos, incluindo alta). Consultório nasce no teste; hospital
+  no plano hospitalar. Direito de uso criado na primeira leitura.
+- Contagem por `consulta.iniciada` da organização, sem sandbox; a 11ª devolve 402; sandbox sem limite; aviso a partir
+  da 8ª; `/consult/plano` e `/auth/me` trazem o mesmo contador da agenda. Troca manual em `PUT /orgs/{id}/plano`, só
+  para o administrador da plataforma (gestor da organização padrão); vigência sem fuso vale UTC; limite estrito inteiro.
+- Módulos de plantão, reconciliação e alta respondem 403 fora do plano, no backend e no menu. Rebaixar o plano também
+  esconde o risco de alta antigo no painel e na ficha.
+- Verificação cética achou e corrigiu: corrida na 10ª/11ª consulta (lock + FOR UPDATE), vazamento de `risco_alta`,
+  vigência sem fuso (500), limite booleano aceito. Teste de acesso cruzado multiorg: 404 exato restaurado (alta exige
+  o plano hospitalar ativado na organização B) e `{escala}` preenchido.
+- Decisão: consultório sem o módulo de alta recebe 403 (plano) antes do 404 de organização. O limite de 30 do #34 caiu
+  para 10 (briefing). Pendente: cobrança automática (só ativação manual) e e2e do contador.
 ## #17 bundle FHIR e envio ao prontuário (2026-10-21)
 
 Branch `claude/onda3-17-bundle-fhir-prontuario`, já mesclado com a main (migração c202 sobre e341, cabeça única).
@@ -236,6 +251,65 @@ Branch `claude/onda3-11-whisper-servidor`. Sem migração. Decisões:
 - Pendente: validar a imagem do faster-whisper-server (tag e variáveis `WHISPER__*`) e a latência em hardware real;
   VAD do serviço (`vad_filter`) não é pedido, o corte é feito pelo VAD de energia do HousIA; `avg_logprob` é lido mas
   ainda não usado para marcar baixa confiança na tela.
+## #18 codificação CID-10, CIAP-2 e SIGTAP (2026-10-21)
+
+Branch `claude/onda3-18-codificacao-cid-ciap-sigtap`, sem migração. Novo `app/consult/coding.py`. Decisões:
+
+- **Secundário**: só a comorbidade que alguém citou (fala afirmativa, sem pergunta, negação, hipótese "se for" nem
+  familiar) ou que muda a conduta (o `Condition/id` aparece em alerta, hipótese, protocolo ou pedido). A nota mock do cen6
+  deixa de listar dislipidemia, obesidade e catarata. Secundário proposto pela IA sem `Fala/N` e fora desse conjunto vai
+  para `descartados`.
+- **Especificidade**: `cid_especificidade.csv` (lateralidade, agudo × crônico, complicação), a primeira regra que casa
+  numa fala afirmativa; sem regra casada e com o CID genérico, vira lacuna. "Sem perfuração" sugere K35.8, que o DATASUS
+  2008 não tem: `cid10_revisoes_oms.csv` acrescenta K35.2, K35.3 e K35.8 (revisões da OMS) à tabela.
+- **Sexo e idade**: sexo pela `cid10.csv`; idade por `cid_idade.csv` (curadoria: capítulos P e O). Alerta nos insights
+  (diagnóstico do prontuário) e pendência na nota.
+- **CIAP-2**: `ciap2.csv` e `ciap2_cid10_map.csv` são curadoria de demonstração (conferir os termos de uso da WONCA e
+  trocar pela tabela do e-SUS APS antes de distribuir). Aparece em cada CID quando o modelo da nota tem a seção CIAP-2.
+- **SIGTAP**: `sigtap_procedimentos.csv` e `sigtap_proc_cid.csv`, gerados por `scripts/build_sigtap.py`. Os códigos são
+  DEMO-SIGTAP-*; uma competência real do DATASUS entra pelo mesmo script (`--dir`, `--competencia`, `--mapa`; layout
+  conferido só pela documentação, não rodado com arquivos reais). CID principal fora da relação, ou sexo/idade fora do
+  procedimento, vira pendência `sigtap` (recalculada na revisão).
+- **Bundle e alta**: cada CID confirmado e aceito liga ao encontro por FHIR Patch (`Encounter.diagnosis`); hipóteses
+  ficam só como Condition. O `LocalFhirStore` aplica o patch; o PATCH com `urn:uuid` no HAPI real não foi testado. O
+  Charlson/LACE deixa de contar Condition provisória, diferencial ou refutada.
+- **Verificação independente (2026-10-21)**: códigos CID-10 e CIAP-2 conferidos um a um (todos reais; mapeamentos
+  plausíveis). Os dois testes antigos alterados não perdem cobertura (K35.5 não existe em tabela alguma; o teste de
+  expurgo ainda exige a nota igual, menos a `frase`). Achados e correções: (1) **privacidade**: a `frase` literal do CID
+  sobrevivia ao expurgo em `extra_json` (`nota_original`, `versoes_nota`), `insights_json` e `ai_meta_json`; agora todas
+  as cópias passam por `_scrub_frases` (teste novo). (2) "sem abscesso e com peritonite generalizada" fechava K35.8 e
+  "sem complicações, mas tenho albuminúria" perdia E11.2: o que o ditado afirma agora vale mais que "sem X". (3) "não há
+  sinais de nefropatia", "colecistite aguda descartada" e "não dói nos dois joelhos" refinavam o código; agora são
+  negação. (4) Na especificidade, fala com pergunta e resposta ("Tem abscesso? Não. É apendicite sem perfuração.") usa as
+  frases afirmativas; para o secundário, fala com pergunta continua sem afirmar nada (a catarata do cen6 segue fora). (5) Interface: o editor de CID mostra frase, mais específico, lacunas e CIAP-2.
+- Pendente: o contrato de saída da IA ganhou campos opcionais em `CidSuggestion` (sem teste com o LLM real); CIAP-2 e
+  SIGTAP completos dependem de licença/tabela oficial; a interface ainda não mostra `procedimento_sus` (a pendência
+  `sigtap` aparece na lista de pendências); Condition provisória fora do Charlson/LACE é decisão de projeto (pode
+  subestimar o risco se o prontuário tiver comorbidade só provisória).
+## #29 Antes de encaminhar (2026-10-21)
+
+Branch `claude/onda3-29-antes-de-encaminhar`, sem migração (decisões em `extra_json["encaminhamentos"]`, igual às
+hipóteses e aos pedidos). Base `data/reference/referral_criteria.csv` (14 linhas, 12 especialidades; a fonte é o
+protocolo do Ministério da Saúde/Sírio-Libanês e do TelessaúdeRS, em resumo: a instituição confere a edição vigente).
+Decisões:
+
+- Dois gatilhos: o profissional diz que vai encaminhar (só o médico; negação, condição, pergunta e relato do paciente
+  não valem) e a especialidade tem uma linha que vale para o paciente (CID no prontuário, hipótese ou tema dito); ou
+  uma hipótese já cumpre ao menos um critério objetivo. Condição sem linha na base não abre card.
+- Critério com três estados: atendido, não atendido, a confirmar (exame físico, resposta ao tratamento ou dado ausente).
+- Exames mínimos reaproveitam `chart._protocol_record` (lab no FHIR, texto em nota ou procedimento), com validade em
+  dias: exame antigo conta como faltante ("desatualizado").
+- "Encaminhar" com exame mínimo faltando exige justificativa de 10 caracteres ou mais (409 `exames_faltando`);
+  "Manejar na APS" não exige. As duas escolhas vão para `consulta.encaminhamento` na auditoria.
+- ServiceRequest `draft`/`proposal` com justificativa estruturada e `supportingInfo` só com refs FHIR (Fala/N vai na
+  nota e na extensão). Só o card em "Encaminhar" vai no Bundle da exportação e do envio.
+- Métricas no painel Impacto: `encaminhamentos_evitados` (manejo na APS ÷ decididos) e `encaminhamentos_completos`
+  (encaminhados com todos os exames mínimos ÷ encaminhados; proxy do que a regulação devolveria). A devolução real pela
+  regulação ainda não é medida.
+- Verificação independente: frases de hesitação ("estou pensando em encaminhar") não abrem card; dois critérios da base
+  com texto mais fiel à regra (potássio baixo e anemia) e teste de 404 entre organizações para a rota nova.
+- Pendências: a escolha não entra sozinha na nota (plano/avaliação); teleconsultoria é só orientação (sem integração);
+  ver a base com especialistas antes de uso real.
 
 ## Pausa (2026-10-20, cota)
 

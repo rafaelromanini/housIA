@@ -1,0 +1,15 @@
+cid_prefixo,dimensao,termos,codigo,rotulo,falta,fonte
+K35,complicacao,sem perfuracao|sem perfurar|nao perfurou|sem ruptura|nao rompeu|sem peritonite|sem abscesso,K35.8,Apendicite aguda sem perfuração nem peritonite,Confirmar se há perfuração; peritonite generalizada ou localizada; abscesso,Curadoria HousIA (demonstração): especificidade da CID-10 da OMS (K35.2 a K35.8)
+K35,complicacao,peritonite generalizada,K35.2,Apendicite aguda com peritonite generalizada,,Curadoria HousIA (demonstração): especificidade da CID-10 da OMS (K35.2 a K35.8)
+K35,complicacao,peritonite localizada,K35.3,Apendicite aguda com peritonite localizada,,Curadoria HousIA (demonstração): especificidade da CID-10 da OMS (K35.2 a K35.8)
+K35,complicacao,abscesso,K35.1,Apendicite aguda com abscesso peritonial,,Curadoria HousIA (demonstração): especificidade da CID-10 (K35.1 do DATASUS)
+E11,complicacao,sem complicacoes|sem complicacao,E11.9,Diabetes mellitus tipo 2 sem complicações,Confirmar se há complicação renal; oftálmica; neurológica ou circulatória periférica,Curadoria HousIA (demonstração): subcategorias E11.x da CID-10
+E11,complicacao,nefropatia|doenca renal|rim do diabetico|albuminuria,E11.2,Diabetes mellitus tipo 2 com complicações renais,,Curadoria HousIA (demonstração): subcategorias E11.x da CID-10
+E11,complicacao,retinopatia|problema na retina|vista do diabetico,E11.3,Diabetes mellitus tipo 2 com complicações oftálmicas,,Curadoria HousIA (demonstração): subcategorias E11.x da CID-10
+E11,complicacao,neuropatia|formigamento nos pes|perda de sensibilidade nos pes,E11.4,Diabetes mellitus tipo 2 com complicações neurológicas,,Curadoria HousIA (demonstração): subcategorias E11.x da CID-10
+E11,complicacao,pe diabetico|ulcera no pe|ferida no pe|amputacao,E11.5,Diabetes mellitus tipo 2 com complicações circulatórias periféricas,,Curadoria HousIA (demonstração): subcategorias E11.x da CID-10
+I10,complicacao,insuficiencia cardiaca|coracao grande|coracao dilatado,I11.0,Doença cardíaca hipertensiva com insuficiência cardíaca,Confirmar lesão de órgão-alvo (coração; rim),Curadoria HousIA (demonstração): I10 x I11 da CID-10
+M17,lateralidade,dos dois joelhos|nos dois joelhos|ambos os joelhos|bilateral,M17.0,Gonartrose primária bilateral,Confirmar a lateralidade (direito; esquerdo ou bilateral),Curadoria HousIA (demonstração): lateralidade da gonartrose na CID-10
+M17,lateralidade,joelho direito|joelho esquerdo,M17.1,Outras gonartroses primárias (unilateral),,Curadoria HousIA (demonstração): lateralidade da gonartrose na CID-10
+K81,agudo_cronico,colecistite aguda,K81.0,Colecistite aguda,Confirmar se é aguda ou crônica,Curadoria HousIA (demonstração): K81.0 e K81.1 da CID-10
+K81,agudo_cronico,colecistite cronica,K81.1,Colecistite crônica,,Curadoria HousIA (demonstração): K81.0 e K81.1 da CID-10

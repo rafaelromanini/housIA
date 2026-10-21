@@ -622,15 +622,53 @@ def bundle_transaction(
             )
         )
     entries.append((u_prov, _tagged(provenance, cid, "provenance"), _if_none_exist_tag(cid, "provenance")))
-    return {
-        "resourceType": "Bundle",
-        "type": "transaction",
-        "entry": [
-            {
-                "fullUrl": url,
-                "resource": r,
-                "request": {"method": "POST", "url": r["resourceType"], "ifNoneExist": cond},
-            }
-            for url, r, cond in entries
-        ],
-    }
+    out = [
+        {
+            "fullUrl": url,
+            "resource": r,
+            "request": {"method": "POST", "url": r["resourceType"], "ifNoneExist": cond},
+        }
+        for url, r, cond in entries
+    ]
+    out += encounter_diagnosis_patches(encounter_id, accepted_entries)
+    return {"resourceType": "Bundle", "type": "transaction", "entry": out}
+
+
+def encounter_diagnosis_patches(encounter_id: str | None, accepted_entries: list[tuple[str, dict]]) -> list[dict]:
+    """Encounter.diagnosis (#18): cada CID confirmado e aceito (Condition) é ligado ao encontro por um FHIR Patch.
+    Hipótese (provisória/diferencial) fica só como Condition. O primeiro confirmado leva rank 1."""
+    if not encounter_id:
+        return []
+    confirmed = [
+        url
+        for url, r in accepted_entries
+        if r.get("resourceType") == "Condition"
+        and any(c.get("code") == "confirmed" for c in (r.get("verificationStatus") or {}).get("coding", []))
+    ]
+    return [
+        {
+            "fullUrl": f"urn:housia:patch:{encounter_id}:{i}",
+            "resource": {
+                "resourceType": "Parameters",
+                "parameter": [
+                    {
+                        "name": "operation",
+                        "part": [
+                            {"name": "type", "valueCode": "add"},
+                            {"name": "path", "valueString": "Encounter"},
+                            {"name": "name", "valueString": "diagnosis"},
+                            {
+                                "name": "value",
+                                "part": [
+                                    {"name": "condition", "valueReference": {"reference": url}},
+                                    {"name": "rank", "valueInteger": i + 1},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            },
+            "request": {"method": "PATCH", "url": f"Encounter/{encounter_id}"},
+        }
+        for i, url in enumerate(confirmed)
+    ]

@@ -158,6 +158,27 @@ class ProtocolDef:
 
 
 @dataclass(frozen=True)
+class ReferralDef:
+    """Linha de data/reference/referral_criteria.csv: critérios de encaminhamento por especialidade e condição (#29).
+
+    `criteria`: (texto, regra) com regra `lab:chave>valor`, `fala:termo~termo`, `tfg<30` ou `manual`.
+    `exams`: (rótulo, fonte do registro `lab:chave` ou `texto:palavra~palavra`, validade em dias)."""
+
+    id: str
+    specialty: str
+    specialty_terms: tuple[str, ...]
+    condition: str
+    icd: tuple[str, ...]
+    condition_terms: tuple[str, ...]
+    criteria: tuple[tuple[str, str], ...]
+    exams: tuple[tuple[str, str, int], ...]
+    management: str
+    urgency: str
+    teleconsulting: str
+    source: str
+
+
+@dataclass(frozen=True)
 class OpmeDef:
     code: str
     description: str
@@ -212,6 +233,35 @@ def symptoms() -> tuple[SymptomDef, ...]:
         )
         for r in _read_csv("consult_symptoms.csv")
     )
+
+
+@lru_cache
+def referrals() -> tuple[ReferralDef, ...]:
+    out = []
+    for r in _read_csv("referral_criteria.csv"):
+        criteria = tuple(
+            (t.strip(), rule.strip()) for t, _, rule in (c.partition("::") for c in _words(r["criterios"]))
+        )
+        exams = tuple(
+            (label.strip(), src.strip(), int(days)) for label, src, days in (e.split("::") for e in _words(r["exames"]))
+        )
+        out.append(
+            ReferralDef(
+                id=r["id"],
+                specialty=r["especialidade"],
+                specialty_terms=_words(r["termos_especialidade"]),
+                condition=r["condicao"],
+                icd=_words(r["cids"]),
+                condition_terms=_words(r["termos_condicao"]),
+                criteria=criteria,
+                exams=exams,
+                management=r["manejo_aps"],
+                urgency=r["sinais_urgencia"],
+                teleconsulting=r["teleconsultoria"],
+                source=r["fonte"],
+            )
+        )
+    return tuple(out)
 
 
 @lru_cache

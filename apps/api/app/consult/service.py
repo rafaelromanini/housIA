@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import re
 import time
+from contextlib import nullcontext
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -21,8 +22,10 @@ from app.consult import (
     ai,
     antiglosa,
     apps,
+    coding,
     consentimento,
     consultorio,
+    encaminhamento,
     fidelidade,
     glossario,
     gs1,
@@ -76,6 +79,7 @@ from app.fhir_client.client import FhirSource, FhirUnavailable, get_fhir, locati
 from app.llm.client import LLMError
 from app.llm.pseudonymize import Pseudonymizer
 from app.patients.service import load_record
+from app.planos import service as planos
 from app.reference import icd_entry, icd_problem, norm_icd
 from app.timeline.context import PatientContext, build_context
 from app.timeline.events import ClinicalEvent, build_timeline
@@ -372,6 +376,11 @@ def _pick_encounter(record: PatientRecord, wanted: str | None) -> str | None:
 
 
 def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: ConsultCreate) -> dict:
+    with nullcontext() if body.sandbox else planos.INICIO_LOCK:  # conferir o limite e gravar são um passo só
+        return _create(db, fhir, user, patient_id, body)
+
+
+def _create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: ConsultCreate) -> dict:
     if body.especialidade not in knowledge.SPECIALTIES:
         raise HTTPException(422, "Especialidade desconhecida")
     record, events, ctx = _chart(fhir, patient_id)
@@ -1227,6 +1236,67 @@ def decide_order(db: Session, fhir: FhirSource, user: User, cid: int, draft_id: 
     return result | {"pedido": next((d for d in _draft_list(c) if d["id"] == draft_id), None)}
 
 
+def decide_referral(
+    db: Session, fhir: FhirSource, user: User, cid: int, enc_id: str, escolha: str, motivo: str
+) -> dict:
+    """Encaminhar ou manejar na APS, no card "Antes de encaminhar" (#29): vai para a auditoria e alimenta a métrica
+    de encaminhamentos evitados. Encaminhar com exame mínimo faltando exige uma justificativa."""
+    c = _get(db, cid)
+    if c.kind == "cirurgia":
+        raise HTTPException(409, "O modo cirúrgico não tem o card Antes de encaminhar.")
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: a escolha sobre o encaminhamento não pode mais mudar.")
+    if escolha not in encaminhamento.ESCOLHAS:
+        raise HTTPException(422, "Escolha inválida.")
+    record, events, ctx = _chart(fhir, c.patient_id)
+    segments = _segments(c)
+    card = next((e for e in _insights(c, record, events, ctx, segments).encaminhamentos if e.id == enc_id), None)
+    if card is None:
+        raise HTTPException(404, "Esse encaminhamento não aparece mais na análise.")
+    text = acoes.efetivo(motivo)
+    if escolha == "encaminhar" and card.exames_faltantes and len(text) < encaminhamento.MIN_MOTIVO:
+        raise HTTPException(
+            409,
+            {
+                "codigo": "exames_faltando",
+                "mensagem": "Faltam exames mínimos ("
+                + ", ".join(card.exames_faltantes)
+                + "). Encaminhe só com uma justificativa de pelo menos "
+                f"{encaminhamento.MIN_MOTIVO} caracteres (por exemplo, urgência) ou peça os exames antes.",
+            },
+        )
+    extra = dict(c.extra_json or {})
+    decided = dict(extra.get("encaminhamentos") or {})
+    when = clock.now().isoformat()
+    if escolha == "pendente":
+        decided.pop(enc_id, None)
+    else:
+        decided[enc_id] = {"escolha": escolha, "motivo": text, "por": user.name, "em": when}
+    c.extra_json = extra | {"encaminhamentos": decided}
+    c.insights_json = _insights(c, record, events, ctx, segments).model_dump(mode="json")
+    log_action(
+        db,
+        user,
+        "consulta.encaminhamento",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "encaminhamento": card.id,
+            "especialidade": card.especialidade,
+            "condicao": card.condicao,
+            "gatilho": card.gatilho,
+            "escolha": escolha,
+            "motivo": text,
+            "criterios_atendidos": sum(k.status == "atendido" for k in card.criterios),
+            "criterios_total": len(card.criterios),
+            "exames_faltantes": card.exames_faltantes,
+            "refs": card.refs,
+        },
+    )
+    return {"insights": c.insights_json, "total": len(segments)}
+
+
 def _draft_list(c: Consultation) -> list[dict]:
     return (c.insights_json or {}).get("pedidos") or []
 
@@ -1236,8 +1306,19 @@ def _signed_orders(c: Consultation) -> list[order_drafts.OrderDraft]:
     return [] if c.kind == "cirurgia" else order_drafts.signed(_draft_list(c))
 
 
-def _order_resources(c: Consultation, author: str, when: datetime) -> list[dict]:
+def _referral_resources(c: Consultation, author: str) -> list[dict]:
+    """ServiceRequest de encaminhamento (rascunho) dos cards em que o profissional escolheu "encaminhar" (#29)."""
+    if c.kind == "cirurgia":
+        return []
     return [
+        encaminhamento.resource_for_export(e, consultation_id=c.id, encounter_id=c.encounter_id, author=author)
+        for e in (c.insights_json or {}).get("encaminhamentos") or []
+        if (e.get("decisao") or {}).get("escolha") == "encaminhar"
+    ]
+
+
+def _order_resources(c: Consultation, author: str, when: datetime) -> list[dict]:
+    return _referral_resources(c, author) + [
         order_drafts.fhir_resource(
             d,
             patient_id=c.patient_id,
@@ -1587,7 +1668,10 @@ def update_note(db: Session, user: User, cid: int, note: dict, fhir: FhirSource 
                 )
             }
             report, changes = _review_opme(c, report)
-            note = note | {"relatorio_cirurgico": report}
+            sus = SurgicalReport.model_validate(report)
+            patient = _chart(fhir, c.patient_id)[0] if fhir is not None else None
+            coding.attach_sigtap(sus, sex, patient.age if patient else None)
+            note = note | {"relatorio_cirurgico": sus.model_dump(mode="json")}
         else:
             ConsultNote.model_validate(note)
             # o modelo da nota é o que o servidor guarda (só muda por PUT /note-template); as seções obrigatórias
@@ -1682,6 +1766,11 @@ def switch_note_template(db: Session, fhir: FhirSource, user: User, cid: int, te
     filled = {s["key"] for s in note["secoes"] if not note_templates.is_empty(s["texto"])}
     news = note_templates.fill_dynamic(tpl, engine, ins, only={s.key for s in tpl.secoes} - filled)
     model = note_templates.snapshot(tpl)
+    if any(s.key == "ciap2" for s in tpl.secoes):  # APS: cada CID da nota passa a mostrar o CIAP-2 mapeado
+        note["cids"] = [
+            c | {"ciap2": f"{row['ciap2']} {row['descricao']}" if (row := coding.ciap2_for(c["codigo"])) else ""}
+            for c in note.get("cids", [])
+        ]
     kept = [s for s in note["secoes"] if s["key"] in filled]
     note = note | {"modelo": model, "secoes": note_templates.complete_sections(kept + news, model)}
     previous = c.note_json
@@ -1702,7 +1791,7 @@ def switch_note_template(db: Session, fhir: FhirSource, user: User, cid: int, te
     return out(c)
 
 
-def recompute_surgical(db: Session, user: User, cid: int, note: dict) -> dict:
+def recompute_surgical(db: Session, user: User, cid: int, note: dict, fhir: FhirSource | None = None) -> dict:
     """Recalcula o relatório cirúrgico editado (ainda não salvo): OPME conferido com guia, fala e etiquetas, pendências
     de campo obrigatório e de OPME, e a prontidão para faturamento. Não grava nada: a revisão grava ao salvar."""
     c = _get(db, cid)
@@ -1730,6 +1819,8 @@ def recompute_surgical(db: Session, user: User, cid: int, note: dict) -> dict:
     ]
     kept.sort(key=lambda h: {"critico": 0, "atencao": 1, "info": 2}[h["severidade"]])
     model = SurgicalReport.model_validate(report | {"pendencias": kept})
+    patient = _chart(fhir, c.patient_id)[0] if fhir is not None else None
+    coding.attach_sigtap(model, patient.sex if patient else "", patient.age if patient else None)
     model.prontidao = antiglosa.evaluate(model, segments=_segments(c), **billing_params(c.extra_json or {}))
     return {"relatorio_cirurgico": model.model_dump(mode="json")}
 

@@ -20,8 +20,9 @@ from app.discharge.service import (
 from app.fhir_client.client import FhirSource, get_fhir
 from app.llm.client import LLMError
 from app.patients.service import load_record
+from app.planos.service import exige_modulo
 
-router = APIRouter(tags=["planejamento de alta"])
+router = APIRouter(tags=["planejamento de alta"], dependencies=[Depends(exige_modulo("alta"))])
 
 
 class AssessmentIn(BaseModel):

@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.db.models import Organization, User
 from app.db.session import get_db
 from app.email import send_email
+from app.planos import service as planos
 from app.prontidao import cookie_seguro
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -41,12 +42,22 @@ class OrgOut(BaseModel):
     tipo: str
 
 
+class PlanoOut(BaseModel):
+    codigo: str
+    nome: str
+    modulos: list[str]  # módulos hospitalares liberados (passagem_plantao, reconciliacao, alta)
+    limite: int | None = None
+    usadas: int = 0
+    aviso: str | None = None
+
+
 class UserOut(BaseModel):
     id: int
     name: str
     email: str
     role: str
     organizacao: OrgOut | None = None
+    plano: PlanoOut | None = None
     destino: str = "/leitos"  # para onde o login leva: consultório /consultas, hospital /leitos
     conselho: str | None = None
     conselho_numero: str | None = None
@@ -100,12 +111,24 @@ def to_user_out(user: User, db: Session | None = None) -> UserOut:
     org = None
     if user.organization_id and db is not None:
         org = db.get(Organization, user.organization_id)
+    plano = None
+    if org is not None and db is not None:
+        u = planos.uso(db, org)  # o contador da sessão é o da organização do usuário
+        plano = PlanoOut(
+            codigo=u["plano"],
+            nome=u["nome"],
+            modulos=u["modulos"],
+            limite=u["limite"],
+            usadas=u["usadas"],
+            aviso=u["aviso"],
+        )
     return UserOut(
         id=user.id,
         name=user.name,
         email=user.email,
         role=user.role,
         organizacao=OrgOut(id=org.id, nome=org.nome, tipo=org.tipo) if org else None,
+        plano=plano,
         destino=destino_de(org),
         conselho=user.conselho,
         conselho_numero=user.conselho_numero,

@@ -495,6 +495,18 @@ class Readiness(BaseModel):
     versao: str = ""
 
 
+class ProcedimentoSus(BaseModel):
+    """Procedimento SIGTAP sugerido ao relatório cirúrgico (só se estiver na tabela e combinar com o CID)."""
+
+    codigo: str
+    descricao: str
+    compativel: bool
+    motivo: str = ""
+    competencia: str = ""
+    fonte: str = ""
+    refs: list[str] = []
+
+
 class SurgicalReport(BaseModel):
     campos: list[ReportField]
     opme: list[OpmeLine]
@@ -506,6 +518,7 @@ class SurgicalReport(BaseModel):
     pedidos: list[ProposedOrder] = []
     perioperatorio: list["SurgeryItem"] = []
     prontidao: Readiness | None = None
+    procedimento_sus: ProcedimentoSus | None = None
 
 
 # ---------- pedidos e prescrições em rascunho (ambient orders) ----------
@@ -646,6 +659,54 @@ class AppResult(BaseModel):
     erro: str = ""
 
 
+class CriterioEnc(BaseModel):
+    """Um critério de encaminhamento da base curada e o que o prontuário ou a conversa mostram dele (#29)."""
+
+    texto: str
+    status: Literal[
+        "atendido", "nao_atendido", "confirmar"
+    ]  # "confirmar": só o profissional avalia (exame físico etc.)
+    evidencia: str = ""
+    refs: list[str] = []
+
+
+class ExameEnc(BaseModel):
+    exame: str
+    status: Literal["feito", "desatualizado", "faltando"]
+    ultimo: str = ""
+    refs: list[str] = []
+
+
+class DecisaoEnc(BaseModel):
+    """Escolha do profissional no card "Antes de encaminhar": vai para a auditoria e para a métrica de evitados."""
+
+    escolha: Literal["pendente", "encaminhar", "manejar_aps"] = "pendente"
+    motivo: str = ""
+    por: str | None = None
+    em: str | None = None
+
+
+class Encaminhamento(BaseModel):
+    """Smart App "Antes de encaminhar": critérios, exames mínimos, manejo na APS e o ServiceRequest em rascunho."""
+
+    id: str
+    especialidade: str
+    condicao: str
+    gatilho: Literal["fala", "hipotese"]
+    gatilho_texto: str = ""
+    criterios: list[CriterioEnc] = []
+    exames: list[ExameEnc] = []
+    exames_faltantes: list[str] = []
+    manejo_aps: str = ""
+    sinais_urgencia: str = ""
+    teleconsultoria: str = ""
+    fonte: str = ""
+    recomendacao: str = ""
+    refs: list[str] = []
+    decisao: DecisaoEnc = DecisaoEnc()
+    rascunho: dict = {}  # ServiceRequest (status=draft, intent=proposal) com a justificativa estruturada
+
+
 class Insights(BaseModel):
     tipo: ConsultKind
     especialidade: str
@@ -671,6 +732,7 @@ class Insights(BaseModel):
     lembretes: list[Reminder] = []
     relatorio_cirurgico: SurgicalReport | None = None
     pedidos: list[OrderDraft] = []
+    encaminhamentos: list[Encaminhamento] = []  # "Antes de encaminhar" (#29)
     tfg: float | None = None
     rcri: Rcri | None = None
     descartados: list[dict] = []
@@ -702,11 +764,24 @@ class SecaoModelo(BaseModel):
     refs: list[str]
 
 
+class CodigoEspecifico(BaseModel):
+    """Código mais específico que o ditado sustenta (K35.9 → K35.8), com a frase que o justifica."""
+
+    codigo: str
+    descricao: str
+    frase: str
+    refs: list[str]
+
+
 class CidSuggestion(BaseModel):
     codigo: str
     descricao: str
     tipo: Literal["principal", "secundario", "hipotese"]
     refs: list[str]
+    frase: str = ""  # a fala (ou o registro do prontuário) literal que justifica o código
+    mais_especificos: list[CodigoEspecifico] = []  # refinamentos sustentados pelo ditado
+    lacunas: list[str] = []  # o que falta para fechar a especificidade
+    ciap2: str = ""  # "K86 Hipertensão sem complicações" (APS)
 
 
 ChronoKind = Literal["queixa", "negativa", "achado", "medicamento", "exame", "orientacao", "retorno", "emocao"]

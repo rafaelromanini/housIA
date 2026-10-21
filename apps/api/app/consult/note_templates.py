@@ -16,9 +16,9 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import get_settings
+from app.consult import coding
 from app.consult.schemas import SecaoModelo
 from app.consult.text import norm
-from app.reference import _read_csv
 
 if TYPE_CHECKING:  # só para tipos: evita ciclo com engine/schemas
     from app.consult.engine import Engine
@@ -257,16 +257,7 @@ def resolve(key: str, engine: Engine, ins: Insights) -> tuple[str, list[str]] | 
     return None  # estatura e demais: sem fonte estruturada neste ambiente
 
 
-@lru_cache
-def _ciap_rows() -> tuple[dict[str, str], ...]:
-    return tuple(_read_csv("ciap2_cid10.csv"))
-
-
-def ciap2_for(cid: str) -> dict[str, str] | None:
-    """Correspondência CID-10 → CIAP-2 pelo prefixo mais longo (tabela curada de demonstração)."""
-    cid = (cid or "").upper()
-    rows = [r for r in _ciap_rows() if cid.startswith(r["cid_prefixo"])]
-    return max(rows, key=lambda r: len(r["cid_prefixo"])) if rows else None
+ciap2_for = coding.ciap2_for  # CID-10 → CIAP-2 (data/reference/ciap2_cid10_map.csv)
 
 
 def _ciap2(engine: Engine, ins: Insights) -> tuple[str, list[str]] | None:

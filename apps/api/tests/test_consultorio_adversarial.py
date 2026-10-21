@@ -11,8 +11,8 @@ import pytest
 
 from app import clock
 from app.config import get_settings
-from app.consult import consultorio
 from app.consult import service as consult_service
+from app.planos import service as planos
 from tests.conftest import CONSENT, login
 from tests.test_consult import SCRIPT, approve, say
 from tests.test_consultorio import (
@@ -194,21 +194,22 @@ def test_sandbox_recusa_avulso_populacao_de_fundo_e_id_inexistente(client, auth)
 def test_sandbox_de_outra_organizacao_nao_aparece_no_contador_nem_na_busca(client):
     a, b, _, _ = dois_consultorios(client)
     consulta_cen6(client, a, sandbox=True)
-    assert client.get("/consult/plano", headers=b).json() == {
-        "plano": "teste_gratis",
-        "limite": 30,
-        "usadas": 0,
-        "restantes": 30,
-        "sandbox": 0,
-    }
+    plano = client.get("/consult/plano", headers=b).json()
+    assert (plano["plano"], plano["limite"], plano["usadas"], plano["restantes"], plano["sandbox"]) == (
+        "teste",
+        10,
+        0,
+        10,
+        0,
+    )
     assert lista(client, b, sandbox="true")["total"] == 0
     assert client.get("/consult/onboarding", headers=b).json()["concluido"] is False
 
 
 # ---------- 8-9: contador do plano ----------
 def test_sandbox_nao_libera_nem_consome_o_teste_gratis(client, monkeypatch):
+    monkeypatch.setattr(planos, "LIMITE_TESTE", 2)
     h, _ = cadastro_completo(client)
-    monkeypatch.setattr(consultorio, "PLANO_TESTE_LIMITE", 2)
     for _ in range(5):
         abrir(client, h, "cen6", sandbox=True)
     assert client.get("/consult/plano", headers=h).json()["usadas"] == 0
@@ -236,8 +237,8 @@ def test_nao_ha_caminho_para_trocar_o_marcador_de_sandbox_depois_de_aberta(clien
 
 
 def test_limite_do_plano_vale_so_para_consultorio_e_por_organizacao(client, auth, monkeypatch):
+    monkeypatch.setattr(planos, "LIMITE_TESTE", 1)
     a, b, _, _ = dois_consultorios(client)
-    monkeypatch.setattr(consultorio, "PLANO_TESTE_LIMITE", 1)
     abrir(client, a, "cen6")
     assert (
         client.post(
