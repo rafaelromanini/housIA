@@ -17,12 +17,12 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.consult import knowledge
-from app.db.models import Consultation, Organization, User
+from app.db.models import Consultation, User
 from app.db.tenancy import current_org
 from app.patients import avulso
+from app.planos import service as planos
 from app.timeline.record import PatientRecord
 
-PLANO_TESTE_LIMITE = 30  # consultas do teste grátis de um consultório; hospital não tem limite
 AVISO_SANDBOX = "SANDBOX — cenário sintético, sem validade clínica"
 STATUS = ("em_andamento", "finalizada", "enviada")
 MAX_PAGE = 200
@@ -37,38 +37,18 @@ def is_reviewed(c: Consultation) -> bool:
     return bool((c.note_meta_json or {}).get("atestacao"))
 
 
-def _org(db: Session) -> Organization | None:
-    org_id = current_org(db)
-    return db.get(Organization, org_id) if org_id else None
-
-
 def plano(db: Session) -> dict:
-    """Contador do plano da organização: só consulta real conta; sandbox fica de fora."""
-    org = _org(db)
-    rows = list(db.scalars(select(Consultation)))  # já filtrado pela organização
-    usadas = sum(1 for c in rows if not c.sandbox)
-    com_limite = org is not None and org.tipo == "consultorio"
-    return {
-        "plano": "teste_gratis" if com_limite else "ilimitado",
-        "limite": PLANO_TESTE_LIMITE if com_limite else None,
-        "usadas": usadas,
-        "restantes": max(PLANO_TESTE_LIMITE - usadas, 0) if com_limite else None,
-        "sandbox": len(rows) - usadas,
-    }
+    """Contador do plano da organização (#35): só consulta real conta; sandbox fica de fora."""
+    return planos.uso(db)
 
 
 def check_start(db: Session, record: PatientRecord, sandbox: bool) -> None:
-    """Antes de abrir a consulta: sandbox só em cenário sintético; consulta real respeita o teste grátis."""
+    """Antes de abrir a consulta: sandbox só em cenário sintético; consulta real respeita o plano."""
     if sandbox:
         if avulso.is_avulso(record.id) or not (record.scenario_tag or "").startswith("cenario"):
             raise HTTPException(422, "O sandbox usa só os cenários sintéticos; paciente real não entra nele.")
         return
-    info = plano(db)
-    if info["limite"] is not None and info["usadas"] >= info["limite"]:
-        raise HTTPException(
-            402,
-            f"O teste grátis acabou ({info['limite']} consultas). Use o sandbox ou ative o plano.",
-        )
+    planos.confere_inicio(db)
 
 
 def scenarios(fhir) -> list[dict]:

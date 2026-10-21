@@ -357,6 +357,24 @@ def decide_order(
     return service.decide_order(db, fhir, user, cid, draft_id, body)
 
 
+class EncaminhamentoIn(BaseModel):
+    escolha: Literal["pendente", "encaminhar", "manejar_aps"]
+    motivo: str = Field("", max_length=500)
+
+
+@router.put("/consultations/{cid}/encaminhamentos/{enc_id}")
+def decide_referral(
+    cid: int,
+    enc_id: str,
+    body: EncaminhamentoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Encaminhar ou manejar na APS (#29): auditado; encaminhar com exame mínimo faltando exige justificativa."""
+    return service.decide_referral(db, fhir, user, cid, enc_id, body.escolha, body.motivo)
+
+
 class HypothesisDecisionIn(BaseModel):
     cid: str = Field(..., min_length=3, max_length=10)
     decisao: Literal["pendente", "confirmada", "provisoria", "descartada"]

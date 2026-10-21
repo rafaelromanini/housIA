@@ -11,6 +11,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PatientDetail } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { fmtDateTime } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
@@ -129,20 +130,24 @@ function PatientHeader({ patient: p }: { patient: PatientDetail }) {
 }
 
 const TABS = [
-  { href: "", label: "Visão geral", Icon: LayoutList, inpatientOnly: false },
-  { href: "/consulta", label: "Consulta com IA", Icon: Mic, inpatientOnly: false },
-  { href: "/passagem", label: "Passagem de plantão", Icon: ClipboardCheck, inpatientOnly: true },
-  { href: "/alta", label: "Planejar alta", Icon: House, inpatientOnly: true },
-  { href: "/reconciliacao", label: "Reconciliação", Icon: Pill, inpatientOnly: true },
+  { modulo: null, href: "", label: "Visão geral", Icon: LayoutList, inpatientOnly: false },
+  { modulo: null, href: "/consulta", label: "Consulta com IA", Icon: Mic, inpatientOnly: false },
+  { modulo: "passagem_plantao" as const, href: "/passagem", label: "Passagem de plantão", Icon: ClipboardCheck, inpatientOnly: true },
+  { modulo: "alta" as const, href: "/alta", label: "Planejar alta", Icon: House, inpatientOnly: true },
+  { modulo: "reconciliacao" as const, href: "/reconciliacao", label: "Reconciliação", Icon: Pill, inpatientOnly: true },
 ];
 
 function PatientTabs({ patientId, inpatient }: { patientId: string; inpatient: boolean }) {
   const pathname = usePathname();
   const base = `/pacientes/${patientId}`;
+  const { user } = useAuth();
+  const modulos = user?.plano?.modulos ?? [];
+  // módulos hospitalares dependem do plano (o backend devolve 403 nos que não estão incluídos)
+  const tabs = TABS.filter((t) => (inpatient || !t.inpatientOnly) && (t.modulo === null || modulos.includes(t.modulo)));
   return (
     <nav aria-label="Seções do paciente" className="overflow-x-auto">
       <ul className="flex min-w-max gap-1 border-b">
-        {TABS.filter((t) => inpatient || !t.inpatientOnly).map(({ href, label, Icon }) => {
+        {tabs.map(({ href, label, Icon }) => {
           const target = `${base}${href}`;
           const active = href === "" ? pathname === base : pathname.startsWith(target);
           return (

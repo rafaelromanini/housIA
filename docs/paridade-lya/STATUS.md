@@ -196,6 +196,21 @@ Cada onda com 8 entregas consome bastante da cota de uso. Rode uma onda por jane
 - Toda afirmação da IA leva fonte (`Fala/N` e/ou referência FHIR). As regras de segurança nunca são removidas pela
   IA.
 
+## #35 Planos e teste grátis (2026-10-21)
+
+- Tabelas `plans` e `entitlements` (migração e351, sobre e341, cabeça única). Planos: teste (10 consultas), profissional,
+  clínica (plantão e reconciliação) e hospital (todos os módulos, incluindo alta). Consultório nasce no teste; hospital
+  no plano hospitalar. Direito de uso criado na primeira leitura.
+- Contagem por `consulta.iniciada` da organização, sem sandbox; a 11ª devolve 402; sandbox sem limite; aviso a partir
+  da 8ª; `/consult/plano` e `/auth/me` trazem o mesmo contador da agenda. Troca manual em `PUT /orgs/{id}/plano`, só
+  para o administrador da plataforma (gestor da organização padrão); vigência sem fuso vale UTC; limite estrito inteiro.
+- Módulos de plantão, reconciliação e alta respondem 403 fora do plano, no backend e no menu. Rebaixar o plano também
+  esconde o risco de alta antigo no painel e na ficha.
+- Verificação cética achou e corrigiu: corrida na 10ª/11ª consulta (lock + FOR UPDATE), vazamento de `risco_alta`,
+  vigência sem fuso (500), limite booleano aceito. Teste de acesso cruzado multiorg: 404 exato restaurado (alta exige
+  o plano hospitalar ativado na organização B) e `{escala}` preenchido.
+- Decisão: consultório sem o módulo de alta recebe 403 (plano) antes do 404 de organização. O limite de 30 do #34 caiu
+  para 10 (briefing). Pendente: cobrança automática (só ativação manual) e e2e do contador.
 ## #17 bundle FHIR e envio ao prontuário (2026-10-21)
 
 Branch `claude/onda3-17-bundle-fhir-prontuario`, já mesclado com a main (migração c202 sobre e341, cabeça única).
@@ -239,6 +254,30 @@ Branch `claude/onda3-18-codificacao-cid-ciap-sigtap`, sem migração. Novo `app/
   SIGTAP completos dependem de licença/tabela oficial; a interface ainda não mostra `procedimento_sus` (a pendência
   `sigtap` aparece na lista de pendências); Condition provisória fora do Charlson/LACE é decisão de projeto (pode
   subestimar o risco se o prontuário tiver comorbidade só provisória).
+## #29 Antes de encaminhar (2026-10-21)
+
+Branch `claude/onda3-29-antes-de-encaminhar`, sem migração (decisões em `extra_json["encaminhamentos"]`, igual às
+hipóteses e aos pedidos). Base `data/reference/referral_criteria.csv` (14 linhas, 12 especialidades; a fonte é o
+protocolo do Ministério da Saúde/Sírio-Libanês e do TelessaúdeRS, em resumo: a instituição confere a edição vigente).
+Decisões:
+
+- Dois gatilhos: o profissional diz que vai encaminhar (só o médico; negação, condição, pergunta e relato do paciente
+  não valem) e a especialidade tem uma linha que vale para o paciente (CID no prontuário, hipótese ou tema dito); ou
+  uma hipótese já cumpre ao menos um critério objetivo. Condição sem linha na base não abre card.
+- Critério com três estados: atendido, não atendido, a confirmar (exame físico, resposta ao tratamento ou dado ausente).
+- Exames mínimos reaproveitam `chart._protocol_record` (lab no FHIR, texto em nota ou procedimento), com validade em
+  dias: exame antigo conta como faltante ("desatualizado").
+- "Encaminhar" com exame mínimo faltando exige justificativa de 10 caracteres ou mais (409 `exames_faltando`);
+  "Manejar na APS" não exige. As duas escolhas vão para `consulta.encaminhamento` na auditoria.
+- ServiceRequest `draft`/`proposal` com justificativa estruturada e `supportingInfo` só com refs FHIR (Fala/N vai na
+  nota e na extensão). Só o card em "Encaminhar" vai no Bundle da exportação e do envio.
+- Métricas no painel Impacto: `encaminhamentos_evitados` (manejo na APS ÷ decididos) e `encaminhamentos_completos`
+  (encaminhados com todos os exames mínimos ÷ encaminhados; proxy do que a regulação devolveria). A devolução real pela
+  regulação ainda não é medida.
+- Verificação independente: frases de hesitação ("estou pensando em encaminhar") não abrem card; dois critérios da base
+  com texto mais fiel à regra (potássio baixo e anemia) e teste de 404 entre organizações para a rota nova.
+- Pendências: a escolha não entra sozinha na nota (plano/avaliação); teleconsultoria é só orientação (sem integração);
+  ver a base com especialistas antes de uso real.
 
 ## Pausa (2026-10-20, cota)
 

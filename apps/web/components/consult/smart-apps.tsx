@@ -19,6 +19,7 @@ import {
   Pin,
   Scissors,
   Settings2,
+  Stethoscope,
   ShieldAlert,
   ShieldCheck,
   Tags,
@@ -29,6 +30,7 @@ import {
 import { reidentify } from "@/components/ai/ai-badge";
 import { ItemActions, NewBadge, isNewItem, type OnInsightAction } from "@/components/consult/insight-actions";
 import { OrdersCard } from "@/components/consult/orders-card";
+import { ReferralCard } from "@/components/consult/referral-card";
 import { usePatient } from "@/components/patient/patient-context";
 import { SeverityIcon } from "@/components/severity";
 import { SourceRefs } from "@/components/source-ref";
@@ -66,6 +68,7 @@ const FALLBACK_APPS: CatalogApp[] = [
   { id: "hipoteses", nome: "Hipóteses diagnósticas", aba: "raciocinio" },
   { id: "anamnese", nome: "Anamnese estruturada", aba: "raciocinio" },
   { id: "cirurgia", nome: "Cirurgia", aba: "raciocinio" },
+  { id: "encaminhamento", nome: "Antes de encaminhar", aba: "raciocinio" },
   { id: "medicamentos", nome: "Histórico de medicamentos", aba: "medicamentos" },
   { id: "alergias", nome: "Alergias", aba: "medicamentos" },
   { id: "historico", nome: "Histórico médico", aba: "prontuario" },
@@ -1003,6 +1006,23 @@ export function SmartAppsPanel({
       )}
 
       {show("protocolos") && <ProtocolsCard items={ins.protocolos} patientId={pid} />}
+
+      {show("encaminhamento") && (
+        <AppCard
+          title="Antes de encaminhar"
+          Icon={Stethoscope}
+          count={(ins.encaminhamentos ?? []).length}
+          hint="Critérios de encaminhamento, exames mínimos que faltam no prontuário e o que dá para manejar na APS, com a fonte do protocolo. Suas escolhas ficam na auditoria."
+        >
+          <ReferralCard
+            consultId={orders?.consultId ?? 0}
+            items={ins.encaminhamentos ?? []}
+            patientId={pid}
+            editable={!!orders}
+            onInsights={orders?.onInsights ?? (() => {})}
+          />
+        </AppCard>
+      )}
 
       {show("pedidos") && orders && (
         <AppCard

@@ -14,12 +14,24 @@ export interface Organizacao {
   tipo: "consultorio" | "hospital";
 }
 
+export type ModuloHospitalar = "passagem_plantao" | "reconciliacao" | "alta";
+
+export interface PlanoResumo {
+  codigo: "teste" | "profissional" | "clinica" | "hospital";
+  nome: string;
+  modulos: ModuloHospitalar[];
+  limite: number | null;
+  usadas: number;
+  aviso: string | null;
+}
+
 export interface User {
   id: number;
   name: string;
   email: string;
   role: Role;
   organizacao: Organizacao | null;
+  plano: PlanoResumo | null;
   destino: string;
   conselho: string | null;
   conselho_numero: string | null;
@@ -1190,6 +1202,8 @@ export interface ConsultInsights {
   rcri?: Rcri | null;
   relatorio_cirurgico: SurgicalReport | null;
   pedidos?: OrderDraft[];
+  /** "Antes de encaminhar" (#29); ausente em consultas gravadas antes do app */
+  encaminhamentos?: Encaminhamento[];
   tfg: number | null;
   descartados: Record<string, unknown>[];
   /** tempo das regras na última fala, em ms */
@@ -1198,6 +1212,39 @@ export interface ConsultInsights {
   ocultos?: number;
   /** Smart Apps do registro (#21); ausente em consultas gravadas antes do registro */
   apps?: AppResult[];
+}
+export interface CriterioEncaminhamento {
+  texto: string;
+  /** "confirmar": só o profissional avalia (exame físico, resposta ao tratamento) ou falta dado no prontuário */
+  status: "atendido" | "nao_atendido" | "confirmar";
+  evidencia: string;
+  refs: string[];
+}
+export interface ExameEncaminhamento {
+  exame: string;
+  status: "feito" | "desatualizado" | "faltando";
+  ultimo: string;
+  refs: string[];
+}
+export type EscolhaEncaminhamento = "pendente" | "encaminhar" | "manejar_aps";
+/** Card "Antes de encaminhar": critérios, exames mínimos, manejo na APS e o ServiceRequest em rascunho. */
+export interface Encaminhamento {
+  id: string;
+  especialidade: string;
+  condicao: string;
+  gatilho: "fala" | "hipotese";
+  gatilho_texto: string;
+  criterios: CriterioEncaminhamento[];
+  exames: ExameEncaminhamento[];
+  exames_faltantes: string[];
+  manejo_aps: string;
+  sinais_urgencia: string;
+  teleconsultoria: string;
+  fonte: string;
+  recomendacao: string;
+  refs: string[];
+  decisao: { escolha: EscolhaEncaminhamento; motivo: string; por: string | null; em: string | null };
+  rascunho: Record<string, unknown>;
 }
 /** Uma frase da seção com a fonte: refs e quem a escreveu (ia, regra ou profissional). */
 export interface NoteSentence {
@@ -1637,11 +1684,16 @@ export interface PacienteAvulso {
   medicamentos?: number;
 }
 export interface PlanoUso {
-  plano: "teste_gratis" | "ilimitado";
+  plano: PlanoResumo["codigo"];
+  nome: string;
   limite: number | null;
   usadas: number;
   restantes: number | null;
   sandbox: number;
+  aviso: string | null;
+  vigencia_ate: string | null;
+  vencido: boolean;
+  modulos: ModuloHospitalar[];
 }
 export interface CenarioSandbox {
   id: string;

@@ -14,6 +14,7 @@ from app.consult import (
     coding,
     cronologia,
     dose_peso,
+    encaminhamento,
     extract,
     idiomas,
     knowledge,
@@ -1396,6 +1397,7 @@ class Engine:
             pending=self.r.pending_exams,
         )
         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
+        referrals = [] if self.kind == "cirurgia" else encaminhamento.build(self.chart, self.segments, hyps, self.extra)
         alerts = self.alerts(meds_safety)
         alerts = sorted(
             [*self.translation_alerts(), *self.protocol_alerts(protocols), *alerts],
@@ -1426,6 +1428,7 @@ class Engine:
             cirurgia=surgery_items,
             protocolos=protocols,
             pedidos=drafts,
+            encaminhamentos=referrals,
             resumo=self.summary(tags, hyps, meds_safety, exams, emotions),
             lembretes=reminders.build(self),
             anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),

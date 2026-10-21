@@ -15,6 +15,7 @@ from app.consult import consultorio
 from app.consult import service as consult_service
 from app.db import session as db_session
 from app.db.models import AuditLog
+from app.planos import service as planos
 from tests.conftest import CONSENT
 from tests.test_consult import SCRIPT, approve, say
 from tests.test_multiorg import cadastro_completo
@@ -200,19 +201,25 @@ def test_sandbox_lista_cenarios_sinteticos(client, auth):
 def test_consulta_no_sandbox_nao_aumenta_o_contador_do_plano(client, auth):
     h, _ = cadastro_completo(client)
     antes = client.get("/consult/plano", headers=h).json()
-    assert antes == {"plano": "teste_gratis", "limite": 30, "usadas": 0, "restantes": 30, "sandbox": 0}
+    assert (antes["plano"], antes["limite"], antes["usadas"], antes["restantes"], antes["sandbox"]) == (
+        "teste",
+        10,
+        0,
+        10,
+        0,
+    )
     consulta_cen6(client, h, sandbox=True, aprovar=True)
     meio = client.get("/consult/plano", headers=h).json()
-    assert meio["usadas"] == 0 and meio["restantes"] == 30 and meio["sandbox"] == 1
+    assert meio["usadas"] == 0 and meio["restantes"] == 10 and meio["sandbox"] == 1
     cid = abrir(client, h, "cen6")["id"]  # consulta real conta
     depois = client.get("/consult/plano", headers=h).json()
-    assert depois["usadas"] == 1 and depois["restantes"] == 29 and depois["sandbox"] == 1
+    assert depois["usadas"] == 1 and depois["restantes"] == 9 and depois["sandbox"] == 1
     assert client.get(f"/consultations/{cid}", headers=h).json()["sandbox"] is False
 
 
 def test_teste_gratis_acaba_mas_o_sandbox_continua(client, auth, monkeypatch):
+    monkeypatch.setattr(planos, "LIMITE_TESTE", 2)
     h, _ = cadastro_completo(client)
-    monkeypatch.setattr(consultorio, "PLANO_TESTE_LIMITE", 2)
     abrir(client, h, "cen6")
     abrir(client, h, "cen6")
     barrada = client.post(
@@ -226,7 +233,7 @@ def test_teste_gratis_acaba_mas_o_sandbox_continua(client, auth, monkeypatch):
 def test_hospital_nao_tem_limite_de_plano(client, auth):
     h = auth("medico")  # organização padrão (hospital)
     info = client.get("/consult/plano", headers=h).json()
-    assert info["plano"] == "ilimitado" and info["limite"] is None and info["restantes"] is None
+    assert info["plano"] == "hospital" and info["limite"] is None and info["restantes"] is None
 
 
 def test_sandbox_so_aceita_cenario_sintetico(client, auth):
