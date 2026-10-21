@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from datetime import date
 from typing import Literal
 
@@ -720,8 +721,12 @@ MAX_FRAME_BYTES = 256 * 1024  # 500 ms de PCM 16 kHz são 16 KB: folga larga, ma
 SPEAKERS = set(Speaker.__args__)  # type: ignore[attr-defined]
 
 
-def _ws_autenticar(ws: WebSocket) -> tuple[int, int]:
-    """(user_id, organization_id). Bearer no cabeçalho (clientes de API) ou cookie de sessão + Origin permitido."""
+MAX_TEXTO_BYTES = 4096  # comandos de controle são minúsculos
+MAX_SESSAO_BYTES = 16000 * 2 * 7200  # 2 h de áudio por conexão: teto de memória/CPU de uma transmissão
+
+
+def _ws_autenticar(ws: WebSocket) -> tuple[int, int, float]:
+    """(user_id, organization_id, exp). Bearer no cabeçalho (clientes de API) ou cookie de sessão + Origin permitido."""
     import jwt
 
     scheme, _, bearer = ws.headers.get("authorization", "").partition(" ")
@@ -736,8 +741,9 @@ def _ws_autenticar(ws: WebSocket) -> tuple[int, int]:
     if not token:
         raise PermissionError("Não autenticado.")
     try:
-        sub = int(decode_access_token(token)["sub"])
-    except (jwt.PyJWTError, KeyError, ValueError) as exc:
+        claims = decode_access_token(token)
+        sub, exp = int(claims["sub"]), float(claims["exp"])
+    except (jwt.PyJWTError, KeyError, ValueError, TypeError) as exc:
         raise PermissionError("Token inválido ou expirado.") from exc
     with db_session.SessionLocal() as db:
         user = db.get(User, sub)
@@ -745,7 +751,7 @@ def _ws_autenticar(ws: WebSocket) -> tuple[int, int]:
             raise PermissionError("Usuário não encontrado.")
         if user.role not in ("medico", "enfermagem"):
             raise PermissionError("Ação restrita ao(s) perfil(is): medico, enfermagem")
-        return user.id, user.organization_id
+        return user.id, user.organization_id, exp
 
 
 def _ws_contexto(user_id: int, org_id: int, cid: int, speaker: str) -> tuple[str, str]:
@@ -780,7 +786,7 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
         await ws.close(code=code)
 
     try:
-        uid, org = await asyncio.to_thread(_ws_autenticar, ws)
+        uid, org, exp = await asyncio.to_thread(_ws_autenticar, ws)
     except PermissionError as exc:
         return await erro(str(exc))
     speaker = falante if falante in SPEAKERS else "desconhecido"
@@ -823,24 +829,50 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
             msg = await ws.receive()
             if msg["type"] == "websocket.disconnect":
                 break
+            if time.time() >= exp:  # a sessão expirou: o POST /audio daria 401
+                ok = False
+                await erro("Sessão expirada.")
+                break
             if msg.get("bytes") is not None:
                 if len(msg["bytes"]) > MAX_FRAME_BYTES:
                     ok = False
                     await erro("Bloco de áudio grande demais.", 1009)
                     break
-                if not await entregar(await asyncio.to_thread(sessao.adicionar, msg["bytes"])):
+                if sessao.bytes_total + len(msg["bytes"]) > MAX_SESSAO_BYTES:
+                    ok = False
+                    await erro("Limite de duração da transmissão atingido.", 1009)
+                    break
+                try:  # consentimento revogado, pausa ou consulta finalizada valem já no próximo bloco
+                    await asyncio.to_thread(_ws_contexto, uid, org, cid, speaker)
+                    eventos = await asyncio.to_thread(sessao.adicionar, msg["bytes"])
+                except HTTPException as exc:
+                    ok = False
+                    await erro(str(exc.detail))
+                    break
+                except stt.STTUnavailable as exc:
+                    ok = False
+                    await erro(str(exc), 1011)
+                    break
+                if not await entregar(eventos):
                     ok = False
                     break
             elif msg.get("text"):
+                if len(msg["text"]) > MAX_TEXTO_BYTES:
+                    ok = False
+                    await erro("Mensagem de controle grande demais.", 1009)
+                    break
                 try:
                     cmd = json.loads(msg["text"])
                 except ValueError:
                     continue
-                if cmd.get("tipo") == "falante" and cmd.get("falante") in SPEAKERS:
+                if not isinstance(cmd, dict):
+                    continue
+                falante_novo = cmd.get("falante")
+                if cmd.get("tipo") == "falante" and isinstance(falante_novo, str) and falante_novo in SPEAKERS:
                     if not await entregar(await asyncio.to_thread(sessao.encerrar)):  # fecha a frase de quem falava
                         ok = False
                         break
-                    speaker = cmd["falante"]
+                    speaker = falante_novo
                     idioma, sessao.vocabulario = await asyncio.to_thread(_ws_contexto, uid, org, cid, speaker)
                     sessao.idioma = idioma.split("-")[0]
                 elif cmd.get("tipo") == "fim":
@@ -851,6 +883,12 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                     break
     except WebSocketDisconnect:
         pass
+    except (stt.STTUnavailable, HTTPException) as exc:  # motor caiu ao fechar a frase / consulta mudou de estado
+        ok = False
+        try:
+            await erro(str(getattr(exc, "detail", exc)), 1011)
+        except Exception:  # noqa: BLE001
+            pass
     finally:
         if ok:  # cliente caiu: o que já estava dito não se perde
             try:

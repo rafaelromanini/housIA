@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.consult import service as consult_service
 from app.consult import stt, stt_stream
 from tests.conftest import CONSENT
-from tests.test_consult import start
+from tests.test_consult import SCRIPT, accept_critical, say, start
 
 WAV = Path(__file__).parent / "fixtures" / "fala_sintetica_glibenclamida.wav"
 BLOCO = stt_stream.TAXA * 2 // 2  # 500 ms de PCM int16 = 16000 bytes
@@ -136,6 +136,8 @@ def snapshot(*pastas: Path) -> dict[str, int]:
 def test_nenhum_audio_e_escrito_em_disco(client, auth, fake, tmp_path, monkeypatch):
     h = auth()
     cid = start(client, h)["id"]
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))  # pasta privada: o /tmp compartilhado muda sozinho
     vigiadas = [Path(tempfile.gettempdir()), Path.cwd(), get_settings().data_dir, tmp_path]
     antes = {p: snapshot(p) for p in vigiadas}
     escritas = []
@@ -266,3 +268,237 @@ def test_probe_so_anuncia_servidor_que_responde(client, auth, monkeypatch):
     assert stt.enabled() is True  # `docker compose --profile stt up`
     assert vistos == ["http://stt:8000/health"] * 2
     assert client.get("/consult/config", headers=auth()).json()["stt_servidor"] is True
+
+
+# ---------- verificação adversarial (privacidade: áudio de paciente + autenticação do WebSocket) ----------
+def _token(sub: int, exp_delta: int = 3600, secret: str | None = None, **extra) -> str:
+    import time
+
+    import jwt
+
+    s = get_settings()
+    claims = {"sub": str(sub), "role": "medico", "exp": int(time.time()) + exp_delta} | extra
+    return jwt.encode(claims, secret or s.jwt_secret, algorithm="HS256")
+
+
+def _primeiro(client, cid, headers=None, path=""):
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio{path}", headers=headers or {}) as ws:
+        m = ws.receive_json()
+        return m
+
+
+def _qtd_segmentos(client, h, cid):
+    return len(client.get(f"/consultations/{cid}", headers=h).json()["segmentos"])
+
+
+def test_ws_outra_organizacao_nao_transmite_nem_vaza(client, auth, fake):
+    from tests.test_multiorg import cadastro_completo
+
+    ha = auth("medico")
+    cid = start(client, ha)["id"]
+    antes = _qtd_segmentos(client, ha, cid)
+    hb, _ = cadastro_completo(client)
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio?falante=paciente", headers=hb) as ws:
+        m = ws.receive_json()
+        assert m["tipo"] == "erro" and m["mensagem"] == "Consulta não encontrada"  # idêntica a um id que não existe
+        with pytest.raises(WebSocketDisconnect):
+            ws.send_bytes(stt_stream.sintetizar(["dor no peito"]))
+            ws.receive_json()
+    inexistente = _primeiro(client, 999999, hb)
+    assert inexistente == m  # não distingue "de outra org" de "não existe"
+    assert _qtd_segmentos(client, ha, cid) == antes
+    # cookie de B + origem permitida: o mesmo
+    client.cookies.set("housia_session", hb["Authorization"].split()[1])
+    assert _primeiro(client, cid, {"Origin": "http://localhost:3000"})["mensagem"] == "Consulta não encontrada"
+    client.cookies.clear()
+
+
+def test_ws_credenciais_invalidas_nao_chegam_ao_pronto(client, auth, fake):
+    h = auth()
+    cid = start(client, h)["id"]
+    uid = client.get("/auth/me", headers=h).json()["id"]
+    casos = {
+        "expirado": {"Authorization": f"Bearer {_token(uid, -10)}"},
+        "segredo_errado": {"Authorization": f"Bearer {_token(uid, secret='x' * 40)}"},
+        "lixo": {"Authorization": "Bearer abc.def.ghi"},
+        "sem_sub": {"Authorization": "Bearer " + _token(uid).split(".")[0]},
+        "usuario_inexistente": {"Authorization": f"Bearer {_token(987654)}"},
+        "sub_nao_numerico": {"Authorization": f"Bearer {_token('x')}"},
+        "esquema_basic": {"Authorization": "Basic " + _token(uid)},
+        "bearer_vazio": {"Authorization": "Bearer "},
+    }
+    for nome, hdr in casos.items():
+        m = _primeiro(client, cid, hdr)
+        assert m["tipo"] == "erro", nome
+        assert "segmentos" not in json.dumps(m) and "glibenclamida" not in json.dumps(m), nome
+    # token alg=none
+    import base64
+
+    b = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()  # noqa: E731
+    assert (
+        _primeiro(client, cid, {"Authorization": f"Bearer {b({'alg': 'none'})}.{b({'sub': str(uid)})}."})["tipo"]
+        == "erro"
+    )
+
+
+def test_ws_cookie_sem_origem_ou_origem_cruzada(client, auth, fake):
+    h = auth()
+    cid = start(client, h)["id"]
+    client.cookies.set("housia_session", h["Authorization"].split()[1])
+    for origem in ("http://evil.example", "null", "http://localhost:3000.evil.example", "HTTP://LOCALHOST:3000"):
+        assert "Origem" in _primeiro(client, cid, {"Origin": origem})["mensagem"], origem
+    # um cookie de token inválido com origem boa continua recusado
+    client.cookies.set("housia_session", "lixo")
+    assert _primeiro(client, cid, {"Origin": "http://localhost:3000"})["tipo"] == "erro"
+    client.cookies.clear()
+    assert _primeiro(client, cid)["tipo"] == "erro"  # nada de credencial
+
+
+def test_ws_revogacao_no_meio_da_transmissao_para_antes_de_transcrever(client, auth, fake, monkeypatch):
+    h = auth()
+    cid = start(client, h)["id"]
+    chamadas = []
+    real = stt_stream.FakeMotor.transcrever
+    monkeypatch.setattr(
+        stt_stream.FakeMotor, "transcrever", lambda self, *a, **k: chamadas.append(1) or real(self, *a, **k)
+    )
+    pcm = stt_stream.sintetizar(["paciente toma glibenclamida de manhã"])
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio", headers=h) as ws:
+        assert ws.receive_json()["tipo"] == "pronto"
+        ws.send_bytes(pcm[:BLOCO])
+        assert client.post(f"/consultations/{cid}/marker", json={"tipo": "revogado"}, headers=h).status_code == 200
+        n = len(chamadas)
+        ws.send_bytes(pcm[BLOCO : 2 * BLOCO])
+        m = ws.receive_json()
+        while m["tipo"] == "parcial":
+            m = ws.receive_json()
+        assert m["tipo"] == "erro" and "revogado" in m["mensagem"].lower()
+        assert len(chamadas) == n  # o bloco posterior à revogação nem chegou ao motor
+    assert not [
+        s for s in client.get(f"/consultations/{cid}", headers=h).json()["segmentos"] if s["origem"] == "servidor"
+    ]
+
+
+def test_ws_pausa_e_consulta_finalizada(client, auth, fake):
+    h = auth()
+    cid = start(client, h)["id"]
+    assert client.post(f"/consultations/{cid}/marker", json={"tipo": "pausa"}, headers=h).status_code == 200
+    assert "Pausa" in _primeiro(client, cid, h)["mensagem"]
+    assert client.post(f"/consultations/{cid}/marker", json={"tipo": "retomada"}, headers=h).status_code == 200
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio", headers=h) as ws:
+        assert ws.receive_json()["tipo"] == "pronto"
+        assert client.post(f"/consultations/{cid}/marker", json={"tipo": "pausa"}, headers=h).status_code == 200
+        ws.send_bytes(stt_stream.sintetizar(["dor no peito"])[:BLOCO])
+        assert "Pausa" in ws.receive_json()["mensagem"]
+    c2 = start(client, h)["id"]
+    hh = {"Authorization": h["Authorization"]}
+    accept_critical(client, hh, c2, say(client, hh, c2, SCRIPT))
+    assert client.post(f"/consultations/{c2}/finish", headers=hh).status_code == 200
+    assert "finalizada" in _primeiro(client, c2, h)["mensagem"]
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "isto não é json",
+        "[1, 2]",
+        "null",
+        '"texto"',
+        "123",
+        "{}",
+        '{"tipo": "falante"}',
+        '{"tipo": "falante", "falante": ["paciente"]}',
+        '{"tipo": "falante", "falante": {"a": 1}}',
+        '{"tipo": "falante", "falante": "hacker"}',
+        '{"tipo": ["fim"]}',
+        '{"tipo": "desconhecido", "falante": "paciente"}',
+        "\x00\x01",
+    ],
+)
+def test_ws_mensagem_de_controle_malformada_nao_derruba(client, auth, fake, texto):
+    h = auth()
+    cid = start(client, h)["id"]
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio", headers=h) as ws:
+        assert ws.receive_json()["tipo"] == "pronto"
+        ws.send_text(texto)
+        ws.send_bytes(b"")  # quadro vazio
+        ws.send_bytes(b"\x01")  # número ímpar de bytes
+        ws.send_bytes(bytes(1001))
+        ws.send_text(json.dumps({"tipo": "fim"}))
+        assert ws.receive_json()["tipo"] == "fim"
+
+
+def test_ws_quadro_gigante_e_texto_gigante_fecham(client, auth, fake):
+    from app.consult import router as r
+
+    h = auth()
+    cid = start(client, h)["id"]
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio", headers=h) as ws:
+        assert ws.receive_json()["tipo"] == "pronto"
+        ws.send_bytes(bytes(r.MAX_FRAME_BYTES + 2))
+        assert "grande demais" in ws.receive_json()["mensagem"]
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio", headers=h) as ws:
+        assert ws.receive_json()["tipo"] == "pronto"
+        ws.send_text("x" * (r.MAX_TEXTO_BYTES + 1))
+        assert "grande demais" in ws.receive_json()["mensagem"]
+
+
+def test_ws_teto_de_duracao_da_transmissao(client, auth, fake, monkeypatch):
+    from app.consult import router as r
+
+    monkeypatch.setattr(r, "MAX_SESSAO_BYTES", BLOCO * 3)
+    h = auth()
+    cid = start(client, h)["id"]
+    with client.websocket_connect(f"/ws/consultations/{cid}/audio", headers=h) as ws:
+        assert ws.receive_json()["tipo"] == "pronto"
+        for _ in range(4):
+            ws.send_bytes(bytes(BLOCO))
+        assert "Limite" in ws.receive_json()["mensagem"]
+
+
+def test_ws_token_expira_durante_a_transmissao(client, auth, fake, monkeypatch):
+    import time as _t
+
+    h = auth()
+    cid = start(client, h)["id"]
+    uid = client.get("/auth/me", headers=h).json()["id"]
+    with client.websocket_connect(
+        f"/ws/consultations/{cid}/audio", headers={"Authorization": f"Bearer {_token(uid, 1)}"}
+    ) as ws:
+        assert ws.receive_json()["tipo"] == "pronto"
+        real = _t.time
+        monkeypatch.setattr("app.consult.router.time.time", lambda: real() + 120)
+        ws.send_bytes(bytes(BLOCO))
+        assert "expirada" in ws.receive_json()["mensagem"]
+
+
+def test_ws_audio_nao_aparece_em_log_nem_auditoria(client, auth, fake, caplog):
+    from sqlalchemy import select
+
+    from app.db import session as db_session
+    from app.db.models import AuditLog
+
+    h = auth()
+    cid = start(client, h)["id"]
+    with caplog.at_level("DEBUG"):
+        with client.websocket_connect(f"/ws/consultations/{cid}/audio", headers=h) as ws:
+            conversar(ws, stt_stream.de_wav(WAV.read_bytes()))
+    assert "glibenclamida" not in caplog.text
+    with db_session.SessionLocal() as db:
+        linhas = db.scalars(select(AuditLog).where(AuditLog.action == "consulta.audio_stream")).all()
+    assert linhas and all(set(linha.payload_json) == {"bytes", "frases", "motor"} for linha in linhas)
+
+
+def test_guard_do_paciente_avulso_continua_valendo_no_http(client, auth):
+    from tests.test_multiorg import cadastro_completo
+
+    ha = auth("medico")
+    novo = client.post(
+        "/patients", json={"nome": "Paciente Sintético", "nascimento": "1980-01-01", "sexo": "F"}, headers=ha
+    )
+    assert novo.status_code == 201, novo.text
+    pid = novo.json()["id"]
+    assert client.get(f"/patients/{pid}", headers=ha).status_code == 200
+    assert client.get(f"/patients/{pid}").status_code == 401  # sem credencial
+    hb, _ = cadastro_completo(client)
+    assert client.get(f"/patients/{pid}", headers=hb).status_code == 404  # outra organização

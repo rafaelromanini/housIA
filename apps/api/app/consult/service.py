@@ -744,6 +744,8 @@ def stream_segment(
 def stream_context(db: Session, user: User, cid: int, speaker: str) -> tuple[str, str]:
     """(idioma, vocabulário) do STT para a transmissão; recusa quando a captura ou o consentimento não permitem."""
     c = _get(db, cid)
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: não aceita novas falas.")
     _require_capture(c)
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
