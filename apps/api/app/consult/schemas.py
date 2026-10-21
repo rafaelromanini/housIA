@@ -646,6 +646,54 @@ class AppResult(BaseModel):
     erro: str = ""
 
 
+class CriterioEnc(BaseModel):
+    """Um critério de encaminhamento da base curada e o que o prontuário ou a conversa mostram dele (#29)."""
+
+    texto: str
+    status: Literal[
+        "atendido", "nao_atendido", "confirmar"
+    ]  # "confirmar": só o profissional avalia (exame físico etc.)
+    evidencia: str = ""
+    refs: list[str] = []
+
+
+class ExameEnc(BaseModel):
+    exame: str
+    status: Literal["feito", "desatualizado", "faltando"]
+    ultimo: str = ""
+    refs: list[str] = []
+
+
+class DecisaoEnc(BaseModel):
+    """Escolha do profissional no card "Antes de encaminhar": vai para a auditoria e para a métrica de evitados."""
+
+    escolha: Literal["pendente", "encaminhar", "manejar_aps"] = "pendente"
+    motivo: str = ""
+    por: str | None = None
+    em: str | None = None
+
+
+class Encaminhamento(BaseModel):
+    """Smart App "Antes de encaminhar": critérios, exames mínimos, manejo na APS e o ServiceRequest em rascunho."""
+
+    id: str
+    especialidade: str
+    condicao: str
+    gatilho: Literal["fala", "hipotese"]
+    gatilho_texto: str = ""
+    criterios: list[CriterioEnc] = []
+    exames: list[ExameEnc] = []
+    exames_faltantes: list[str] = []
+    manejo_aps: str = ""
+    sinais_urgencia: str = ""
+    teleconsultoria: str = ""
+    fonte: str = ""
+    recomendacao: str = ""
+    refs: list[str] = []
+    decisao: DecisaoEnc = DecisaoEnc()
+    rascunho: dict = {}  # ServiceRequest (status=draft, intent=proposal) com a justificativa estruturada
+
+
 class Insights(BaseModel):
     tipo: ConsultKind
     especialidade: str
@@ -671,6 +719,7 @@ class Insights(BaseModel):
     lembretes: list[Reminder] = []
     relatorio_cirurgico: SurgicalReport | None = None
     pedidos: list[OrderDraft] = []
+    encaminhamentos: list[Encaminhamento] = []  # "Antes de encaminhar" (#29)
     tfg: float | None = None
     rcri: Rcri | None = None
     descartados: list[dict] = []

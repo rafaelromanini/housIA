@@ -297,6 +297,36 @@ def compute(db: Session, start: datetime, end: datetime, uso_regular_min: int = 
         numerador=len(inserted),
         denominador=len(answers),
     )
+    # encaminhamentos (#29): vale a última escolha de cada card em cada consulta; "pendente" desfaz a escolha
+    last_choice: dict[tuple[str | None, str], AuditLog] = {}
+    for a in by_action["consulta.encaminhamento"]:
+        last_choice[(a.entity_id, str(_p(a).get("encaminhamento")))] = a
+    chosen = [a for a in last_choice.values() if _p(a).get("escolha") in ("encaminhar", "manejar_aps")]
+    handled = [a for a in chosen if _p(a)["escolha"] == "manejar_aps"]
+    referred = [a for a in chosen if _p(a)["escolha"] == "encaminhar"]
+    metricas["encaminhamentos_evitados"] = _metric(
+        "qualidade",
+        "Encaminhamentos evitados (manejo na APS)",
+        _pct(len(handled), len(chosen)),
+        "%",
+        'Cards "Antes de encaminhar" em que o profissional escolheu manejar na APS ÷ cards decididos '
+        "(consulta.encaminhamento, última escolha de cada card por consulta). Medido, não projetado.",
+        chosen,
+        numerador=len(handled),
+        denominador=len(chosen),
+    )
+    complete = [a for a in referred if not _p(a).get("exames_faltantes")]
+    metricas["encaminhamentos_completos"] = _metric(
+        "qualidade",
+        "Encaminhamentos com exames mínimos completos",
+        _pct(len(complete), len(referred)),
+        "%",
+        "Encaminhamentos feitos com todos os exames mínimos do protocolo no prontuário ÷ encaminhamentos feitos "
+        "(consulta.encaminhamento com escolha 'encaminhar'). Encaminhamento incompleto é o que a regulação devolve.",
+        referred,
+        numerador=len(complete),
+        denominador=len(referred),
+    )
     per_surgery: dict[str, list[AuditLog]] = defaultdict(list)
     for a in by_action["cirurgia.prontidao"]:
         per_surgery[a.entity_id or str(a.id)].append(a)

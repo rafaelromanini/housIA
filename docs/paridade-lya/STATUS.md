@@ -204,6 +204,29 @@ idempotente (If-None-Exist). Verificação de esforço alto concluída: regress�
 critérios de aceite cobertos por testes e entradas adversariais conferidas. Segue o resultado da suíte completa no
 histórico de commits.
 
+## #29 Antes de encaminhar (2026-10-21)
+
+Branch `claude/onda3-29-antes-de-encaminhar`, sem migração (decisões em `extra_json["encaminhamentos"]`, igual às
+hipóteses e aos pedidos). Base `data/reference/referral_criteria.csv` (14 linhas, 12 especialidades; a fonte é o
+protocolo do Ministério da Saúde/Sírio-Libanês e do TelessaúdeRS, em resumo: a instituição confere a edição vigente).
+Decisões:
+
+- Dois gatilhos: o profissional diz que vai encaminhar (só o médico; negação, condição, pergunta e relato do paciente
+  não valem) e a especialidade tem uma linha que vale para o paciente (CID no prontuário, hipótese ou tema dito); ou
+  uma hipótese já cumpre ao menos um critério objetivo. Condição sem linha na base não abre card.
+- Critério com três estados: atendido, não atendido, a confirmar (exame físico, resposta ao tratamento ou dado ausente).
+- Exames mínimos reaproveitam `chart._protocol_record` (lab no FHIR, texto em nota ou procedimento), com validade em
+  dias: exame antigo conta como faltante ("desatualizado").
+- "Encaminhar" com exame mínimo faltando exige justificativa de 10 caracteres ou mais (409 `exames_faltando`);
+  "Manejar na APS" não exige. As duas escolhas vão para `consulta.encaminhamento` na auditoria.
+- ServiceRequest `draft`/`proposal` com justificativa estruturada e `supportingInfo` só com refs FHIR (Fala/N vai na
+  nota e na extensão). Só o card em "Encaminhar" vai no Bundle da exportação e do envio.
+- Métricas no painel Impacto: `encaminhamentos_evitados` (manejo na APS ÷ decididos) e `encaminhamentos_completos`
+  (encaminhados com todos os exames mínimos ÷ encaminhados; proxy do que a regulação devolveria). A devolução real pela
+  regulação ainda não é medida.
+- Pendências: a escolha não entra sozinha na nota (plano/avaliação); teleconsultoria é só orientação (sem integração);
+  ver a base com especialistas antes de uso real.
+
 ## Pausa (2026-10-20, cota)
 
 - #33: branch `claude/onda3-33-multitenant` (commit 1ca67b5 = implementação, 1037 passed; commit wip = verificação

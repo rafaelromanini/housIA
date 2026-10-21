@@ -10,7 +10,18 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import cronologia, dose_peso, extract, idiomas, knowledge, orders, reminders, semiology, summary
+from app.consult import (
+    cronologia,
+    dose_peso,
+    encaminhamento,
+    extract,
+    idiomas,
+    knowledge,
+    orders,
+    reminders,
+    semiology,
+    summary,
+)
 from app.consult.chart import ChartView, fmt_date
 from app.consult.cid import screen
 from app.consult.schemas import (
@@ -1383,6 +1394,7 @@ class Engine:
             pending=self.r.pending_exams,
         )
         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
+        referrals = [] if self.kind == "cirurgia" else encaminhamento.build(self.chart, self.segments, hyps, self.extra)
         alerts = self.alerts(meds_safety)
         alerts = sorted(
             [*self.translation_alerts(), *self.protocol_alerts(protocols), *alerts],
@@ -1408,6 +1420,7 @@ class Engine:
             cirurgia=surgery_items,
             protocolos=protocols,
             pedidos=drafts,
+            encaminhamentos=referrals,
             resumo=self.summary(tags, hyps, meds_safety, exams, emotions),
             lembretes=reminders.build(self),
             anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),
