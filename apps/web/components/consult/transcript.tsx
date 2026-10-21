@@ -282,7 +282,7 @@ export function Transcript({
                 data-testid={`confirmar-ouvido-${s.n}`}
               >
                 <AlertTriangle aria-hidden className="size-4 shrink-0" />
-                <span>Confirme o que foi ouvido: {s.confirmar.map((w) => `“${w}”`).join(", ")} (baixa confiança). O alerta crítico fica em atenção até a confirmação.</span>
+                <span>Confirme o que foi ouvido: {s.confirmar.map((w) => `“${w}”`).join(", ")} (baixa confiança). O alerta continua visível com a gravidade da regra e a marca de conferência.</span>
                 {onConfirm && (
                   <Button size="sm" variant="outline" className="min-h-8" onClick={() => void onConfirm(s.n)} aria-label={`Confirmar o que foi ouvido na fala ${s.n}`}>
                     Confirmar

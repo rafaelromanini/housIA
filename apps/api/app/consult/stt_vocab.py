@@ -37,9 +37,23 @@ TOKEN = re.compile(r"[\wÀ-ÿ]+(?:[-'][\wÀ-ÿ]+)*|[^\w\s]", re.UNICODE)
 
 
 # ---------- vocabulário institucional ----------
-def caminho_vocab() -> Path:
+def caminho_base() -> Path:
     s = get_settings()
     return s.vocab_institucional_path or s.data_dir / "reference" / "vocab_institucional.csv"
+
+
+def caminho_vocab(org_id: int | None = None) -> Path:
+    """Vocabulário da organização (arquivo próprio ao lado do base) quando ela já editou; senão o base de demonstração.
+    Cada organização só lê e grava o seu: o gestor de uma não altera o prompt do STT de outra."""
+    base = caminho_base()
+    if org_id is None:
+        return base
+    return base.with_name(f"{base.stem}.org{int(org_id)}{base.suffix}")
+
+
+def _leitura(org_id: int | None) -> Path:
+    p = caminho_vocab(org_id)
+    return p if p.exists() else caminho_base()
 
 
 @lru_cache
@@ -56,26 +70,35 @@ def _ler(caminho: str, mtime: float) -> tuple[tuple[str, str, str], ...]:
     return tuple(rows)
 
 
-def vocab_institucional() -> list[dict]:
-    p = caminho_vocab()
+def vocab_institucional(org_id: int | None = None) -> list[dict]:
+    p = _leitura(org_id)
     mtime = p.stat().st_mtime if p.exists() else 0.0
     return [{"termo": t, "tipo": tipo, "observacao": obs} for t, tipo, obs in _ler(str(p), mtime)]
 
 
-def salvar_vocab(itens: list[dict]) -> int:
+MAX_TERMO = 60  # um termo é nome, sigla ou serviço, não frase: o texto cai no prompt do STT
+_CONTROLE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _limpar(valor: object, limite: int) -> str:
+    t = re.sub(r"\s+", " ", _CONTROLE.sub(" ", str(valor or ""))).strip()
+    return t.lstrip("=+@").strip()[:limite]  # nada que vire fórmula se alguém abrir o CSV numa planilha
+
+
+def salvar_vocab(itens: list[dict], org_id: int | None = None) -> int:
     """Troca o vocabulário institucional inteiro (o gestor edita a lista toda). Devolve quantos termos ficaram."""
     vistos: dict[str, dict] = {}
     for it in itens:
-        termo = re.sub(r"\s+", " ", str(it.get("termo", ""))).strip()
+        termo = _limpar(it.get("termo", ""), MAX_TERMO)
         if termo and norm(termo) not in vistos:
             vistos[norm(termo)] = {
                 "termo": termo,
-                "tipo": str(it.get("tipo", "")).strip(),
-                "observacao": str(it.get("observacao", "")).strip(),
+                "tipo": _limpar(it.get("tipo", ""), 30),
+                "observacao": _limpar(it.get("observacao", ""), 120),
             }
     if len(vistos) > MAX_TERMOS_VOCAB:
         raise ValueError(f"Vocabulário institucional limitado a {MAX_TERMOS_VOCAB} termos.")
-    p = caminho_vocab()
+    p = caminho_vocab(org_id) if org_id is not None else caminho_base()
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("w", encoding="utf-8", newline="") as fh:
         w = csv.DictWriter(fh, ["termo", "tipo", "observacao"])
@@ -97,12 +120,12 @@ def termos_paciente(record) -> list[str]:
     return [t for t in dict.fromkeys(out) if t]
 
 
-def prompt(record=None, specialty: str = "") -> str:
+def prompt(record=None, specialty: str = "", org_id: int | None = None) -> str:
     """Prompt do STT: paciente primeiro (o que mais importa), depois a instituição e o glossário, sem repetir."""
     termos: list[str] = []
     if record is not None:
         termos += termos_paciente(record)
-    termos += [v["termo"] for v in vocab_institucional()]
+    termos += [v["termo"] for v in vocab_institucional(org_id)]
     base = glossario.prompt_stt(specialty)
     vistos: set[str] = set()
     partes: list[str] = []
@@ -151,22 +174,41 @@ class Correcao:
         return {"de": self.de, "para": self.para, "razao": round(self.razao, 2)}
 
 
+def _distancia(a: str, b: str) -> int:
+    """Distância de edição (Levenshtein)."""
+    ant = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        atual = [i]
+        for j, y in enumerate(b, 1):
+            atual.append(min(ant[j] + 1, atual[j - 1] + 1, ant[j - 1] + (x != y)))
+        ant = atual
+    return ant[-1]
+
+
 def _razao(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
 def _melhor(chave: str, alvos: dict[str, str], minimo: float, preferidos: set[str]) -> tuple[str, float] | None:
-    if len(chave) < TAMANHO_MINIMO or chave in alvos:
-        return None
-    melhor: tuple[str, float] | None = None
+    if len(chave) < TAMANHO_MINIMO or chave in alvos or any(c.isdigit() for c in chave):
+        return None  # dose e número nunca são "corrigidos"
+    candidatos: list[tuple[str, float]] = []
     for k in alvos:
-        if k[0] != chave[0] or abs(len(k) - len(chave)) > 3:
+        if k[0] != chave[0] or abs(len(k) - len(chave)) > 1:
             continue
         r = _razao(chave, k)
         limiar = RAZAO_MINIMA_PACIENTE if k in preferidos else minimo
-        if r >= limiar and (melhor is None or r > melhor[1]):
-            melhor = (k, r)
-    return melhor
+        # uma letra de diferença no máximo: "cefaleia"→"cefalexina", "prednisolona"→"prednisona" (outros remédios
+        # ou palavras comuns) ficam como foram ouvidos; quem confere é o profissional
+        if r >= limiar and _distancia(chave, k) <= 1:
+            candidatos.append((k, r))
+    if not candidatos:
+        return None
+    candidatos.sort(key=lambda c: -c[1])
+    alvos_distintos = {alvos[k] for k, _ in candidatos}
+    if len(alvos_distintos) > 1:
+        return None  # ambíguo entre dois medicamentos: não escolhe pelo profissional
+    return candidatos[0]
 
 
 def corrigir(texto: str, termos_extra: list[str] | None = None) -> tuple[str, list[Correcao]]:

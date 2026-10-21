@@ -287,9 +287,9 @@ class VocabularioIn(BaseModel):
 
 
 @router.get("/consult/vocabulario")
-def vocabulario(user: User = Depends(get_current_user)) -> dict:
+def vocabulario(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """Vocabulário institucional do reconhecimento de fala (siglas, nomes de serviços e de medicamentos locais)."""
-    return {"itens": stt_vocab.vocab_institucional()}
+    return {"itens": stt_vocab.vocab_institucional(db.info.get("org_id"))}
 
 
 @router.put("/consult/vocabulario")
@@ -298,12 +298,12 @@ def salvar_vocabulario(
 ) -> dict:
     """O gestor troca o vocabulário institucional inteiro; vale nas próximas transcrições."""
     try:
-        n = stt_vocab.salvar_vocab(body.itens)
+        n = stt_vocab.salvar_vocab(body.itens, db.info.get("org_id"))
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     log_action(db, user, "consulta.vocabulario", "stt_vocab", "institucional", {"termos": n})
     db.commit()
-    return {"itens": stt_vocab.vocab_institucional()}
+    return {"itens": stt_vocab.vocab_institucional(db.info.get("org_id"))}
 
 
 class MarkerIn(BaseModel):

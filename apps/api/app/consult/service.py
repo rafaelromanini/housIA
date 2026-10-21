@@ -156,6 +156,10 @@ def reidentify(data, record: PatientRecord):
     return data
 
 
+def _org(db: Session) -> int | None:
+    return db.info.get("org_id")
+
+
 def _get(db: Session, cid: int) -> Consultation:
     c = db.get(Consultation, cid)
     if c is None:
@@ -715,7 +719,7 @@ def transcribe_audio(
     record, _, _ = _chart(fhir, c.patient_id)
     try:
         res = stt.transcribe_words(
-            audio, content_type, language, stt_vocab.prompt(record, c.specialty) if language.startswith("pt") else ""
+            audio, content_type, language, stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else ""
         )
     except stt.STTUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
@@ -723,7 +727,7 @@ def transcribe_audio(
     if not res.texto:
         return {"novos": [], "insights": c.insights_json, "total": len(c.segments_json or [])}
     item = _item_servidor(
-        record, speaker, res.texto, None, [(p.texto, p.prob) for p in res.palavras], res.avg_logprob, language
+        record, speaker, res.texto, None, [(p.texto, p.prob) for p in res.palavras], res.avg_logprob, language, _org(db)
     )
     return append_segments(db, fhir, user, cid, [item])
 
@@ -736,12 +740,13 @@ def _item_servidor(
     palavras: list[tuple[str, float | None]],
     avg_logprob: float | None,
     language: str,
+    org_id: int | None = None,
 ) -> SegmentIn:
     """Fala vinda do motor de fala (#38): corrige medicamento por similaridade e marca o que merece confirmação."""
     text = text[:2000]
     if not language.startswith("pt"):
         return SegmentIn(falante=speaker, texto=text, t=start, origem="servidor")  # type: ignore[arg-type]
-    termos = stt_vocab.termos_paciente(record) + [v["termo"] for v in stt_vocab.vocab_institucional()]
+    termos = stt_vocab.termos_paciente(record) + [v["termo"] for v in stt_vocab.vocab_institucional(org_id)]
     aval = stt_vocab.avaliar(text, palavras, avg_logprob, termos)
     novo, correcoes = stt_vocab.corrigir(text, termos)
     baixas, confirmar = list(aval.palavras_baixas), list(aval.confirmar)
@@ -801,7 +806,7 @@ def stream_segment(
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     record, _, _ = _chart(fhir, c.patient_id)
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
-    item = _item_servidor(record, speaker, text, start, palavras or [], avg_logprob, language)
+    item = _item_servidor(record, speaker, text, start, palavras or [], avg_logprob, language, _org(db))
     return append_segments(db, fhir, user, cid, [item])
 
 
@@ -814,7 +819,7 @@ def stream_context(db: Session, fhir: FhirSource, user: User, cid: int, speaker:
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
     record, _, _ = _chart(fhir, c.patient_id)
-    return language, stt_vocab.prompt(record, c.specialty) if language.startswith("pt") else ""
+    return language, stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else ""
 
 
 CHECKLIST_LABEL = {"sign_in": "sign-in", "time_out": "time-out", "sign_out": "sign-out"}

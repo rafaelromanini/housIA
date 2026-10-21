@@ -957,9 +957,10 @@ class Engine:
         present: dict[str, list[str]] | None = None,
         planned: list[tuple[str, str, str]] | None = None,
     ) -> list[MedSuggestion]:
-        """Alertas de medicamento. Alerta crítico que depende de uma fala com medicamento, dose ou alergia de baixa
-        confiança na transcrição (#38) desce para atenção e pede "confirmar o que foi ouvido" até o profissional
-        confirmar a fala (ou corrigir o texto)."""
+        """Alertas de medicamento. Alerta que depende de uma fala com medicamento, dose ou alergia de baixa confiança
+        na transcrição (#38) ganha a marca "confirmar o que foi ouvido" até o profissional confirmar a fala (ou
+        corrigir o texto). A gravidade NUNCA desce: regra de segurança não é rebaixada por dúvida do reconhecimento
+        (ADR 0009); um alerta crítico sobre algo mal ouvido continua crítico e visível."""
         out = self._med_safety(allergies, present, planned)
         duvida = {fala_ref(s.n): s for s in self.segments if s.confirmar and not s.confirmado_em}
         if not duvida:
@@ -969,10 +970,8 @@ class Engine:
             if not hits:
                 continue
             m.confirmar_ouvido = True
-            if m.severidade == "critico":
-                ouvido = ", ".join(dict.fromkeys(w for s in hits for w in s.confirmar))
-                m.severidade = "atencao"
-                m.texto = f"Confirmar o que foi ouvido («{ouvido}») antes de agir: {m.texto}"
+            ouvido = ", ".join(dict.fromkeys(w for s in hits for w in s.confirmar))
+            m.texto = f"Confirmar o que foi ouvido («{ouvido}»): {m.texto}"
         return out
 
     def _med_safety(
