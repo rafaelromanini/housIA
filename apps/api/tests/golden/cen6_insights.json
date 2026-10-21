@@ -3200,6 +3200,7 @@
  "sugestoes_medicamentos": [
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "SBD: Diretrizes; KDIGO: Diabetes in CKD (2022)",
    "item_key": "",
@@ -3215,6 +3216,7 @@
   },
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "KDIGO: CKD guideline (2024); bulas dos AINE (ANVISA)",
    "item_key": "",
@@ -3230,6 +3232,7 @@
   },
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "KDIGO: CKD guideline (2024); bulas dos AINE (ANVISA)",
    "item_key": "",
@@ -3246,6 +3249,7 @@
   },
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "Bula da metformina (ANVISA); KDIGO: Diabetes in CKD (2022)",
    "item_key": "",
@@ -3261,6 +3265,7 @@
   },
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "KDIGO: CKD guideline (2024); bulas (ANVISA)",
    "item_key": "",
@@ -3276,6 +3281,7 @@
   },
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "KDIGO: CKD guideline (2024); bulas (ANVISA)",
    "item_key": "",
@@ -3291,6 +3297,7 @@
   },
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "Padrões de efeito adverso curados (adverse_patterns.csv)",
    "item_key": "",
@@ -3308,6 +3315,7 @@
   },
   {
    "acao": "",
+   "confirmar_ouvido": false,
    "fixado": false,
    "fonte": "",
    "item_key": "",

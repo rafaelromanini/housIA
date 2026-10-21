@@ -162,6 +162,14 @@ export function ConsultPage() {
     [current],
   );
 
+  const confirmSegment = useCallback(
+    async (n: number) => {
+      if (!current) return;
+      setCurrent(await api<Consultation>(`/consultations/${current.id}/segments/${n}/confirm`, { method: "POST" }));
+    },
+    [current],
+  );
+
   if (!allowed) {
     return (
       <Alert variant="atencao">
@@ -234,6 +242,7 @@ export function ConsultPage() {
                   proLabel={proLabel}
                   patientLanguage={current.idioma_paciente}
                   onEdit={current.status === "enviada" ? undefined : editSegment}
+                  onConfirm={current.status === "enviada" ? undefined : confirmSegment}
                   speakers={current.tipo === "cirurgia" ? ["medico", "paciente", "acompanhante", "anestesista", "circulante", "instrumentador"] : undefined}
                   maxHeight="max-h-[70vh]"
                 />

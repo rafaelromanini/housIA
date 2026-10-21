@@ -24,6 +24,12 @@ jobs:
         env:
           LLM_MODE: mock
           FHIR_MODE: local
+      - name: WER da transcrição (cen6 sintético, #38)
+        run: python ../../scripts/wer.py --json wer.json
+        env:
+          PYTHONPATH: .
+          LLM_MODE: mock
+          FHIR_MODE: local
 
   web:
     name: Web (lint + typecheck + build)

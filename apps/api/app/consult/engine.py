@@ -957,6 +957,30 @@ class Engine:
         present: dict[str, list[str]] | None = None,
         planned: list[tuple[str, str, str]] | None = None,
     ) -> list[MedSuggestion]:
+        """Alertas de medicamento. Alerta crítico que depende de uma fala com medicamento, dose ou alergia de baixa
+        confiança na transcrição (#38) desce para atenção e pede "confirmar o que foi ouvido" até o profissional
+        confirmar a fala (ou corrigir o texto)."""
+        out = self._med_safety(allergies, present, planned)
+        duvida = {fala_ref(s.n): s for s in self.segments if s.confirmar and not s.confirmado_em}
+        if not duvida:
+            return out
+        for m in out:
+            hits = [duvida[r] for r in m.refs if r in duvida]
+            if not hits:
+                continue
+            m.confirmar_ouvido = True
+            if m.severidade == "critico":
+                ouvido = ", ".join(dict.fromkeys(w for s in hits for w in s.confirmar))
+                m.severidade = "atencao"
+                m.texto = f"Confirmar o que foi ouvido («{ouvido}») antes de agir: {m.texto}"
+        return out
+
+    def _med_safety(
+        self,
+        allergies: list[AllergyInfo],
+        present: dict[str, list[str]] | None = None,
+        planned: list[tuple[str, str, str]] | None = None,
+    ) -> list[MedSuggestion]:
         reported = self.reported_meds()
         planned = self.planned_meds() if planned is None else planned
         classes = self._med_classes(reported, planned)

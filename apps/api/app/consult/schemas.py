@@ -29,6 +29,12 @@ def fala_ref(n: int) -> str:
 
 
 # ---------- transcrição ----------
+class Correcao(BaseModel):
+    de: str  # o que o reconhecimento escreveu
+    para: str  # o termo do catálogo (medicamento ou marca)
+    razao: float = 0.0  # similaridade (0 a 1)
+
+
 class Segment(BaseModel):
     n: int
     t: float = Field(description="segundos desde o início da consulta")
@@ -50,6 +56,15 @@ class Segment(BaseModel):
     editado_em: str | None = None
     expurgada: bool = False  # texto apagado pelo prazo de retenção (#31)
     marco: Marker | None = None  # só nos marcos de privacidade (origem "marco"): não é fala, as regras e a IA ignoram
+    # transcrição que conhece o paciente (#38): confiança do trecho, palavras duvidosas e o que foi corrigido
+    confianca: float | None = None  # 0 a 1 (exp do avg_logprob ou média da probabilidade por palavra)
+    palavras_baixas: list[str] = Field(default_factory=list, description="palavras de baixa confiança, como no texto")
+    corrigidos: list[Correcao] = Field(default_factory=list, description="termos trocados por similaridade")
+    confirmar: list[str] = Field(
+        default_factory=list, description="medicamento, dose ou alergia de baixa confiança: confirmar o que foi ouvido"
+    )
+    confirmado_por: str | None = None
+    confirmado_em: str | None = None
 
 
 class SegmentEdit(BaseModel):
@@ -66,6 +81,11 @@ class SegmentIn(BaseModel):
     t: float | None = None
     idioma: Annotated[str, AfterValidator(idiomas.validar)] | None = None
     origem: CaptureSource = "digitado"
+    # só valem com origem "servidor" (preenchidos pelo próprio HousIA a partir da resposta do motor de fala)
+    confianca: float | None = None
+    palavras_baixas: list[str] = Field(default_factory=list, max_length=50)
+    corrigidos: list[Correcao] = Field(default_factory=list, max_length=20)
+    confirmar: list[str] = Field(default_factory=list, max_length=50)
 
 
 class SegmentsIn(BaseModel):
@@ -262,6 +282,7 @@ class MedSuggestion(ItemAcionavel):
     refs: list[str]
     origem: Origin = "regra"
     fonte: str = ""  # regra de onde vem o alerta (dose_alerts.csv, interactions.csv, allergy_cross.csv...)
+    confirmar_ouvido: bool = False  # a fala citada tem medicamento, dose ou alergia de baixa confiança (#38)
 
 
 class SurgeryItem(BaseModel):

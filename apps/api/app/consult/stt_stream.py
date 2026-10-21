@@ -46,29 +46,32 @@ class Motor(Protocol):
 # Cada palavra do vocabulário é um tom puro (frequência própria) de 0,4 s, com 0,2 s de silêncio entre palavras. O
 # motor decodifica contando cruzamentos de zero: sem pesos, sem rede, e uma palavra cortada na borda não é reconhecida,
 # como acontece com um Whisper real. Serve para exercitar o caminho de ponta a ponta (janela, VAD, deduplicação).
-VOCABULARIO = sorted(
+VOCABULARIO_PADRAO = sorted(
     set(
         "paciente toma glibenclamida de manhã refere tontura metformina diabetes dor no peito desde ontem sem febre "
         "alergia a dipirona usa insulina pressão alta hoje dois comprimidos por dia náusea e vômito tosse falta ar "
         "medico pergunta quanto tempo".split()
     )
 )
+VOCABULARIO = VOCABULARIO_PADRAO
 _BASE_HZ, _PASSO_HZ = 400.0, 40.0
 _TOM_S, _PAUSA_S, _AMP = 0.4, 0.2, 0.3
 
 
-def _freq(palavra: str) -> float:
-    return _BASE_HZ + _PASSO_HZ * VOCABULARIO.index(palavra)
+def _freq(palavra: str, vocab: list[str] | None = None) -> float:
+    return _BASE_HZ + _PASSO_HZ * (vocab or VOCABULARIO).index(palavra)
 
 
-def sintetizar(frases: list[str], pausa_frase_s: float = 0.9) -> bytes:
-    """Frases (palavras do VOCABULARIO) → PCM int16. Entre frases há `pausa_frase_s` de silêncio."""
+def sintetizar(frases: list[str], pausa_frase_s: float = 0.9, vocab: list[str] | None = None) -> bytes:
+    """Frases (palavras do vocabulário) → PCM int16. Entre frases há `pausa_frase_s` de silêncio. `vocab`: vocabulário
+    próprio do motor falso (o `scripts/wer.py` monta um com as palavras do cenário)."""
     out = array("h")
+    voc = vocab or VOCABULARIO
     for i, frase in enumerate(frases):
         for j, palavra in enumerate(frase.split()):
-            if palavra not in VOCABULARIO:
+            if palavra not in voc:
                 raise ValueError(f"Palavra fora do vocabulário do motor falso: {palavra}")
-            f = _freq(palavra)
+            f = _freq(palavra, voc)
             out.extend(int(_AMP * 32767 * math.sin(2 * math.pi * f * k / TAXA)) for k in range(int(_TOM_S * TAXA)))
             if j < len(frase.split()) - 1:
                 out.extend([0] * int(_PAUSA_S * TAXA))
@@ -112,7 +115,17 @@ def silencioso(a: array, i: int, j: int) -> bool:
 
 
 class FakeMotor:
+    """`probs`: probabilidade por palavra reconhecida (padrão 0,99); permite simular palavra de baixa confiança.
+    `logprob`: avg_logprob que o "serviço" informa (None: não informa)."""
+
+    def __init__(
+        self, vocab: list[str] | None = None, probs: dict[str, float] | None = None, logprob: float | None = None
+    ) -> None:
+        self.vocab, self.probs, self.ultimo_logprob = vocab or VOCABULARIO, probs or {}, logprob
+        self.vocabularios: list[str] = []  # o que chegou como dica (prompt) em cada chamada, para os testes
+
     def transcrever(self, pcm: bytes, *, corte_final: bool, idioma: str = "pt", vocabulario: str = "") -> list[Palavra]:
+        self.vocabularios.append(vocabulario)
         a = _amostras(pcm)
         n = len(a)
         q = int(QUADRO * TAXA)
@@ -126,8 +139,8 @@ class FakeMotor:
                 continue
             cruzamentos = sum(1 for x, y in zip(ativos, ativos[1:], strict=False) if (x < 0) != (y < 0))
             f = cruzamentos / (2 * QUADRO)
-            melhor = min(VOCABULARIO, key=lambda p: abs(_freq(p) - f))
-            rotulos.append(melhor if abs(_freq(melhor) - f) < _PASSO_HZ / 2 else None)
+            melhor = min(self.vocab, key=lambda p: abs(_freq(p, self.vocab) - f))
+            rotulos.append(melhor if abs(_freq(melhor, self.vocab) - f) < _PASSO_HZ / 2 else None)
         palavras: list[Palavra] = []
         k = 0
         while k < len(rotulos):
@@ -146,7 +159,9 @@ class FakeMotor:
                     fim += passo
                 cortada = n - fim < passo  # a fala vai até o fim do áudio: a palavra pode continuar na janela seguinte
                 if not (corte_final and cortada):
-                    palavras.append(Palavra(rotulos[k] or "", ini / TAXA, fim / TAXA, 0.99))
+                    palavras.append(
+                        Palavra(rotulos[k] or "", ini / TAXA, fim / TAXA, self.probs.get(rotulos[k] or "", 0.99))
+                    )
             k = j + 1
         return palavras
 
@@ -154,8 +169,11 @@ class FakeMotor:
 class HttpMotor:
     """Serviço compatível com /v1/audio/transcriptions com timestamps por palavra (faster-whisper-server)."""
 
+    ultimo_logprob: float | None = None
+
     def transcrever(self, pcm: bytes, *, corte_final: bool, idioma: str = "pt", vocabulario: str = "") -> list[Palavra]:
         res = stt.transcribe_words(para_wav(pcm), "audio/wav", idioma, vocabulario)
+        self.ultimo_logprob = res.avg_logprob
         return [Palavra(p.texto, p.inicio, p.fim, p.prob) for p in res.palavras]
 
 
@@ -179,6 +197,8 @@ class Evento:
     texto: str
     inicio: float = 0.0  # s desde o começo da transmissão
     fim: float = 0.0
+    palavras: tuple[tuple[str, float | None], ...] = ()  # (palavra, probabilidade) do motor
+    avg_logprob: float | None = None
 
 
 class Sessao:
@@ -231,7 +251,14 @@ class Sessao:
 
     def _evento_final(self, palavras: list[Palavra]) -> Evento:
         texto = " ".join(p.texto.strip() for p in palavras).strip()
-        return Evento("final", texto, self.ini + palavras[0].inicio, self.ini + palavras[-1].fim)
+        return Evento(
+            "final",
+            texto,
+            self.ini + palavras[0].inicio,
+            self.ini + palavras[-1].fim,
+            tuple((p.texto.strip(), p.prob) for p in palavras),
+            getattr(self.engine, "ultimo_logprob", None),
+        )
 
     def adicionar(self, pcm: bytes) -> list[Evento]:
         self.buf.extend(pcm[: len(pcm) // 2 * 2])

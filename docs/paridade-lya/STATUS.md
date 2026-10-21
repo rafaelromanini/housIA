@@ -245,3 +245,28 @@ Branch `claude/onda3-11-whisper-servidor`. Sem migração. Decisões:
   lb/g/zero/antigo, mL e concentração, dose diária x por tomada, mg/kg, adolescente com dose de adulto, NYHA/IPSS com
   negação, glossário sem trocar sentido). Pendências: percentil/escore z de IMC da OMS (tabelas LMS não embarcadas) e
   conferência humana das faixas de `pediatric_doses.csv` e dos itens do IVCF-20 contra bula/SBP/MS.
+
+## #38 transcrição que conhece o paciente (2026-10-21)
+
+Branch `claude/onda4-38-transcricao-vocabulario` (sobre a do #11). Sem migração. Decisões:
+- `app/consult/stt_vocab.py`: o `prompt` do STT (POST `/audio` e WebSocket) leva medicamentos ativos, diagnósticos e
+  alergias do prontuário, depois o vocabulário institucional (`data/reference/vocab_institucional.csv`, caminho
+  sobrescrevível por `VOCAB_INSTITUCIONAL_PATH`) e o glossário clínico, limitado a 900 caracteres, paciente primeiro.
+  Gestor edita pela API (`GET/PUT /consult/vocabulario`, audit `consulta.vocabulario` com a contagem). É um arquivo
+  global, não por organização: separar por organização fica para quando houver mais de uma instituição real.
+- Correção posterior por similaridade com **`difflib`**, não `rapidfuzz` (e o WER é calculado por distância de edição
+  própria, não `jiwer`): nenhuma dependência nova nem instalação offline. Limiar 0,88 (0,82 para termos do paciente),
+  mesma inicial, tamanho mínimo 6, tenta o par de palavras antes ("glibem clamida" → "glibenclamida") e nunca junta com
+  palavra seguinte se a primeira já é nome conhecido. Fica em `Segment.corrigidos` (de/para/razão) e no selo
+  "corrigido" da tela; só vale com `origem="servidor"` e em português.
+- Confiança: `Segment.confianca` = exp(`avg_logprob`) ou média da probabilidade por palavra; `palavras_baixas` abaixo
+  de `STT_CONFIANCA_MINIMA` (0,6), sublinhadas no Transcript. Trecho incerto sem palavra incerta marca as palavras
+  críticas. `Segment.confirmar` guarda só medicamento, dose/unidade ou alérgeno (até 3 palavras depois de "alergia").
+- "Confirmar o que foi ouvido": `Engine.med_safety` rebaixa de crítico para atenção o alerta que cita uma fala com
+  `confirmar` pendente (texto prefixado, `MedSuggestion.confirmar_ouvido`) até `POST /consultations/{id}/segments/{n}/confirm`
+  (audit `consulta.fala_confirmada`, sem texto) ou até o profissional corrigir o texto da fala. Isso também vale para
+  o `ask.py` (copiloto), que reaproveita `med_safety`.
+- `scripts/wer.py` (CI, depois do pytest, com resumo no `GITHUB_STEP_SUMMARY`): sintetiza o áudio das 12 primeiras
+  falas do cen6, passa pela mesma `Sessao` do WebSocket e mede o WER (limite `STT_WER_MAX`, 0,15). **Limitação honesta:**
+  o motor é o falso, então o número mede a fidelidade do caminho (janela, VAD, deduplicação, correção) e hoje fica em
+  0%; o WER de um Whisper real exige áudio real e `STT_URL`, e não é medido no CI.
