@@ -1441,6 +1441,8 @@ export interface ConsultConfig {
   finalidades: { value: keyof ConsentPurposes; label: string }[];
   llm_mode: "real" | "mock";
   stt_servidor: boolean;
+  /** o servidor aceita áudio em fluxo (WebSocket) com texto parcial; senão cai nos trechos de 8 s */
+  stt_streaming?: boolean;
   /** false (ALLOW_BROWSER_STT): o áudio não vai ao fabricante do navegador e o modo Microfone some */
   stt_navegador: boolean;
   privacidade: PrivacyPanel;

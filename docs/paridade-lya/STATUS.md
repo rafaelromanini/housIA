@@ -204,6 +204,29 @@ idempotente (If-None-Exist). Verificação de esforço alto concluída: regress�
 critérios de aceite cobertos por testes e entradas adversariais conferidas. Segue o resultado da suíte completa no
 histórico de commits.
 
+## #11 transcrição no servidor em fluxo (2026-10-21)
+
+Branch `claude/onda3-11-whisper-servidor`. Sem migração. Decisões:
+- WebSocket `/ws/consultations/{cid}/audio` (autenticação por Bearer ou cookie de sessão com Origin permitido; o guard
+  global de paciente avulso passou a aceitar `HTTPConnection`, senão quebrava rotas WebSocket). Mensagens `pronto`,
+  `parcial`, `final` (com `novos` e `insights`, via `append_segments` com as mesmas travas de consentimento/pausa do
+  POST `/audio`), `erro`, `fim`. O POST `/audio` de 8 s segue como alternativa.
+- `app/consult/stt_stream.py`: `Sessao` com VAD por energia (silêncio fecha a frase), janela deslizante (8 s, 1 s de
+  sobreposição: só fecha palavra que termina antes da sobreposição, o resto é retranscrito) e deduplicação pelo ponto
+  médio das palavras. Motor plugável: `FakeMotor` (tons por palavra, determinístico; ligado por `STT_ENGINE=fake`, usado
+  nos testes) e `HttpMotor` (faster-whisper-server via `stt.transcribe_words`, que lê timestamps por palavra e
+  `avg_logprob`). Nenhum peso é baixado pelo repositório; o contêiner `stt` baixa o modelo na primeira subida.
+- O WAV de teste (`tests/fixtures/fala_sintetica_glibenclamida.wav`) é sintetizado por tons, não por TTS: não há TTS
+  offline disponível sem baixar modelo. Exercita janela, VAD e deduplicação, não a acurácia de um Whisper real.
+- Compose: serviço `stt` no perfil `stt` (imagem de tag fixa, modelo pt `small` em CPU; GPU/large-v3 por variáveis) e
+  `STT_PROBE=true`: o `/consult/config` só anuncia `stt_servidor` quando o serviço responde, então `--profile stt up`
+  liga o modo sem configurar mais nada. Helm: `stt.url` opcional (o chart não sobe o Whisper).
+- Front: hook `useServerStream` (AudioWorklet em Blob, 16 kHz, blocos de 500 ms), parcial no transcript, "Servidor" é o
+  modo padrão quando `stt_servidor`. Não validado em navegador real (sem playwright/microfone aqui).
+- Pendente: validar a imagem do faster-whisper-server (tag e variáveis `WHISPER__*`) e a latência em hardware real;
+  VAD do serviço (`vad_filter`) não é pedido, o corte é feito pelo VAD de energia do HousIA; `avg_logprob` é lido mas
+  ainda não usado para marcar baixa confiança na tela.
+
 ## Pausa (2026-10-20, cota)
 
 - #33: branch `claude/onda3-33-multitenant` (commit 1ca67b5 = implementação, 1037 passed; commit wip = verificação

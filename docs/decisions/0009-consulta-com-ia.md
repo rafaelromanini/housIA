@@ -13,7 +13,10 @@ aprovada pelo profissional.
      tela avisa e o modo é tratado como demonstração.
    - *Servidor* (`STT_URL`): qualquer serviço compatível com `/v1/audio/transcriptions` (Whisper on-premise, como o
      faster-whisper-server, ou um provedor contratado). A tela envia trechos de 8 s; o HousIA repassa e descarta.
-     Este é o caminho para produção.
+     Este é o caminho para produção. Com o servidor de fala disponível, o padrão passa a ser o áudio em fluxo
+     (`/ws/consultations/{id}/audio`, PCM 16 kHz em blocos de 500 ms): texto parcial na tela, frase fechada no
+     silêncio (VAD) e janela deslizante de 8 s com 1 s de sobreposição, deduplicada pelo tempo das palavras. O áudio
+     fica só em memória. O POST `/audio` de 8 s continua como alternativa.
    - *Digitar* e *simular roteiro* (`data/consultations/*.json`): demonstração sem microfone, e2e e CI.
    - Quem fala: botões e atalhos (Alt+1/2/3) ou "automático" (heurística na hora; a IA corrige depois apenas as
      falas marcadas como automáticas). O modo Microfone começa em "automático" (exceto com paciente em outro

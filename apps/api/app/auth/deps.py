@@ -32,7 +32,9 @@ def get_current_user(
         token = request.cookies.get(SESSION_COOKIE)
         if not token:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Não autenticado")
-        if request.method not in _SAFE_METHODS:  # cookie é credencial ambiente: exige o token CSRF (double submit)
+        if (
+            getattr(request, "method", "GET") not in _SAFE_METHODS
+        ):  # cookie é credencial ambiente: exige o token CSRF (double submit)
             sent = request.headers.get(CSRF_HEADER, "")
             if not sent or not hmac.compare_digest(sent, request.cookies.get(CSRF_COOKIE, "")):
                 raise HTTPException(status.HTTP_403_FORBIDDEN, "Token CSRF ausente ou inválido")

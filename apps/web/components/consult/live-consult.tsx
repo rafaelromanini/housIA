@@ -19,7 +19,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { useDemoPlayer, usePushToTalk, useServerRecorder, useSpeechCapture, speechSupported } from "@/components/consult/capture";
+import { useDemoPlayer, usePushToTalk, useServerRecorder, useServerStream, useSpeechCapture, speechSupported } from "@/components/consult/capture";
 import { CopilotPanel } from "@/components/consult/copilot-panel";
 import { PrivacyPanel } from "@/components/consult/privacy-panel";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
@@ -86,13 +86,13 @@ export function LiveConsult({
   const speakers = surgical ? SURGICAL_SPEAKERS : CONSULT_SPEAKERS;
   const browserStt = config.stt_navegador;
   const [mode, setMode] = useState<Mode>(() =>
-    c.roteiro_demo ? "demo" : browserStt && speechSupported() ? "microfone" : "digitar",
+    c.roteiro_demo ? "demo" : config.stt_servidor ? "servidor" : browserStt && speechSupported() ? "microfone" : "digitar",
   );
   // no microfone a fala chega contínua: começa em "Automático" (as regras atribuem quem falou e a IA corrige). Com
   // paciente em outro idioma, quem fala escolhe o idioma do reconhecimento, então o falante continua manual. No ditado
   // cirúrgico quem dita é a equipe: começa em "Profissional" (a heurística chamaria a afirmação solta de paciente).
   const startSpeaker = useCallback(
-    (m: Mode): Speaker => (m === "microfone" && !surgical && c.idioma_paciente === "pt-BR" ? "desconhecido" : "medico"),
+    (m: Mode): Speaker => ((m === "microfone" || m === "servidor") && !surgical && c.idioma_paciente === "pt-BR" ? "desconhecido" : "medico"),
     [c.idioma_paciente, surgical],
   );
   const [speaker, setSpeaker] = useState<Speaker>(() => startSpeaker(mode));
@@ -244,6 +244,12 @@ export function LiveConsult({
       }
     });
   });
+  // transcrição em fluxo (WebSocket): texto parcial na hora e frase fechada pelo silêncio; sem ela, trechos de 8 s
+  const stream = useServerStream(c.id, speaker, ({ novos, insights }) => {
+    apply(novos, insights);
+    void translate(novos.map((s) => s.n));
+  });
+  const streamMode = !!config.stt_streaming;
   const script = useApi<DemoScript>(c.roteiro_demo && mode === "demo" ? `/consult/demo-scripts/${c.roteiro_demo}` : null);
   const demoStart = c.segmentos.filter((s) => s.origem === "demo").length;
   const demo = useDemoPlayer(script.data, demoStart, (line) => send([{ falante: line.falante, texto: line.texto, t: line.t, origem: "demo", idioma: line.idioma }]));
@@ -265,13 +271,14 @@ export function LiveConsult({
   const pttStart = ptt.start;
   const pttStop = ptt.stop;
 
-  const capturing = mic.listening || recorder.recording || demo.playing;
-  const interim = demo.interim ?? (mic.interim ? { falante: speaker, texto: mic.interim } : null);
+  const capturing = mic.listening || recorder.recording || stream.streaming || demo.playing;
+  const interim =
+    demo.interim ?? (mic.interim ? { falante: speaker, texto: mic.interim } : stream.partial ? { falante: speaker, texto: stream.partial } : null);
 
   /** Para toda captura e espera o último resultado do reconhecimento (ou o último trecho de áudio) entrar na fila. */
   async function stopAll() {
     demo.pause();
-    await Promise.all([mic.stop(), recorder.stop()]);
+    await Promise.all([mic.stop(), recorder.stop(), stream.stop()]);
   }
 
   // atalhos: Alt+1 profissional, Alt+2 paciente, Alt+3 acompanhante, Alt+0 detectar automaticamente;
@@ -639,18 +646,30 @@ export function LiveConsult({
 
               {mode === "servidor" && (
                 <div className="space-y-2">
-                  <Button
-                    size="lg"
-                    variant={recorder.recording ? "destructive" : "default"}
-                    className="w-full"
-                    onClick={() => (recorder.recording ? void recorder.stop() : void recorder.start())}
-                    disabled={captureBlocked || (consent ? !consent.permite.transcricao_servidor : false)}
-                  >
-                    {recorder.recording ? <MicOff aria-hidden /> : <Mic aria-hidden />}
-                    {recorder.recording ? "Parar gravação" : "Gravar e transcrever no servidor"}
-                  </Button>
-                  {recorder.error && <p className="text-sm text-critico">{recorder.error}</p>}
-                  <p className="text-xs text-muted-foreground">Trechos de 8 s vão para o serviço de transcrição configurado e são descartados.</p>
+                  {(() => {
+                    const on = streamMode ? stream.streaming : recorder.recording;
+                    const err = streamMode ? stream.error : recorder.error;
+                    return (
+                      <>
+                        <Button
+                          size="lg"
+                          variant={on ? "destructive" : "default"}
+                          className="w-full"
+                          onClick={() => (streamMode ? (on ? void stream.stop() : void stream.start()) : on ? void recorder.stop() : void recorder.start())}
+                          disabled={captureBlocked || (consent ? !consent.permite.transcricao_servidor : false)}
+                        >
+                          {on ? <MicOff aria-hidden /> : <Mic aria-hidden />}
+                          {on ? "Parar gravação" : "Gravar e transcrever no servidor"}
+                        </Button>
+                        {err && <p className="text-sm text-critico" role="alert">{err}</p>}
+                        <p className="text-xs text-muted-foreground">
+                          {streamMode
+                            ? "O áudio segue em fluxo para o servidor do hospital, que mostra o texto parcial e fecha a frase no silêncio. Nada é gravado em disco."
+                            : "Trechos de 8 s vão para o serviço de transcrição configurado e são descartados."}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 

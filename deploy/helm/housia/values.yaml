@@ -23,6 +23,12 @@ llm:
 
 ehrWriteback: false
 
+# Transcrição no servidor (#11): URL de um serviço compatível com /v1/audio/transcriptions dentro do hospital
+# (ex.: faster-whisper-server). Vazio = a tela usa o reconhecimento de fala do navegador. O chart não sobe o Whisper.
+stt:
+  url: ""
+  model: Systran/faster-whisper-small
+
 fhir:
   # Em produção aponte para o FHIR do hospital e use fhir.internal=false para não subir o HAPI do chart.
   internal: true
