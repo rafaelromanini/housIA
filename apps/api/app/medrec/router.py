@@ -10,8 +10,9 @@ from app.db.session import get_db
 from app.fhir_client.client import FhirSource, get_fhir
 from app.llm.client import LLMError
 from app.medrec.service import run_medrec, run_out
+from app.planos.service import exige_modulo
 
-router = APIRouter(tags=["reconciliação medicamentosa"])
+router = APIRouter(tags=["reconciliação medicamentosa"], dependencies=[Depends(exige_modulo("reconciliacao"))])
 
 
 class MedrecBody(BaseModel):

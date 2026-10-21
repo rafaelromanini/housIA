@@ -10,8 +10,9 @@ from app.fhir_client.client import FhirSource, get_fhir
 from app.handoff.schemas import Audience, HandoffCheckRequest, HandoffRequest
 from app.handoff.service import check_verbal_handoff, generate_handoff, report_out
 from app.llm.client import LLMError
+from app.planos.service import exige_modulo
 
-router = APIRouter(tags=["passagem de plantão"])
+router = APIRouter(tags=["passagem de plantão"], dependencies=[Depends(exige_modulo("passagem_plantao"))])
 
 
 @router.post("/patients/{patient_id}/handoff")

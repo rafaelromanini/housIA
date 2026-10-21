@@ -1,5 +1,7 @@
 """Organização: convites de equipe, membros e conferência manual do conselho profissional (#33)."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -13,6 +15,7 @@ from app.config import get_settings
 from app.db.models import AuthToken, Consultation, Organization, User
 from app.db.session import get_db
 from app.email import send_email
+from app.planos import service as planos
 
 router = APIRouter(tags=["organizacoes"])
 gestor_only = require_roles("gestor")
@@ -25,6 +28,13 @@ class InviteIn(BaseModel):
 
 class ConselhoIn(BaseModel):
     verificado: bool = True
+
+
+class PlanoIn(BaseModel):
+    plano: str
+    vigencia_ate: datetime | None = None
+    limite_consultas: int | None = Field(default=None, ge=1)
+    modulos: list[str] | None = None
 
 
 def _alvo(db: Session, org_id: int, user: User, mine: Organization) -> Organization:
@@ -147,3 +157,34 @@ def conferir_conselho(
     db.commit()
     log_action(db, user, "org.conselho", "user", membro.id, {"verificado": body.verificado, "organizacao": org.id})
     return to_user_out(membro, db)
+
+
+@router.get("/orgs/{org_id}/plano")
+def ver_plano(
+    org_id: int, user: User = Depends(gestor_only), mine: Organization = Depends(get_org), db: Session = Depends(get_db)
+) -> dict:
+    org = _alvo(db, org_id, user, mine)
+    resp = planos.uso(db, org)
+    db.commit()  # a leitura cria o direito de uso inicial quando a organização ainda não tem
+    return resp
+
+
+@router.put("/orgs/{org_id}/plano")
+def trocar_plano(
+    org_id: int,
+    body: PlanoIn,
+    user: User = Depends(gestor_only),
+    mine: Organization = Depends(get_org),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Ativação manual do plano: só o administrador da plataforma (gestor da organização padrão) troca."""
+    if mine.id != default_org(db).id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Só o administrador da plataforma troca o plano")
+    org = _alvo(db, org_id, user, mine)
+    antes = planos.direito(db, org).plano
+    planos.trocar(
+        db, org, user, body.plano, vigencia_ate=body.vigencia_ate, limite=body.limite_consultas, modulos=body.modulos
+    )
+    db.commit()
+    log_action(db, user, "org.plano", "organization", org.id, {"de": antes, "para": body.plano})
+    return planos.uso(db, org)
