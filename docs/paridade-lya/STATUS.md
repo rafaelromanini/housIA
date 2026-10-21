@@ -224,6 +224,8 @@ Decisões:
 - Métricas no painel Impacto: `encaminhamentos_evitados` (manejo na APS ÷ decididos) e `encaminhamentos_completos`
   (encaminhados com todos os exames mínimos ÷ encaminhados; proxy do que a regulação devolveria). A devolução real pela
   regulação ainda não é medida.
+- Verificação independente: frases de hesitação ("estou pensando em encaminhar") não abrem card; dois critérios da base
+  com texto mais fiel à regra (potássio baixo e anemia) e teste de 404 entre organizações para a rota nova.
 - Pendências: a escolha não entra sozinha na nota (plano/avaliação); teleconsultoria é só orientação (sem integração);
   ver a base com especialistas antes de uso real.
 

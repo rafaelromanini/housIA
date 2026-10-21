@@ -37,7 +37,10 @@ INTENCAO = re.compile(
     r"|(?P<v2>encaminho))(?![a-z])"
 )
 # a oração é condicional ou adiada ("se piorar eu encaminho", "talvez precise encaminhar"): ainda não é a decisão
-CONDICIONAL = re.compile(r"(?<![a-z])(?:se|caso|quando|talvez|quem sabe|depois|futuramente|se for preciso)(?![a-z])")
+CONDICIONAL = re.compile(
+    r"(?<![a-z])(?:se|caso|quando|talvez|quem sabe|depois|futuramente|se for preciso|pensando|cogitando|avaliando|"
+    r"considerando)(?![a-z])"
+)
 FRASE = re.compile(r"(?<=[.?!;])\s+|\n+")
 # "tá bom?", "certo?", "né?" só pedem concordância: a frase continua sendo uma decisão, não uma pergunta
 CONCORDANCIA = re.compile(r"(?<![a-z])(?:ta bom|esta bom|ta|ok|certo|ne|combinado|tudo bem|beleza|entendeu)\s*\?+\s*$")

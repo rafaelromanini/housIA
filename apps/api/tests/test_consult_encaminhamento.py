@@ -206,6 +206,7 @@ ADVERSARIAS = [
     ("medico", "Meu primo é urologista, vou te passar o contato dele."),
     ("medico", "Vamos conversar sobre a próstata e o jato fraco."),
     ("medico", "Vou pedir o PSA, depois a gente vê se encaminha."),
+    ("medico", "Estou pensando em encaminhar para o urologista."),
     ("acompanhante", "Ele disse que vai encaminhar para o urologista."),
     ("medico", "Vou te encaminhar para o laboratório fazer o PSA."),
 ]
@@ -459,3 +460,21 @@ def test_metrica_de_encaminhamentos_evitados_e_completos(client):
     assert ev["n_linhas"] == 3 and "consulta.encaminhamento" in ev["formula"]
     comp = m["encaminhamentos_completos"]
     assert comp["denominador"] == 2 and comp["numerador"] == 1 and comp["valor"] == 50.0
+
+
+def test_encaminhamento_de_outra_organizacao_e_404_e_nao_grava(client):
+    from tests.test_multiorg import cadastro_completo
+
+    h = login(client)
+    pid = paciente_hpb(client, h)
+    cid, _ = abrir_e_falar(client, h, pid)
+    hb, _ = cadastro_completo(client)
+    before = len(audit())
+    res = client.put(
+        f"/consultations/{cid}/encaminhamentos/uro_hpb", json={"escolha": "manejar_aps", "motivo": "x" * 20}, headers=hb
+    )
+    assert res.status_code == 404
+    assert len(audit()) == before
+    # o dono continua com o card pendente
+    mine = client.get(f"/consultations/{cid}", headers=h).json()["insights"]["encaminhamentos"][0]
+    assert mine["decisao"]["escolha"] == "pendente"
