@@ -3,7 +3,18 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { BedDouble, CalendarClock, ChartNoAxesCombined, ClipboardList, LogOut, Server, Route, ShieldCheck, Stethoscope } from "lucide-react";
+import {
+  BedDouble,
+  CalendarClock,
+  ChartNoAxesCombined,
+  ClipboardList,
+  LogOut,
+  Route,
+  Server,
+  ShieldCheck,
+  Stethoscope,
+  Users,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,6 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { href: "/gestao", label: "Gestão", Icon: ClipboardList, show: user.role === "gestor" },
     { href: "/impacto", label: "Impacto", Icon: ChartNoAxesCombined, show: user.role === "gestor" },
     { href: "/auditoria", label: "Auditoria", Icon: ShieldCheck, show: user.role === "gestor" },
+    { href: "/equipe", label: "Equipe", Icon: Users, show: user.role === "gestor" },
     { href: "/ambiente", label: "Ambiente", Icon: Server, show: user.role === "gestor" },
   ].filter((n) => n.show);
 
@@ -43,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-2">
-          <Link href="/leitos" className="flex items-center gap-2 font-bold text-primary text-lg mr-2 min-h-11">
+          <Link href={user.destino} className="flex items-center gap-2 font-bold text-primary text-lg mr-2 min-h-11">
             <Stethoscope aria-hidden className="size-6" />
             HousIA
           </Link>
@@ -69,7 +81,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="ml-auto flex items-center gap-2">
             <div className="hidden sm:flex flex-col items-end leading-tight">
               <span className="text-sm font-bold">{user.name}</span>
-              <span className="text-xs text-muted-foreground">{ROLE_LABEL[user.role]}</span>
+              <span className="text-xs text-muted-foreground">
+                {ROLE_LABEL[user.role]}
+                {user.organizacao ? ` · ${user.organizacao.nome}` : ""}
+              </span>
             </div>
             <Button variant="ghost" size="icon" onClick={logout} aria-label="Sair">
               <LogOut aria-hidden />

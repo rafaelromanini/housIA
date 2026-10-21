@@ -7,8 +7,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.auth.security import decode_access_token
-from app.db.models import User
+from app.db.models import Organization, User
 from app.db.session import get_db
+from app.db.tenancy import set_org
 
 ROLES = ("medico", "enfermagem", "gestor")
 
@@ -42,7 +43,18 @@ def get_current_user(
     user = db.get(User, int(payload["sub"]))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário não encontrado")
+    if user.organization_id is None:  # falha fechada: sessão sem organização não filtra nada
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Usuário sem organização")
+    set_org(db, user.organization_id)  # daqui em diante a sessão só enxerga os dados da organização (#33)
     return user
+
+
+def get_org(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Organization:
+    """Organização do usuário autenticado. As consultas ORM da sessão já saem filtradas por ela."""
+    org = db.get(Organization, user.organization_id) if user.organization_id else None
+    if org is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Usuário sem organização")
+    return org
 
 
 def require_roles(*roles: str) -> Callable[[User], User]:

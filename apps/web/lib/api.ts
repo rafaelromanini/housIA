@@ -8,11 +8,24 @@ export type Role = "medico" | "enfermagem" | "gestor";
 export type Severity = "info" | "atencao" | "critico";
 export type Risk = "baixo" | "moderado" | "alto";
 
+export interface Organizacao {
+  id: number;
+  nome: string;
+  tipo: "consultorio" | "hospital";
+}
+
 export interface User {
   id: number;
   name: string;
   email: string;
   role: Role;
+  organizacao: Organizacao | null;
+  destino: string;
+  conselho: string | null;
+  conselho_numero: string | null;
+  uf: string | null;
+  conselho_verificado: boolean;
+  email_verificado: boolean;
 }
 
 export interface AlertCounts {
