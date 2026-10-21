@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,7 +33,7 @@ class ConselhoIn(BaseModel):
 class PlanoIn(BaseModel):
     plano: str
     vigencia_ate: datetime | None = None
-    limite_consultas: int | None = Field(default=None, ge=1)
+    limite_consultas: StrictInt | None = Field(default=None, ge=1)
     modulos: list[str] | None = None
 
 

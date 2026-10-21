@@ -7,7 +7,8 @@ de um administrador da plataforma.
 
 from __future__ import annotations
 
-from datetime import datetime
+import threading
+from datetime import UTC, datetime
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
@@ -91,6 +92,12 @@ def modulos_liberados(db: Session, org: Organization) -> tuple[Entitlement, list
     return ent, [] if _vencido(ent) else list(ent.modulos_json or [])
 
 
+def tem_modulo(db: Session, modulo: str) -> bool:
+    """O plano da organização da sessão libera o módulo? (sessão sem organização: serviços internos, sim)."""
+    org = _org(db)
+    return org is None or modulo in modulos_liberados(db, org)[1]
+
+
 def uso(db: Session, org: Organization | None = None) -> dict:
     """Contador do plano da organização (o sandbox fica de fora). Vale para qualquer organização: a contagem
     lê a auditoria sob o filtro da organização pedida, mesmo que a sessão seja de outra (ou de nenhuma)."""
@@ -138,8 +145,16 @@ def uso(db: Session, org: Organization | None = None) -> dict:
     }
 
 
+# Serializa "conferir o limite + gravar consulta.iniciada": sem isso, duas aberturas simultâneas na 10ª vaga passam.
+# O lock cobre os workers da mesma instância; entre instâncias, a linha do direito de uso é bloqueada (FOR UPDATE).
+INICIO_LOCK = threading.RLock()
+
+
 def confere_inicio(db: Session) -> None:
-    """Antes de abrir uma consulta real: plano vigente e dentro do limite (senão 402)."""
+    """Antes de abrir uma consulta real: plano vigente e dentro do limite (senão 402). Chamar com INICIO_LOCK."""
+    org = _org(db)
+    if org is not None:
+        db.execute(select(Entitlement.id).where(Entitlement.organization_id == org.id).with_for_update())
     info = uso(db)
     if info["vencido"]:
         raise HTTPException(402, f"O plano {info['nome']} venceu. Peça a renovação para abrir novas consultas.")
@@ -185,6 +200,8 @@ def trocar(
         raise HTTPException(422, f"Plano inválido: use {', '.join(CATALOGO)}")
     if modulos is not None and any(m not in MODULOS for m in modulos):
         raise HTTPException(422, f"Módulo inválido: use {', '.join(MODULOS)}")
+    if vigencia_ate is not None and vigencia_ate.tzinfo is None:
+        vigencia_ate = vigencia_ate.replace(tzinfo=UTC)  # sem fuso: assume UTC, como o resto da auditoria
     if vigencia_ate is not None and vigencia_ate <= clock.now():
         raise HTTPException(422, "A vigência precisa estar no futuro")
     ent = direito(db, org)

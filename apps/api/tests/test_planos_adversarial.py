@@ -1,5 +1,7 @@
 """#35 verificação cética: planos, teste grátis e módulos por plano sob entradas hostis."""
 
+# ruff: noqa: F811  (consultorio_org é uma fixture importada)
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -45,7 +47,7 @@ def test_gestor_de_organizacao_comum_nao_troca_o_proprio_plano(client):
         assert client.put(f"/orgs/{org}/plano", json=corpo, headers=hg).status_code == 403
     assert client.put("/orgs/1/plano", json={"plano": "teste"}, headers=hg).status_code == 403
     assert client.put(f"/orgs/{org}/plano", json={"plano": "hospital"}).status_code == 401
-    assert plano_de(client, hg)["plano"] == "hospital"
+    assert client.get("/auth/me", headers=hg).json()["plano"]["codigo"] == "hospital"
 
 
 def test_gestor_de_outra_organizacao_nao_le_nem_troca_plano_alheio(client, consultorio_org, auth):
@@ -89,7 +91,7 @@ def test_consulta_reaberta_ou_editada_nao_conta_duas_vezes(client, consultorio_o
     client.post(f"/consultations/{cid}/finish", headers=h)
     client.put(f"/consultations/{cid}/note", json={"atestacao": True}, headers=h)
     client.get(f"/consultations/{cid}", headers=h)
-    client.get(f"/patients/cen6/consultations", headers=h)
+    client.get("/patients/cen6/consultations", headers=h)
     assert plano_de(client, h)["usadas"] == 1
     for _ in range(9):
         abrir(client, h, "cen6")
@@ -140,7 +142,7 @@ def test_plano_vencido_bloqueia_consulta_real_e_modulos_mas_nao_o_sandbox(client
     antes = clock.now
     monkeypatch.setattr(clock, "now", lambda: antes() + timedelta(days=2))
     assert iniciar(client, h).status_code == 402
-    for metodo, url, corpo in MODULOS_URLS[:1] + MODULOS_URLS[3:4] + MODULOS_URLS[5:6]:
+    for metodo, url, _corpo in MODULOS_URLS[:1] + MODULOS_URLS[3:4] + MODULOS_URLS[5:6]:
         assert getattr(client, metodo)(url, headers=h).status_code == 403
     p = plano_de(client, h)
     assert p["vencido"] is True and p["modulos"] == []

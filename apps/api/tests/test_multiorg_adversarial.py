@@ -35,6 +35,7 @@ CORPOS = {
     ("POST", "/consultations/{cid}/segments"): {"segmentos": [{"texto": "dor de cabeça"}]},
     ("PUT", "/consultations/{cid}/hipoteses"): {"cid": "I10", "decisao": "confirmada"},
     ("PUT", "/consultations/{cid}/opme-autorizado"): {"itens": []},
+    ("PUT", "/consultations/{cid}/escalas/{escala}"): {"respostas": {"1": 1}},
 }
 
 
@@ -88,7 +89,13 @@ def test_toda_rota_de_consulta_responde_404_para_outra_organizacao(client, auth)
     assert len(rotas) >= 27  # a lista vem do OpenAPI: rota nova com {cid} entra sozinha
     sem_404 = []
     for metodo, path, corpo in rotas:
-        url = path.replace("{cid}", str(cid)).replace("{n}", "1").replace("{draft_id}", "x").replace("{item_id}", "1")
+        url = (
+            path.replace("{cid}", str(cid))
+            .replace("{escala}", "phq9")
+            .replace("{n}", "1")
+            .replace("{draft_id}", "x")
+            .replace("{item_id}", "1")
+        )
         res = client.request(metodo, url, json=corpo, headers=hb)
         if res.status_code != 404:
             sem_404.append((metodo, path, res.status_code))
@@ -121,11 +128,13 @@ def test_alerta_avaliacao_de_alta_e_tarefa_de_outra_organizacao_sao_404(client, 
         assert client.patch(f"/journey/tasks/{tid}", json={"status": "concluida"}, headers=h).status_code == 404
     # consultório não tem o módulo de alta no plano (#35): 403 antes mesmo de procurar a avaliação
     assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hm).status_code == 403
-    # B é gestor de outro hospital (o plano libera a alta): papel permitido, mas a avaliação não existe para ele
-    assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hb).status_code == 404
+    # com o plano hospitalar ativado, B é médico de outra organização: papel permitido, mas a avaliação não existe
+    org_b = client.get("/auth/me", headers=hm).json()["organizacao"]["id"]
+    assert client.put(f"/orgs/{org_b}/plano", json={"plano": "hospital"}, headers=auth("gestor")).status_code == 200
+    assert client.post(f"/discharge-assessments/{ava['id']}/confirm", headers=hm).status_code == 404
     assert (
         client.post(
-            f"/discharge-assessments/{ava['id']}/override", json={"justification": "x" * 30}, headers=hb
+            f"/discharge-assessments/{ava['id']}/override", json={"justification": "x" * 30}, headers=hm
         ).status_code
         == 404
     )
