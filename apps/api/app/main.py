@@ -12,6 +12,7 @@ from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
 from app.config import get_settings
 from app.consult import privacidade
+from app.consult import service as consult_service
 from app.consult.router import router as consult_router
 from app.db import crypto, rekey
 from app.db import session as db_session
@@ -42,7 +43,7 @@ async def lifespan(app: FastAPI):
             seed_demo_users(db)
     crypto.keys()  # chave malformada derruba a subida, em vez de gravar com a chave errada
     with db_session.SessionLocal() as db:  # cifra o que ficou em texto aberto e faz o expurgo por retenção (#31)
-        for job in (rekey.run, privacidade.run):
+        for job in (rekey.run, privacidade.run, consult_service.retry_outbox):
             try:
                 job(db)
             except Exception:  # tabela ainda sem migrar etc.: não derruba a API

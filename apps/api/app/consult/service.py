@@ -31,6 +31,7 @@ from app.consult import (
     note_templates,
     opme,
     privacidade,
+    propostas,
     relevancia,
     stt,
     summary,
@@ -41,6 +42,7 @@ from app.consult.edicao import edit_percent
 from app.consult.edicao import section_diff as edit_sections
 from app.consult.engine import PATIENT_SIDE, Engine, billing_params, infer_speaker
 from app.consult.export import (
+    bundle_transaction,
     claim_resource,
     device_resources,
     document_reference,
@@ -63,8 +65,8 @@ from app.consult.schemas import (
 from app.consult.surgical import ORDER_SYSTEM
 from app.consult.text import NEG_WORDS, norm
 from app.consult.text import clauses as text_clauses
-from app.db.models import Alert, Consultation, MedrecRun, User
-from app.fhir_client.client import FhirSource
+from app.db.models import Alert, Consultation, EhrOutbox, MedrecRun, User
+from app.fhir_client.client import FhirSource, FhirUnavailable, get_fhir, location_refs
 from app.llm.client import LLMError
 from app.llm.pseudonymize import Pseudonymizer
 from app.patients.service import load_record
@@ -74,6 +76,12 @@ from app.timeline.events import ClinicalEvent, build_timeline
 from app.timeline.record import PatientRecord, parse_dt
 
 ACTIVE_VISIT = ("planned", "arrived", "triaged", "in-progress")
+VISIT_PRIORITY = (
+    "in-progress",
+    "arrived",
+    "triaged",
+    "planned",
+)  # o encontro certo: o que já começou vem antes do marcado
 MIN_JUSTIFICATION = order_drafts.MIN_JUSTIFICATION  # justificativa mínima: envio com pendência crítica e pedido crítico
 _CHART_TTL_S = 30.0
 _chart_cache: dict[str, tuple[float, PatientRecord, list[ClinicalEvent], PatientContext]] = {}
@@ -277,6 +285,8 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "justificativa_envio": (c.extra_json or {}).get("justificativa_envio"),
         "justificativa_pendencias": (c.extra_json or {}).get("justificativa_pendencias"),
         "pedidos_fhir": (c.extra_json or {}).get("pedidos_fhir"),
+        "propostas": propostas.public(_propostas(c)),
+        "envio": envio_state(c),
         "criado_por": (user_names or {}).get(c.created_by or 0),
         "created_at": c.created_at.isoformat(),
         "finished_at": c.finished_at.isoformat() if c.finished_at else None,
@@ -337,17 +347,29 @@ def _consent_record(fhir: FhirSource, user: User, patient_id: str, record: Patie
     }
 
 
-def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: ConsultCreate) -> dict:
-    if body.especialidade not in knowledge.SPECIALTIES:
-        raise HTTPException(422, "Especialidade desconhecida")
-    record, events, ctx = _chart(fhir, patient_id)
-    consent = _consent_record(fhir, user, patient_id, record, body)
+def _pick_encounter(record: PatientRecord, wanted: str | None) -> str | None:
+    """Encontro da consulta. A agenda manda o `encounter_id` clicado (tem que ser deste paciente e estar ativo); sem
+    ele, vale o ambulatorial em andamento ou já chegado, antes do apenas marcado (`planned`), e por fim a internação."""
+    if wanted:
+        e = record.encounters.get(wanted)
+        if e is None or e.get("status") not in ACTIVE_VISIT:
+            raise HTTPException(422, "Encontro não encontrado para este paciente ou já encerrado")
+        return wanted
     visits = [
         e
         for e in record.encounters.values()
         if e.get("class", {}).get("code") == "AMB" and e.get("status") in ACTIVE_VISIT
     ]
-    encounter_id = visits[0]["id"] if visits else (record.hospitalization or {}).get("id")
+    visits.sort(key=lambda e: VISIT_PRIORITY.index(e["status"]))
+    return visits[0]["id"] if visits else (record.hospitalization or {}).get("id")
+
+
+def create(db: Session, fhir: FhirSource, user: User, patient_id: str, body: ConsultCreate) -> dict:
+    if body.especialidade not in knowledge.SPECIALTIES:
+        raise HTTPException(422, "Especialidade desconhecida")
+    record, events, ctx = _chart(fhir, patient_id)
+    consent = _consent_record(fhir, user, patient_id, record, body)
+    encounter_id = _pick_encounter(record, body.encounter_id)
     scripts = [
         s for s in knowledge.demo_scripts().values() if s.get("patient_id") == patient_id and s.get("tipo") == body.tipo
     ]
@@ -1880,11 +1902,7 @@ def _bundle(c: Consultation, record: PatientRecord, doc: dict, orders: list[dict
     """Bundle de transação (relatório, pedidos propostos, implantes, Procedure e Claim em rascunho) para exportar."""
     report = _report(c)
     if report is None:
-        if not orders:
-            return None
-        entries = [(export_urn(c.id, "doc"), doc)]
-        entries += [(export_urn(c.id, "pedido", i), o) for i, o in enumerate(orders)]
-        return transaction_bundle(entries)
+        return None  # consulta e visita: Bundle estruturado em _structured_bundle (#17)
     now = clock.now()
     entries = [(export_urn(c.id, "doc"), doc)]
     entries += [(export_urn(c.id, "pedido", i), o) for i, o in enumerate(orders)]
@@ -1931,8 +1949,10 @@ def export(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     log_action(db, user, "consulta.exportada", "consultation", c.id, {"patient_id": c.patient_id})
     orders = _orders(c, _author(doc), clock.now())
     result = {"texto": text, "recurso": doc, "pedidos": orders}
-    if c.kind == "cirurgia" or orders:
-        result["bundle"] = _bundle(c, load_record(fhir, c.patient_id), doc, orders)
+    record = load_record(fhir, c.patient_id)
+    result["bundle"] = (
+        _bundle(c, record, doc, orders) if c.kind == "cirurgia" else _structured_bundle(c, user, record, text, orders)
+    )
     return result
 
 
@@ -1989,6 +2009,8 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
     c = _get(db, cid)
     if c.status == "enviada" and c.fhir_ref and get_settings().ehr_writeback:
         raise HTTPException(409, f"Nota já enviada ({c.fhir_ref}).")
+    if c.kind != "cirurgia" and (row := _outbox(db, c.id)) and row.status == "enviando":
+        raise HTTPException(409, "Envio em andamento: aguarde o resultado ou use o reenvio.")
     if c.kind != "cirurgia" and c.note_json is not None:
         _require_sections(_nota(c) or {})
     _require_review(c)
@@ -2012,9 +2034,13 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
             "texto": text,
             "recurso": doc,
             "pedidos": orders,
-            "bundle": _bundle(c, record, doc, orders),
+            "bundle": _bundle(c, record, doc, orders)
+            if c.kind == "cirurgia"
+            else _structured_bundle(c, user, record, text, orders),
             "consulta": out(c),
         }
+    if c.kind != "cirurgia":
+        return _send_structured(db, fhir, user, c, record, text)
     created = fhir.create(doc)
     c.fhir_ref = f"DocumentReference/{created['id']}"
     # pedidos propostos aprovados com o relatório: vão como proposta (intent=proposal), ligados ao documento
@@ -2060,6 +2086,222 @@ def send_to_ehr(db: Session, fhir: FhirSource, user: User, cid: int, justificati
         "recurso": created,
         "consulta": out(c),
     } | traceability
+
+
+# ---------- envio estruturado ao prontuário: Bundle FHIR, fila e reenvio seguro (#17) ----------
+def _propostas(c: Consultation, when: datetime | None = None) -> list[dict]:
+    """Propostas da consulta (alergia relatada, medicamento referido, CID, PA/peso ditos) com a decisão salva."""
+    note = _nota(c)
+    if c.kind == "cirurgia" or note is None:
+        return []
+    ins = Insights.model_validate(c.insights_json) if c.insights_json else None
+    return propostas.build(
+        cid=c.id,
+        patient_id=c.patient_id,
+        encounter_id=c.encounter_id,
+        when=when or c.finished_at or c.created_at,
+        insights=ins,
+        note=note,
+        segments=_segments(c),
+        accepted=set((c.extra_json or {}).get("propostas_aceitas") or []),
+    )
+
+
+def proposals_state(db: Session, user: User, cid: int) -> dict:
+    c = _get(db, cid)
+    return {"propostas": propostas.public(_propostas(c)), "enviada": c.status == "enviada"}
+
+
+def set_proposals(db: Session, user: User, cid: int, accepted: list[str]) -> dict:
+    """O profissional aceita, item a item, o que vira recurso estruturado no prontuário (nada vai sem o aceite)."""
+    c = _get(db, cid)
+    if c.status == "enviada":
+        raise HTTPException(409, "A consulta já foi enviada: as propostas não podem mais mudar.")
+    if c.note_json is None:
+        raise HTTPException(409, "Finalize a consulta para revisar as propostas.")
+    valid = {p["id"] for p in _propostas(c)}
+    unknown = sorted(set(accepted) - valid)
+    if unknown:
+        raise HTTPException(422, f"Proposta inexistente: {', '.join(unknown)}")
+    chosen = [i for i in dict.fromkeys(accepted)]
+    c.extra_json = (c.extra_json or {}) | {"propostas_aceitas": chosen}
+    log_action(db, user, "consulta.propostas", "consultation", c.id, {"patient_id": c.patient_id, "aceitas": chosen})
+    return proposals_state(db, user, cid)
+
+
+def _outbox(db: Session, cid: int) -> EhrOutbox | None:
+    return db.scalar(select(EhrOutbox).where(EhrOutbox.consultation_id == cid))
+
+
+def envio_state(c: Consultation) -> dict | None:
+    """Situação do envio ao prontuário (pendente, enviando, erro, enviado) para a revisão e a agenda."""
+    db = object_session(c)
+    row = _outbox(db, c.id) if db is not None and c.id is not None else None
+    if row is None:
+        return None
+    return {
+        "status": row.status,
+        "tentativas": row.attempts,
+        "ultimo_erro": row.last_error,
+        "atualizado_em": row.updated_at.isoformat(),
+        "enviado_em": row.sent_at.isoformat() if row.sent_at else None,
+    }
+
+
+def _structured_bundle(c: Consultation, user: User, record: PatientRecord, text: str, orders: list[dict]) -> dict:
+    """Bundle de transação do envio: Composition + DocumentReference + Provenance + o que o profissional aceitou."""
+    now = clock.now()
+    role = {"medico": "Médico(a)", "enfermagem": "Enfermagem"}.get(user.role, user.role)
+    meta = c.note_meta_json or {}
+    accepted = [(p["id"], p["recurso"]) for p in _propostas(c, now) if p["aceita"]]
+    segs = {s.n: s for s in _segments(c)}
+    evidence = {
+        f"Fala/{n}": "«" + segs[n].texto.strip()[:160] + "»"
+        for p in _propostas(c, now)
+        if p["aceita"]
+        for n in propostas._fala_n(p["refs"])
+        if n in segs
+    }
+    return bundle_transaction(
+        consultation_id=c.id,
+        kind=c.kind,
+        patient_id=c.patient_id,
+        patient_name=record.name,
+        encounter_id=c.encounter_id,
+        author=f"{user.name} ({role})",
+        author_id=user.id,
+        when=now,
+        text=text,
+        note=reidentify(_nota(c), record),
+        interpretacao=_interpretacao(c),
+        approved=True,
+        model=str(meta.get("modelo") or "regras"),
+        prompt_version=str(meta.get("prompt_version") or "-"),
+        accepted=accepted,
+        orders=orders,
+        fala_evidence=evidence,
+    )
+
+
+def _send_structured(
+    db: Session, fhir: FhirSource, user: User, c: Consultation, record: PatientRecord, text: str
+) -> dict:
+    now = clock.now()
+    bundle = _structured_bundle(c, user, record, text, _orders(c, f"{user.name}", now))
+    row = _outbox(db, c.id)
+    if row is None:
+        row = EhrOutbox(consultation_id=c.id, status="pendente", attempts=0, created_at=now, updated_at=now)
+        db.add(row)
+    row.payload_json = bundle
+    return _deliver(db, fhir, user, c, row, text)
+
+
+def _deliver(db: Session, fhir: FhirSource, user: User | None, c: Consultation, row: EhrOutbox, text: str = "") -> dict:
+    """Uma tentativa: manda o Bundle guardado na fila. FHIR fora do ar → status "erro" (e o último erro); o retry manda
+    o mesmo Bundle, e o If-None-Exist de cada entrada garante que os recursos sejam criados uma única vez."""
+    now = clock.now()
+    row.status, row.attempts, row.updated_at = "enviando", (row.attempts or 0) + 1, now
+    db.commit()
+    try:
+        response = fhir.transaction(row.payload_json or {})
+    except FhirUnavailable as exc:
+        row.status, row.last_error, row.updated_at = "erro", str(exc)[:500], clock.now()
+        log_action(
+            db,
+            user,
+            "consulta.envio_erro",
+            "consultation",
+            c.id,
+            {"patient_id": c.patient_id, "tentativa": row.attempts, "erro": row.last_error},
+        )
+        return {
+            "enviado": False,
+            "status_envio": "erro",
+            "erro": row.last_error,
+            "motivo": "Prontuário indisponível: a nota ficou na fila e pode ser reenviada sem duplicar.",
+            "consulta": out(c),
+        }
+    refs = location_refs(response)
+    doc_ref = next((r for r in refs if r.startswith("DocumentReference/")), None)
+    created = [
+        e.get("resource")
+        for e in response.get("entry", [])
+        if (e.get("resource") or {}).get("resourceType") == "DocumentReference"
+    ]
+    orders = [r for r in refs if r.startswith(("MedicationRequest/", "ServiceRequest/"))]
+    skip = {doc_ref, *orders}
+    structured = [r for r in refs if r and r not in skip and not r.startswith(("Practitioner/", "Device/"))]
+    c.fhir_ref = doc_ref
+    c.extra_json = (c.extra_json or {}) | ({"pedidos_fhir": orders} if orders else {}) | {"recursos_fhir": structured}
+    c.status = "enviada"
+    c.sent_at = row.sent_at = clock.now()
+    row.status, row.last_error, row.fhir_ref, row.payload_json, row.updated_at = (
+        "enviado",
+        None,
+        doc_ref,
+        None,  # o Bundle tem dado clínico: apagado depois de entregue
+        clock.now(),
+    )
+    clear_chart_cache()
+    log_action(
+        db,
+        user,
+        "consulta.enviada",
+        "consultation",
+        c.id,
+        {
+            "patient_id": c.patient_id,
+            "fhir_ref": c.fhir_ref,
+            "pedidos": orders,
+            "recursos": structured,
+            "tentativas": row.attempts,
+        }
+        | _timing(c, c.sent_at),
+    )
+    return {
+        "enviado": True,
+        "status_envio": "enviado",
+        "fhir_ref": c.fhir_ref,
+        "pedidos": orders,
+        "recursos": structured,
+        "texto": text,
+        "recurso": created[0] if created else None,
+        "consulta": out(c),
+    }
+
+
+def retry_send(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
+    """Reenvia o Bundle da fila (status erro, pendente ou preso em "enviando"); já enviado não faz nada."""
+    c = _get(db, cid)
+    row = _outbox(db, cid)
+    if row is None:
+        raise HTTPException(404, "Esta consulta não tem envio na fila.")
+    if row.status == "enviado":
+        return {
+            "enviado": True,
+            "status_envio": "enviado",
+            "ja_enviado": True,
+            "fhir_ref": c.fhir_ref,
+            "consulta": out(c),
+        }
+    if not row.payload_json:
+        raise HTTPException(409, "A fila não tem o conteúdo a enviar: envie a nota de novo.")
+    return _deliver(db, fhir, user, c, row)
+
+
+def retry_outbox(db: Session) -> int:
+    """Na subida da API: reenvia o que ficou em erro, pendente ou preso em "enviando" (queda no meio do envio)."""
+    if not get_settings().ehr_writeback:
+        return 0
+    rows = db.scalars(select(EhrOutbox).where(EhrOutbox.status != "enviado", EhrOutbox.payload_json.is_not(None))).all()
+    sent = 0
+    for row in rows:
+        c = db.get(Consultation, row.consultation_id)
+        if c is None or not row.payload_json:
+            continue
+        if _deliver(db, get_fhir(), None, c, row).get("enviado"):
+            sent += 1
+    return sent
 
 
 def _send_surgery_records(c: Consultation, record: PatientRecord, fhir: FhirSource) -> dict:
@@ -2108,9 +2350,15 @@ def appointments(db: Session, fhir: FhirSource) -> list[dict]:
         if p is None:
             continue
         name = (p.get("name") or [{}])[0].get("text", pid)
-        latest = db.scalar(
+        latest = db.scalar(  # a consulta aberta neste encontro; sem ela, a última do paciente que não tem encontro
             select(Consultation)
-            .where(Consultation.patient_id == pid, Consultation.kind == "consulta")
+            .where(
+                Consultation.patient_id == pid, Consultation.kind == "consulta", Consultation.encounter_id == e["id"]
+            )
+            .order_by(Consultation.id.desc())
+        ) or db.scalar(
+            select(Consultation)
+            .where(Consultation.patient_id == pid, Consultation.kind == "consulta", Consultation.encounter_id.is_(None))
             .order_by(Consultation.id.desc())
         )
         rows.append(
@@ -2126,6 +2374,9 @@ def appointments(db: Session, fhir: FhirSource) -> list[dict]:
                 "motivo": ((e.get("reasonCode") or [{}])[0]).get("text", ""),
                 "consulta_id": latest.id if latest and latest.created_at.date() >= today else None,
                 "consulta_status": latest.status if latest and latest.created_at.date() >= today else None,
+                "envio_status": (envio_state(latest) or {}).get("status")
+                if latest and latest.created_at.date() >= today
+                else None,
                 "cenario": any(t.get("code", "").startswith("cenario") for t in p.get("meta", {}).get("tag", [])),
             }
         )

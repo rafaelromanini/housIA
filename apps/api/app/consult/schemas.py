@@ -99,6 +99,7 @@ class ConsultCreate(BaseModel):
     especialidade: str = "clinica_medica"
     idioma_paciente: Language | None = None  # sem idioma: vale o Patient.communication (ou pt-BR)
     consentimento: Consentimento  # obrigatório: sem registro de consentimento (ou recusa) não há consulta
+    encounter_id: str | None = Field(None, max_length=64)  # a agenda manda o encontro clicado (#17)
 
 
 # ---------- Smart Apps ----------

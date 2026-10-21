@@ -97,9 +97,12 @@ export function ConsultPage() {
     setOpening(true);
     setError(null);
     try {
+      // a agenda abre a consulta com ?encontro=: a nota fica presa ao encontro clicado, não ao primeiro da lista
+      const encounterId = new URLSearchParams(window.location.search).get("encontro");
       const c = await api<Consultation>(`/patients/${patient.id}/consultations`, {
         method: "POST",
         json: {
+          encounter_id: encounterId || undefined,
           tipo,
           especialidade: chosenSpecialty,
           idioma_paciente: surgicalMode ? "pt-BR" : idioma,

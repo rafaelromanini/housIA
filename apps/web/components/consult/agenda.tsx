@@ -25,6 +25,13 @@ const HOUSIA_STATUS = {
   enviada: "Nota no prontuário",
 } as const;
 
+const ENVIO_STATUS = {
+  pendente: "Envio ao prontuário na fila",
+  enviando: "Enviando ao prontuário…",
+  erro: "Falha ao enviar ao prontuário: abra a nota e reenvie",
+  enviado: "Enviado ao prontuário",
+} as const;
+
 function age(birth: string | null) {
   if (!birth) return null;
   const b = new Date(birth);
@@ -77,10 +84,18 @@ export function Agenda() {
                         {a.profissional && ` · ${a.profissional}`}
                       </p>
                       {a.consulta_status && <p className="text-xs font-bold text-primary">{HOUSIA_STATUS[a.consulta_status]}</p>}
+                      {a.envio_status && (
+                        <p
+                          className={a.envio_status === "erro" ? "text-xs font-bold text-critico" : "text-xs text-muted-foreground"}
+                          data-testid="envio-status"
+                        >
+                          {ENVIO_STATUS[a.envio_status]}
+                        </p>
+                      )}
                     </div>
                     <Badge variant={st.variant}>{st.label}</Badge>
                     <Button asChild variant={a.consulta_status === "em_andamento" ? "outline" : "default"}>
-                      <Link href={`/pacientes/${a.patient_id}/consulta`}>
+                      <Link href={`/pacientes/${a.patient_id}/consulta?encontro=${encodeURIComponent(a.encounter_id)}`}>
                         <Mic aria-hidden />
                         {a.consulta_status === "em_andamento" ? "Continuar" : a.consulta_status ? "Abrir" : "Iniciar consulta com IA"}
                         <ChevronRight aria-hidden />

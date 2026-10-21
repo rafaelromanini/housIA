@@ -4,6 +4,7 @@ Inspirado na estruturação SOAP e na tradução de ferramentas de consulta (doc
 transição hospital → casa. Toda linha cita a fonte; o HousIA não escreve no prontuário.
 """
 
+import re
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel
@@ -79,6 +80,29 @@ PURPOSE = {
 ROUTE_LABEL = {"VO": "pela boca", "SC": "injeção embaixo da pele", "inalatória": "inalação (bombinha)"}
 
 
+def consult_note(events: list[ClinicalEvent]) -> ClinicalEvent | None:
+    """Última nota de consulta ou de visita feita no HousIA (DocumentReference "... (HousIA)"), de qualquer data."""
+    notes = [
+        e
+        for e in events
+        if e.kind == "note"
+        and e.text
+        and "(housia)" in (e.value or {}).get("tipo", "").lower()
+        and (e.value or {}).get("tipo", "").lower().startswith(("nota de consulta", "nota de visita"))
+    ]
+    return notes[-1] if notes else None
+
+
+def consult_fields(note: ClinicalEvent) -> dict[str, str]:
+    """Queixa principal, avaliação e plano do texto da nota de consulta ("Rótulo: texto" por linha)."""
+    fields = {}
+    for key, label in (("queixa_principal", "Queixa principal"), ("avaliacao", "Avaliação"), ("plano", "Plano")):
+        m = re.search(rf"^{label}: (.+)$", note.text or "", re.M)
+        if m and m.group(1).strip() not in ("", "—"):
+            fields[key] = m.group(1).strip()
+    return fields
+
+
 def home_meds(record: PatientRecord) -> list[MedInfo]:
     """Prescrições ativas com via de uso domiciliar (exclui medicações venosas hospitalares)."""
     return [m for m in record.active_meds if m.route.lower() in HOME_ROUTES]
@@ -105,9 +129,15 @@ def mock_documents(record: PatientRecord, events: list[ClinicalEvent], assessmen
     checklist = (assessment or {}).get("checklist") or {}
     suggestions = (assessment or {}).get("sugestoes") or []
 
+    prev = consult_note(events)
+    prev_fields = consult_fields(prev) if prev else {}
+    prev_refs = [prev.source_ref] if prev and prev_fields else []
+
     subjective = f"Internado(a) por {record.admission_reason or 'motivo sem registro'}."
     if last_note:
         subjective += f" Última evolução médica: {last_note.text.split('. ')[0].rstrip('.')}."
+    if prev_fields.get("queixa_principal"):
+        subjective += f" Consulta ambulatorial prévia (HousIA): {prev_fields['queixa_principal'].rstrip('.')}."
     objective = "Últimos registros: " + "; ".join(e.summary for e in latest_vitals.values()) + "."
     if abnormal_labs:
         objective += (
@@ -121,9 +151,13 @@ def mock_documents(record: PatientRecord, events: list[ClinicalEvent], assessmen
             f" Risco de reinternação {assessment['final_risk']} (LACE {assessment['lace']['score']}, "
             f"score social {assessment['social']['score']})."
         )
+    if prev_fields.get("avaliacao"):
+        assessment_text += f" Avaliação da consulta prévia: {prev_fields['avaliacao'].rstrip('.')}."
     plan_parts = ["Medicamentos para casa: " + ("; ".join(m.text for m in meds) or "sem prescrição domiciliar") + "."]
     if suggestions:
         plan_parts.append("Plano de transição: " + "; ".join(s["texto"].rstrip(".") for s in suggestions[:4]) + ".")
+    if prev_fields.get("plano"):
+        plan_parts.append(f"Plano da consulta prévia: {prev_fields['plano'].rstrip('.')}.")
     plan_parts.append(
         "Retorno: " + ("agendado." if checklist.get("consulta_retorno_agendada") else "a agendar em até 7 dias.")
     )
@@ -188,13 +222,16 @@ def mock_documents(record: PatientRecord, events: list[ClinicalEvent], assessmen
 
     return {
         "soap": {
-            "subjetivo": {"texto": subjective, "refs": base_refs + ([last_note.source_ref] if last_note else [])},
+            "subjetivo": {
+                "texto": subjective,
+                "refs": base_refs + ([last_note.source_ref] if last_note else []) + prev_refs,
+            },
             "objetivo": {
                 "texto": objective,
                 "refs": [e.source_ref for e in latest_vitals.values()] + [e.source_ref for e in abnormal_labs.values()],
             },
-            "avaliacao": {"texto": assessment_text, "refs": cond_refs or base_refs},
-            "plano": {"texto": " ".join(plan_parts), "refs": [m.ref for m in meds] or base_refs},
+            "avaliacao": {"texto": assessment_text, "refs": (cond_refs or base_refs) + prev_refs},
+            "plano": {"texto": " ".join(plan_parts), "refs": ([m.ref for m in meds] or base_refs) + prev_refs},
         },
         "orientacoes": {
             "titulo": "Orientações para depois da alta",
