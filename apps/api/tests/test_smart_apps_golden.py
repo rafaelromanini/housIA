@@ -6,7 +6,9 @@ adição do contrato (preenchido só pelo serviço, nunca pelo engine) e fica fo
 
 import json
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from app import clock
 from app.consult.engine import Engine
@@ -17,16 +19,27 @@ from app.seed.scenarios import build_demo_resources
 from app.timeline.context import build_context
 from app.timeline.events import build_timeline
 from app.timeline.record import PatientRecord
-from tests.conftest import ANCHOR
 
 GOLDEN = Path(__file__).parent / "golden" / "cen6_insights.json"
+# O golden guarda datas absolutas ("21/07/2026", "há 11 anos"): o cen6 é gerado sempre sobre esta âncora fixa
+# (a data em que foi gravado), não sobre o dia em que o teste roda. Regravar: UPDATE_GOLDEN=1 (mantém esta âncora).
+GOLDEN_ANCHOR = datetime(2026, 10, 20, 15, 0, tzinfo=ZoneInfo("America/Sao_Paulo")).astimezone(UTC)
 
 
 def cen6_insights() -> dict:
+    previous = clock.now()
+    clock.freeze(GOLDEN_ANCHOR + timedelta(minutes=1))
+    try:
+        return _cen6_insights()
+    finally:
+        clock.freeze(previous)
+
+
+def _cen6_insights() -> dict:
     # prontuário próprio: outros testes gravam no store da sessão, e o golden precisa do cen6 como o seed o cria
-    rec = PatientRecord.load(LocalFhirStore.from_resources(build_demo_resources(anchor=ANCHOR)), "cen6")
+    rec = PatientRecord.load(LocalFhirStore.from_resources(build_demo_resources(anchor=GOLDEN_ANCHOR)), "cen6")
     assert rec is not None
-    rec.now = ANCHOR
+    rec.now = GOLDEN_ANCHOR
     falas = demo_scripts()["cen6_consulta"]["falas"]
     segs = [
         Segment(n=i, t=float(w.get("t", i)), falante=w["falante"], texto=w["texto"]) for i, w in enumerate(falas, 1)
