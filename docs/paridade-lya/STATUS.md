@@ -195,3 +195,18 @@ Cada onda com 8 entregas consome bastante da cota de uso. Rode uma onda por jane
 - Texto da interface em português do Brasil com acentos.
 - Toda afirmação da IA leva fonte (`Fala/N` e/ou referência FHIR). As regras de segurança nunca são removidas pela
   IA.
+
+## Pausa 2 (2026-10-21)
+
+PRs abertos e verdes (aguardam merge, nesta ordem): #5 (golden cen6 independente da data), #2 (#33 multi-org,
+migração e331), #3 (#27 especialidades), #4 (#34 consultório, e341→e331, depende do #2), #6 (#28 protocolos APS,
+depende do #3).
+
+Em andamento, NÃO verificados (commits wip no remoto):
+- #17 `claude/onda3-17-bundle-fhir-prontuario` (de main; migração c202→c201): implementação pronta; verificação de
+  esforço alto interrompida corrigindo regressão nos rótulos de auditoria. Suíte completa nunca passou verde.
+  Ao entrar depois do #2, reapontar c202 (ou e331) para não haver duas cabeças.
+- #35 `claude/onda3-35-planos-teste-gratis` (de #34; migração e351→e341): implementação pronta; verificação
+  interrompida. Restaurar asserção exata (404) em test_multiorg_adversarial para hospital.
+
+Falta na Onda 3: #18, #29. Depois Onda 4 (#11, #12, P1 #38–#54, P2 #55–#57), pitch e polimento.
