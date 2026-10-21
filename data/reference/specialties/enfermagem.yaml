@@ -1,0 +1,24 @@
+id: enfermagem
+ordem: 7
+rotulo: Consulta de enfermagem
+foco: autocuidado, técnica de uso de medicamentos, pele, eliminações, sono, alimentação e educação
+modelo_nota: enfermagem
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+- rede_apoio
+escalas:
+- morse
+- braden
+- imc
+hipoteses_prioritarias: []
+glossario:
+  escara: lesão por pressão
+perguntas: []

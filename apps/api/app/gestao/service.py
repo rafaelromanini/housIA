@@ -465,7 +465,7 @@ def adesao_protocolos(c: Ctx) -> dict:
             continue
         record.now = c.now
         chart = ChartView(record, build_timeline(record), build_context(record), c.now)
-        for item in chart.protocols():
+        for item in (i for i in chart.protocols() if i.eixo == "Adulto crônico"):
             adere = item.status not in NAO_ADERE
             nome = (record.patient.get("name") or [{}])[0].get("text") or patient["id"]
             linhas.append(
@@ -486,7 +486,8 @@ def adesao_protocolos(c: Ctx) -> dict:
         "ambulatorio",
         "Adesão aos protocolos de APS",
         "%",
-        "Itens de protocolo (data/reference/care_protocols.csv) em dia ou no alvo ÷ itens de protocolo dos pacientes "
+        "Itens de protocolo (data/reference/protocols, eixo Adulto crônico) em dia ou no alvo ÷ itens de protocolo dos "
+        "pacientes "
         "com a condição; pendente, sem registro e fora do alvo contam como não aderentes.",
         linhas,
         valor,

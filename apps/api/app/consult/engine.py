@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from app.consult import cronologia, extract, idiomas, knowledge, orders, reminders, semiology, summary
+from app.consult import cronologia, dose_peso, extract, idiomas, knowledge, orders, reminders, semiology, summary
 from app.consult.chart import ChartView, fmt_date
 from app.consult.cid import screen
 from app.consult.schemas import (
@@ -25,6 +25,7 @@ from app.consult.schemas import (
     Hypothesis,
     Insights,
     MedSuggestion,
+    ProtocolItem,
     QueixaDetalhada,
     Question,
     Rcri,
@@ -203,6 +204,7 @@ REACTION_HIGH = (
 REACTION_LOW = ("coceira", "manchas", "vermelh", "enjoo", "diarreia", "urticaria", "pele", "erupcao")
 ONSET_QUESTION = ("desde quando", "quanto tempo", "quando comecou", "quando isso comecou", "comecou quando")
 # ordem em que os campos vazios da queixa viram pergunta
+MAX_PROTOCOL_QUESTIONS = 3  # perguntas de protocolo pendente na lista (depois das do quadro e antes da anamnese)
 MAX_QUESTIONS = 10  # perguntas sugeridas na lista (as de anamnese vêm depois, no máximo 8)
 SEMIO_ORDER = ("inicio_duracao", "intensidade", "piora", "melhora", "frequencia", "localizacao", "associados")
 SEVERITY = {"critico": 0, "atencao": 1, "info": 2}
@@ -272,6 +274,7 @@ class Engine:
         self.dropped: list[dict] = []  # itens recusados pelas regras (ex.: CID que a tabela oficial não aceita)
         self._extraction: extract.Extraction | None = None
         self.rcri: Rcri | None = None
+        self.protocols: list[ProtocolItem] = []
 
     @staticmethod
     def _for_rules(s: Segment) -> Segment:
@@ -614,13 +617,55 @@ class Engine:
         for row, occ, semio in semio_occ:
             build(row, occ, semio)
 
+        self._protocol_questions(suggested, covered, ambulatory)
+
         # prioridade; dentro dela, as que nascem da conversa antes das do prontuário, uma pergunta de cada queixa antes
         # da segunda e, entre elas, as que ajudam a decidir entre as 2 hipóteses de maior confiança primeiro
         suggested.sort(key=lambda t: (t[1], not t[2], t[5], not t[3]))
         main = [t[0] for t in suggested if not t[4]][:MAX_QUESTIONS]
-        tail = [t[0] for t in suggested if t[4]][:8]
+        tail_items = [t[0] for t in suggested if t[4]]
+        tail = [q for q in tail_items if q.id.startswith("protocolo:")][:MAX_PROTOCOL_QUESTIONS]
+        tail += [q for q in tail_items if not q.id.startswith("protocolo:")][:8]
         covered.sort(key=lambda t: t[0])
         return main + tail, [c for _, c in covered]
+
+    def _protocol_questions(self, suggested: list, covered: list, ambulatory: bool) -> None:
+        """Protocolos vivos (#28): o item tratado na conversa entra em "abordadas" com a fala, e o que ainda falta do
+        mesmo protocolo vira a próxima pergunta sugerida."""
+        if not ambulatory:
+            return
+        by_ref = {fala_ref(s.n): s for s in self.segments}
+        warm = {p.protocolo for p in self.protocols if p.status == "abordado"}
+        nth = 0
+        for p in self.protocols:
+            if not p.pergunta:
+                continue
+            if p.status == "abordado" and p.refs and p.refs[0] in by_ref:
+                seg = by_ref[p.refs[0]]
+                item = Question(
+                    id=f"protocolo:{p.id}",
+                    pergunta=p.pergunta,
+                    motivo=f"Protocolo {p.protocolo}: {p.item}.",
+                    prioridade="baixa",
+                    refs=[p.refs[0]],
+                    fonte=p.fonte,
+                    resposta=self.quote(seg),
+                    resposta_refs=[p.refs[0]],
+                )
+                covered.append((seg.n, item))
+            elif p.status in ("pendente", "sem_registro"):
+                priority = "alta" if p.protocolo in warm else "media"
+                item = Question(
+                    id=f"protocolo:{p.id}",
+                    pergunta=p.pergunta,
+                    motivo=f"Protocolo {p.protocolo}: {p.item} ({p.status.replace('_', ' ')}). {p.orientacao}",
+                    prioridade=priority,  # type: ignore[arg-type]
+                    refs=p.refs or [f"Patient/{self.r.id}"],
+                    fonte=p.fonte,
+                )
+                if nth < MAX_PROTOCOL_QUESTIONS:  # na cauda, depois das perguntas do quadro (não tira vaga delas)
+                    suggested.append((item, PRIORITY[priority], False, False, True, 1 + nth))
+                    nth += 1
 
     # ---------- Hipóteses ----------
     def _evidence(
@@ -739,7 +784,13 @@ class Engine:
                 )
             )
         rank = {"alta": 0, "media": 1, "baixa": 2}
-        out.sort(key=lambda h: (rank[h.confianca], -len(h.a_favor), len(h.contra)))
+        # o pacote da especialidade (#27) prioriza hipóteses típicas dela quando a confiança empata
+        first = (
+            set(knowledge.specialty_pack(self.specialty).hipoteses_prioritarias)
+            if self.specialty in knowledge.SPECIALTIES
+            else set()
+        )
+        out.sort(key=lambda h: (rank[h.confianca], h.cid not in first, -len(h.a_favor), len(h.contra)))
         return out[:MAX_HYPOTHESES]
 
     # ---------- Segurança de medicamentos ----------
@@ -981,6 +1032,7 @@ class Engine:
                 )
             )
         out += self._allergy_alerts(self._allergy_matches(allergies, reported, planned))
+        out += dose_peso.alerts(self)  # criança: dose citada ou prescrita contra o último peso (mg/kg)
         out += self.adverse_effects(present or {})
         active = {m.ingredient for m in self.chart.active_meds}
         for ing, term, ref in reported:
@@ -1203,6 +1255,20 @@ class Engine:
         found += reminders.critical_vitals(self)
         return sorted(found, key=lambda h: SEVERITY[h.severidade])
 
+    def protocol_alerts(self, protocols: list[ProtocolItem]) -> list[Highlight]:
+        """Risco de suicídio dito ou item 9 do PHQ-9 positivo: crítico, com a fala ou a escala de prova."""
+        return [
+            Highlight(
+                texto=f"{p.item}: {p.ultimo}. Avaliar o risco hoje (pergunta direta, plano, meios e rede de apoio) e "
+                "decidir a conduta de segurança.",
+                severidade="critico",
+                refs=p.refs,
+                categoria="protocolo_critico",
+            )
+            for p in protocols
+            if p.status == "critico"
+        ]
+
     def semiology(self, present: dict[str, list[str]]) -> semiology.Semiology:
         """Semiologia das queixas presentes; a queixa principal que o profissional fixou vai para o começo."""
         sem = semiology.extract(
@@ -1300,6 +1366,7 @@ class Engine:
         emotions, timeline, metrics = self.emotions()
         surgery_items, surgery_refs = self.surgery()
         hyps = self.hypotheses(present, tags)
+        protocols = self.protocols = self.chart.protocols(self.segments, self.extra.get("escalas"))
         questions, covered = self.questions(present, emotions, surgery_refs, hyps, sem, specialty_fields)
         planned = self.planned_meds()
         allergies = self.allergies(planned)
@@ -1308,7 +1375,6 @@ class Engine:
         exams = self.chart.exams() + self.extraction().exames
         history = self.history()
         egfr = self.chart.egfr
-        protocols = self.chart.protocols()
         order_ctx = orders.OrderContext(
             chart=self.chart,
             age=self.r.age,
@@ -1318,7 +1384,10 @@ class Engine:
         )
         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
         alerts = self.alerts(meds_safety)
-        alerts = sorted([*self.translation_alerts(), *alerts], key=lambda h: SEVERITY[h.severidade])
+        alerts = sorted(
+            [*self.translation_alerts(), *self.protocol_alerts(protocols), *alerts],
+            key=lambda h: SEVERITY[h.severidade],
+        )
         return Insights(
             tipo=self.kind,
             especialidade=self.specialty,

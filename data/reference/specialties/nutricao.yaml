@@ -1,0 +1,89 @@
+id: nutricao
+ordem: 14
+rotulo: Nutrição
+foco: consumo alimentar, hábitos, peso e IMC, restrições, suplementos, exames metabólicos e metas combinadas
+modelo_nota: nutricao
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+- rastreios
+escalas:
+- imc
+- phq9
+hipoteses_prioritarias:
+- R73.9
+- D64.9
+- E03.9
+glossario:
+  gordura no figado: esteatose hepática
+  colesterol alto: dislipidemia
+  triglicerideo alto: hipertrigliceridemia
+  beliscar: ingestão fora das refeições
+  pular refeicao: omissão de refeições
+  comer demais: hiperfagia
+  sem fome: hiporexia
+  prisao de ventre: constipação intestinal
+  barriga inchada: distensão abdominal
+perguntas:
+- id: pk_nut_01
+  pergunta: Me conta como foi o que o senhor/a senhora comeu ontem, da primeira à última refeição.
+  motivo: O recordatório de 24 horas é a base da avaliação do consumo alimentar.
+  ja_perguntado:
+  - comeu ontem
+  - recordatorio
+  - cafe da manha
+  - o que comeu
+  prioridade: alta
+  fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014)
+- id: pk_nut_02
+  pergunta: Tem alguma alergia, intolerância (lactose, glúten) ou alimento que evita?
+  motivo: Restrições alimentares mudam o plano e podem indicar necessidade de suplementação.
+  ja_perguntado:
+  - alergia alimentar
+  - intolerancia
+  - lactose
+  - gluten
+  - evita
+  - nao come
+  prioridade: alta
+  fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014)
+- id: pk_nut_03
+  pergunta: Usa suplemento, vitamina, chá ou produto natural? Qual e quanto?
+  motivo: Suplementos interagem com medicamentos e alteram exames.
+  ja_perguntado:
+  - suplemento
+  - vitamina
+  - whey
+  - 'cha '
+  - produto natural
+  prioridade: media
+  fonte: Guia Alimentar para a População Brasileira (Ministério da Saúde, 2014)
+- id: pk_nut_04
+  pergunta: Faz alguma atividade física? Quantas vezes por semana e por quanto tempo?
+  motivo: Atividade física compõe a meta de cuidado e o gasto energético.
+  ja_perguntado:
+  - atividade fisica
+  - exercicio
+  - caminha
+  - academia
+  - treina
+  prioridade: media
+  fonte: Guia de Atividade Física para a População Brasileira (Ministério da Saúde, 2021)
+- id: pk_nut_05
+  pergunta: 'Como é o apetite e o peso: mudou nos últimos meses sem querer?'
+  motivo: Perda ou ganho involuntário de peso exige investigação e define a conduta.
+  ja_perguntado:
+  - apetite
+  - perdeu peso
+  - ganhou peso
+  - emagreceu
+  - engordou
+  prioridade: media
+  fonte: Triagem de risco nutricional (MNA/NRS-2002) e SISVAN (Ministério da Saúde)

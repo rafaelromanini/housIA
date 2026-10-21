@@ -38,7 +38,7 @@ regras:
     papel: medico
     prazo_horas: 120
     fonte: >-
-      Protocolos de data/reference/care_protocols.csv (intervalos de demonstração, mesma base da Consulta com IA)
+      Protocolos de data/reference/protocols, eixo Adulto crônico (mesma base da Consulta com IA)
       avaliados sobre Condition e exames do FHIR.
   nao_adesao_consulta:
     titulo: Sinal de não adesão em consulta recente

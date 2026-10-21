@@ -1,0 +1,28 @@
+id: clinica_medica
+ordem: 1
+rotulo: Clínica médica
+foco: 'visão integral: queixas, comorbidades, polifarmácia, prevenção e protocolos'
+modelo_nota: consulta_clinica
+smart_apps:
+- queixas
+- perguntas
+- hipoteses
+- medicamentos
+- alergias
+- exames
+- protocolos
+- escalas
+- resumo
+- rastreios
+- vacinas
+escalas:
+- cha2ds2_vasc
+- imc
+hipoteses_prioritarias:
+- J06.9
+- I10
+- R73.9
+glossario:
+  remedio de pressao: anti-hipertensivo
+  remedio do acucar: hipoglicemiante oral
+perguntas: []

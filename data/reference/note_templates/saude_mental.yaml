@@ -1,0 +1,126 @@
+id: saude_mental
+versao: 1.0.0
+rotulo: Consulta de saúde mental
+titulo: Nota de consulta de saúde mental
+tipo: consulta
+especialidades:
+- saude_mental
+automatico: true
+loinc:
+  codigo: 11488-4
+  display: Consult note
+fonte: 'PHQ-9 e GAD-7; Ministério da Saúde: Linha de cuidado em saúde mental (RAPS)'
+secoes:
+- key: queixa_principal
+  rotulo: Queixa principal
+  soap: S
+  obrigatoria: true
+  dica: Motivo do atendimento nas palavras do paciente.
+  loinc: 10154-3
+- key: hda
+  rotulo: História da doença atual
+  soap: S
+  obrigatoria: false
+  dica: Início, evolução, fatores de piora e melhora, sintomas associados.
+  loinc: 10164-2
+- key: antecedentes
+  rotulo: Antecedentes
+  soap: S
+  obrigatoria: false
+  dica: Doenças prévias, cirurgias e história familiar.
+  loinc: 11348-0
+- key: medicacoes
+  rotulo: Medicações em uso
+  soap: S
+  obrigatoria: false
+  dica: Inclui o que o paciente toma por conta própria.
+  loinc: 10160-0
+- key: alergias
+  rotulo: Alergias
+  soap: S
+  obrigatoria: false
+  dica: Alergias e reações adversas conhecidas.
+  loinc: 48765-2
+- key: humor_ansiedade
+  rotulo: Humor e ansiedade
+  soap: S
+  obrigatoria: false
+  dica: Sintomas, duração e prejuízo funcional; escores PHQ-9 e GAD-7 quando aplicados.
+  palavras:
+  - humor
+  - tristeza
+  - triste
+  - desanimo
+  - ansiedade
+  - ansios
+  - preocupa
+  - medo
+  - panico
+  - irritab
+  - sem vontade
+  prefixo: 'Relato: '
+- key: sono
+  rotulo: Sono
+  soap: S
+  obrigatoria: false
+  dica: Início, manutenção e despertar precoce.
+  palavras:
+  - sono
+  - dorm
+  - insonia
+  - acordo de madrugada
+  - pesadelo
+  prefixo: 'Relato: '
+- key: risco_suicidio
+  rotulo: Risco de suicídio
+  soap: S
+  obrigatoria: true
+  dica: Ideação, plano, meios e fatores de proteção; registre sempre que perguntado.
+  palavras:
+  - suicid
+  - se matar
+  - morrer
+  - tirar a propria vida
+  - melhor nao estar vivo
+  - se machucar
+  - me machucar
+  prefixo: 'Relato: '
+- key: substancias
+  rotulo: Álcool e outras substâncias
+  soap: S
+  obrigatoria: false
+  dica: Tipo, quantidade e frequência.
+  palavras:
+  - alcool
+  - bebe
+  - bebo
+  - fuma
+  - cigarro
+  - maconha
+  - cocaina
+  - droga
+  prefixo: 'Relato: '
+- key: exame_mental
+  rotulo: Exame do estado mental
+  soap: O
+  obrigatoria: false
+  dica: Só o que foi observado e verbalizado na consulta.
+  loinc: 10190-7
+- key: exames_complementares
+  rotulo: Exames complementares
+  soap: O
+  obrigatoria: false
+  dica: Resultados relevantes, com data.
+  loinc: 30954-2
+- key: avaliacao
+  rotulo: Avaliação
+  soap: A
+  obrigatoria: true
+  dica: Raciocínio clínico e hipóteses, com CID-10.
+  loinc: 51848-0
+- key: plano
+  rotulo: Plano
+  soap: P
+  obrigatoria: false
+  dica: Condutas combinadas; o que não foi combinado fica como "a confirmar".
+  loinc: 18776-5

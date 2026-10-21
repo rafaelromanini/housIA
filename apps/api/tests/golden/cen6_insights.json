@@ -1627,7 +1627,7 @@
  "lembretes": [
   {
    "chave": "protocolo:Diabetes tipo 2:Albuminúria (relação albumina/creatinina)",
-   "fonte": "care_protocols.csv",
+   "fonte": "Sociedade Brasileira de Diabetes, Diretriz da Sociedade Brasileira de Diabetes, 2024, cap. de metas glicêmicas e rastreio de complicações",
    "refs": [
     "Condition/cen6-dx-0"
    ],
@@ -1637,7 +1637,7 @@
   },
   {
    "chave": "protocolo:Diabetes tipo 2:Exame dos pés (monofilamento)",
-   "fonte": "care_protocols.csv",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 36: Estratégias para o cuidado da pessoa com doença crônica, Diabetes Mellitus, 2013, cap. 5, acompanhamento e complicações crônicas",
    "refs": [
     "Condition/cen6-dx-0"
    ],
@@ -1647,7 +1647,7 @@
   },
   {
    "chave": "protocolo:Diabetes tipo 2:Vacina contra influenza",
-   "fonte": "care_protocols.csv",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 36: Estratégias para o cuidado da pessoa com doença crônica, Diabetes Mellitus, 2013, cap. 5, acompanhamento e complicações crônicas",
    "refs": [
     "Condition/cen6-dx-0"
    ],
@@ -1657,7 +1657,7 @@
   },
   {
    "chave": "protocolo:Hipertensão:Eletrocardiograma",
-   "fonte": "care_protocols.csv",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 37: Estratégias para o cuidado da pessoa com doença crônica, Hipertensão Arterial Sistêmica, 2013, cap. 4, acompanhamento da pessoa hipertensa",
    "refs": [
     "Condition/cen6-dx-1"
    ],
@@ -2163,6 +2163,60 @@
    "acao": "",
    "discrimina": [],
    "fixado": false,
+   "fonte": "Sociedade Brasileira de Diabetes, Diretriz da Sociedade Brasileira de Diabetes, 2024, cap. de metas glicêmicas e rastreio de complicações",
+   "id": "protocolo:cronico.dm2.albuminuria",
+   "item_key": "",
+   "motivo": "Protocolo Diabetes tipo 2: Albuminúria (relação albumina/creatinina) (sem registro). Anual.",
+   "origem": "regra",
+   "pergunta": "Já fez o exame de albuminúria (albumina na urina) no último ano?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 36: Estratégias para o cuidado da pessoa com doença crônica, Diabetes Mellitus, 2013, cap. 5, acompanhamento e complicações crônicas",
+   "id": "protocolo:cronico.dm2.pes",
+   "item_key": "",
+   "motivo": "Protocolo Diabetes tipo 2: Exame dos pés (monofilamento) (sem registro). Anual (mais vezes se risco).",
+   "origem": "regra",
+   "pergunta": "Posso examinar os seus pés hoje (inspeção e monofilamento)?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Condition/cen6-dx-0"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 37: Estratégias para o cuidado da pessoa com doença crônica, Hipertensão Arterial Sistêmica, 2013, cap. 4, acompanhamento da pessoa hipertensa",
+   "id": "protocolo:cronico.has.ecg",
+   "item_key": "",
+   "motivo": "Protocolo Hipertensão: Eletrocardiograma (sem registro). Anual.",
+   "origem": "regra",
+   "pergunta": "Quando foi o último eletrocardiograma?",
+   "primeira_fala": 0,
+   "prioridade": "media",
+   "refs": [
+    "Condition/cen6-dx-1"
+   ],
+   "resposta": "",
+   "resposta_refs": []
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
    "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
    "id": "q079:tontura",
    "item_key": "",
@@ -2285,6 +2339,26 @@
    "acao": "",
    "discrimina": [],
    "fixado": false,
+   "fonte": "Secretaria de Estado da Saúde de Minas Gerais, Rede Estadual de Atenção à Saúde do Idoso: avaliação do risco de queda (Linha-guia de saúde do idoso), 2006, seção de quedas",
+   "id": "protocolo:idoso.quedas",
+   "item_key": "",
+   "motivo": "Protocolo Saúde da pessoa idosa: Risco de quedas.",
+   "origem": "regra",
+   "pergunta": "Caiu ou tropeçou no último ano?",
+   "primeira_fala": 0,
+   "prioridade": "baixa",
+   "refs": [
+    "Fala/5"
+   ],
+   "resposta": "“Semana passada ela quase caiu no banheiro, doutora. Eu fiquei muito preocupada.”",
+   "resposta_refs": [
+    "Fala/5"
+   ]
+  },
+  {
+   "acao": "",
+   "discrimina": [],
+   "fixado": false,
    "fonte": "Porto, Semiologia Médica; Bates, Propedêutica Médica (caracterização do sintoma: OLDCARTS)",
    "id": "q084:tontura",
    "item_key": "",
@@ -2366,8 +2440,14 @@
  ],
  "protocolos": [
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Sociedade Brasileira de Diabetes, Diretriz da Sociedade Brasileira de Diabetes, 2024, cap. de metas glicêmicas e rastreio de complicações",
+   "id": "cronico.dm2.hba1c",
+   "intervalo_dias": 180,
    "item": "Hemoglobina glicada (HbA1c)",
+   "local": false,
    "orientacao": "A cada 3–6 meses; meta individualizada (em geral < 7%).",
+   "pergunta": "A última hemoglobina glicada foi há quanto tempo?",
    "protocolo": "Diabetes tipo 2",
    "refs": [
     "Condition/cen6-dx-0",
@@ -2377,8 +2457,14 @@
    "ultimo": "10/10/2026: 7,1 % (fora da faixa)"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Sociedade Brasileira de Diabetes, Diretriz da Sociedade Brasileira de Diabetes, 2024, cap. de metas glicêmicas e rastreio de complicações",
+   "id": "cronico.dm2.creatinina",
+   "intervalo_dias": 365,
    "item": "Creatinina e TFG estimada",
+   "local": false,
    "orientacao": "Pelo menos 1x/ano (mais vezes se DRC).",
+   "pergunta": "",
    "protocolo": "Diabetes tipo 2",
    "refs": [
     "Condition/cen6-dx-0",
@@ -2388,8 +2474,14 @@
    "ultimo": "10/10/2026: 1,5 mg/dL (fora da faixa)"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Sociedade Brasileira de Diabetes, Diretriz da Sociedade Brasileira de Diabetes, 2024, cap. de metas glicêmicas e rastreio de complicações",
+   "id": "cronico.dm2.albuminuria",
+   "intervalo_dias": 365,
    "item": "Albuminúria (relação albumina/creatinina)",
+   "local": false,
    "orientacao": "Anual.",
+   "pergunta": "Já fez o exame de albuminúria (albumina na urina) no último ano?",
    "protocolo": "Diabetes tipo 2",
    "refs": [
     "Condition/cen6-dx-0"
@@ -2398,8 +2490,14 @@
    "ultimo": null
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Sociedade Brasileira de Diabetes, Diretriz da Sociedade Brasileira de Diabetes, 2024, cap. de metas glicêmicas e rastreio de complicações",
+   "id": "cronico.dm2.ldl",
+   "intervalo_dias": 365,
    "item": "Perfil lipídico (LDL)",
+   "local": false,
    "orientacao": "Anual.",
+   "pergunta": "Quando foi o último exame de colesterol (perfil lipídico)?",
    "protocolo": "Diabetes tipo 2",
    "refs": [
     "Condition/cen6-dx-0",
@@ -2409,8 +2507,14 @@
    "ultimo": "10/10/2026: 96 mg/dL"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 36: Estratégias para o cuidado da pessoa com doença crônica, Diabetes Mellitus, 2013, cap. 5, acompanhamento e complicações crônicas",
+   "id": "cronico.dm2.pes",
+   "intervalo_dias": 365,
    "item": "Exame dos pés (monofilamento)",
+   "local": false,
    "orientacao": "Anual (mais vezes se risco).",
+   "pergunta": "Posso examinar os seus pés hoje (inspeção e monofilamento)?",
    "protocolo": "Diabetes tipo 2",
    "refs": [
     "Condition/cen6-dx-0"
@@ -2419,8 +2523,14 @@
    "ultimo": null
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 36: Estratégias para o cuidado da pessoa com doença crônica, Diabetes Mellitus, 2013, cap. 5, acompanhamento e complicações crônicas",
+   "id": "cronico.dm2.fundo_de_olho",
+   "intervalo_dias": 365,
    "item": "Avaliação oftalmológica (fundo de olho)",
+   "local": false,
    "orientacao": "Anual.",
+   "pergunta": "Quando foi a última avaliação dos olhos (fundo de olho)?",
    "protocolo": "Diabetes tipo 2",
    "refs": [
     "Condition/cen6-dx-0",
@@ -2430,8 +2540,14 @@
    "ultimo": "21/07/2026 (evolução)"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 36: Estratégias para o cuidado da pessoa com doença crônica, Diabetes Mellitus, 2013, cap. 5, acompanhamento e complicações crônicas",
+   "id": "cronico.dm2.influenza",
+   "intervalo_dias": 365,
    "item": "Vacina contra influenza",
+   "local": false,
    "orientacao": "Anual.",
+   "pergunta": "",
    "protocolo": "Diabetes tipo 2",
    "refs": [
     "Condition/cen6-dx-0"
@@ -2440,8 +2556,14 @@
    "ultimo": null
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Sociedade Brasileira de Cardiologia, Diretrizes Brasileiras de Hipertensão Arterial, 2020, cap. de avaliação inicial e metas",
+   "id": "cronico.has.pa",
+   "intervalo_dias": 0,
    "item": "PA no alvo na última medida",
+   "local": false,
    "orientacao": "Alvo usual < 140/90 mmHg (< 130/80 em alto risco).",
+   "pergunta": "",
    "protocolo": "Hipertensão",
    "refs": [
     "Condition/cen6-dx-1",
@@ -2451,8 +2573,14 @@
    "ultimo": "20/10/2026: 118/72 mmHg"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 37: Estratégias para o cuidado da pessoa com doença crônica, Hipertensão Arterial Sistêmica, 2013, cap. 4, acompanhamento da pessoa hipertensa",
+   "id": "cronico.has.potassio",
+   "intervalo_dias": 365,
    "item": "Potássio",
+   "local": false,
    "orientacao": "Anual e após iniciar/ajustar IECA, BRA ou diurético.",
+   "pergunta": "",
    "protocolo": "Hipertensão",
    "refs": [
     "Condition/cen6-dx-1",
@@ -2462,8 +2590,14 @@
    "ultimo": "10/10/2026: 5,3 mmol/L (fora da faixa)"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Caderno de Atenção Básica nº 37: Estratégias para o cuidado da pessoa com doença crônica, Hipertensão Arterial Sistêmica, 2013, cap. 4, acompanhamento da pessoa hipertensa",
+   "id": "cronico.has.ecg",
+   "intervalo_dias": 365,
    "item": "Eletrocardiograma",
+   "local": false,
    "orientacao": "Anual.",
+   "pergunta": "Quando foi o último eletrocardiograma?",
    "protocolo": "Hipertensão",
    "refs": [
     "Condition/cen6-dx-1"
@@ -2472,8 +2606,14 @@
    "ultimo": null
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Diretrizes Clínicas para o Cuidado ao paciente com Doença Renal Crônica no SUS, 2014, cap. de monitoramento da função renal",
+   "id": "cronico.drc.creatinina",
+   "intervalo_dias": 180,
    "item": "Creatinina e TFG estimada",
+   "local": false,
    "orientacao": "A cada 3–6 meses no estágio 3.",
+   "pergunta": "",
    "protocolo": "Doença renal crônica",
    "refs": [
     "Condition/cen6-dx-2",
@@ -2483,8 +2623,14 @@
    "ultimo": "10/10/2026: 1,5 mg/dL (fora da faixa)"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Diretrizes Clínicas para o Cuidado ao paciente com Doença Renal Crônica no SUS, 2014, cap. de monitoramento da função renal",
+   "id": "cronico.drc.potassio",
+   "intervalo_dias": 180,
    "item": "Potássio",
+   "local": false,
    "orientacao": "A cada 3–6 meses.",
+   "pergunta": "",
    "protocolo": "Doença renal crônica",
    "refs": [
     "Condition/cen6-dx-2",
@@ -2494,8 +2640,14 @@
    "ultimo": "10/10/2026: 5,3 mmol/L (fora da faixa)"
   },
   {
+   "eixo": "Adulto crônico",
+   "fonte": "Ministério da Saúde, Diretrizes Clínicas para o Cuidado ao paciente com Doença Renal Crônica no SUS, 2014, cap. de monitoramento da função renal",
+   "id": "cronico.drc.hemoglobina",
+   "intervalo_dias": 365,
    "item": "Hemoglobina (anemia da DRC)",
+   "local": false,
    "orientacao": "Anual no estágio 3.",
+   "pergunta": "",
    "protocolo": "Doença renal crônica",
    "refs": [
     "Condition/cen6-dx-2",
@@ -2503,6 +2655,79 @@
    ],
    "status": "em_dia",
    "ultimo": "10/10/2026: 11,6 g/dL (fora da faixa)"
+  },
+  {
+   "eixo": "Idoso",
+   "fonte": "Ministério da Saúde, Índice de Vulnerabilidade Clínico-Funcional (IVCF-20), Caderno de Atenção Básica nº 19: Envelhecimento e saúde da pessoa idosa, 2007, cap. de avaliação multidimensional da pessoa idosa",
+   "id": "idoso.ivcf20",
+   "intervalo_dias": 365,
+   "item": "IVCF-20 (vulnerabilidade clínico-funcional)",
+   "local": false,
+   "orientacao": "Aplicar o IVCF-20 uma vez por ano em todo idoso da APS.",
+   "pergunta": "Posso aplicar o questionário IVCF-20 para avaliar a vulnerabilidade?",
+   "protocolo": "Saúde da pessoa idosa",
+   "refs": [],
+   "status": "sem_registro",
+   "ultimo": null
+  },
+  {
+   "eixo": "Idoso",
+   "fonte": "Secretaria de Estado da Saúde de Minas Gerais, Rede Estadual de Atenção à Saúde do Idoso: avaliação do risco de queda (Linha-guia de saúde do idoso), 2006, seção de quedas",
+   "id": "idoso.quedas",
+   "intervalo_dias": 365,
+   "item": "Risco de quedas",
+   "local": false,
+   "orientacao": "Perguntar sobre quedas no último ano e avaliar marcha e equilíbrio.",
+   "pergunta": "Caiu ou tropeçou no último ano?",
+   "protocolo": "Saúde da pessoa idosa",
+   "refs": [
+    "Fala/5",
+    "Fala/25"
+   ],
+   "status": "abordado",
+   "ultimo": "abordado — Fala/5, Fala/25"
+  },
+  {
+   "eixo": "Idoso",
+   "fonte": "Ministério da Saúde, PNI, Calendário Nacional de Vacinação do Idoso, 2024, quadro do idoso",
+   "id": "idoso.vacinas",
+   "intervalo_dias": 365,
+   "item": "Vacinas do idoso (influenza, pneumocócica, dT, covid-19)",
+   "local": false,
+   "orientacao": "Influenza anual; pneumocócica, dT e covid-19 conforme o esquema.",
+   "pergunta": "",
+   "protocolo": "Saúde da pessoa idosa",
+   "refs": [],
+   "status": "sem_registro",
+   "ultimo": null
+  },
+  {
+   "eixo": "Mulher",
+   "fonte": "INCA, Diretrizes Brasileiras para o Rastreamento do Câncer do Colo do Útero (2ª ed.), 2016, cap. de recomendações: faixa etária e periodicidade",
+   "id": "mulher.colo",
+   "intervalo_dias": 1095,
+   "item": "Citopatológico do colo do útero (Papanicolau)",
+   "local": false,
+   "orientacao": "Dos 25 aos 64 anos; após dois exames anuais normais, repetir a cada 3 anos.",
+   "pergunta": "Quando foi o último preventivo (Papanicolau)?",
+   "protocolo": "Saúde da mulher, rastreio de colo do útero",
+   "refs": [],
+   "status": "sem_registro",
+   "ultimo": null
+  },
+  {
+   "eixo": "Mulher",
+   "fonte": "INCA, Diretrizes para a Detecção Precoce do Câncer de Mama no Brasil, 2015, cap. de recomendações para o rastreamento",
+   "id": "mulher.mamografia",
+   "intervalo_dias": 730,
+   "item": "Mamografia",
+   "local": false,
+   "orientacao": "Dos 50 aos 69 anos, a cada 2 anos.",
+   "pergunta": "Quando foi a última mamografia?",
+   "protocolo": "Saúde da mulher, rastreio de mama",
+   "refs": [],
+   "status": "sem_registro",
+   "ultimo": null
   }
  ],
  "queixas": [

@@ -54,4 +54,5 @@ def save(db: Session, user: User, specialty: str, hidden: list[str]) -> dict:
 
 def listing(db: Session, user: User, specialty: str = "") -> list[dict]:
     hidden = set(effective(db, user, specialty)["ocultos"])
-    return [{**m, "oculto": m["id"] in hidden} for m in apps.catalog(specialty or None)]
+    default = set(knowledge.specialty_pack(specialty).smart_apps) if specialty else set()  # padrão do pacote (#27)
+    return [{**m, "oculto": m["id"] in hidden, "padrao": m["id"] in default} for m in apps.catalog(specialty or None)]

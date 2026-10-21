@@ -1,0 +1,60 @@
+# Glossário clínico brasileiro (#27): fala popular -> termo técnico. Vale na nota (citações do paciente e rascunhos
+# por palavras) e no prompt do reconhecimento de fala (STT). Os pacotes de especialidade acrescentam os seus termos.
+# Chaves em minúsculas e sem acento: a busca ignora caixa e acentuação. Termo mais longo vence o mais curto.
+versao: 1.0.0
+fonte: "Terminologia usual em português do Brasil (CID-10 em português, DeCS/BVS, Houaiss) — base de demonstração, não exaustiva"
+termos:
+  xixi: diurese
+  pouco xixi: diurese reduzida
+  fez pouco xixi: apresentou diurese reduzida
+  urinar toda hora: polaciúria
+  ardencia ao urinar: disúria
+  ardencia para urinar: disúria
+  urina escura: colúria
+  coco mole: fezes amolecidas
+  fazer coco: evacuar
+  caganeira: diarreia
+  prisao de ventre: constipação
+  dor de barriga: dor abdominal
+  barriga dura: abdome distendido
+  barriga d'agua: ascite
+  azia: pirose
+  enjoo: náusea
+  ansia de vomito: náusea
+  falta de ar: dispneia
+  folego curto: dispneia aos esforços
+  cansaco: fadiga
+  dor de cabeca: cefaleia
+  dor no peito: dor torácica
+  dor nas costas: dorsalgia
+  dor na lombar: lombalgia
+  dor nas juntas: artralgia
+  dor de garganta: odinofagia
+  dor de ouvido: otalgia
+  batedeira: palpitação
+  coracao acelerado: taquicardia
+  coracao disparado: taquicardia
+  pressao alta: HAS
+  pressao baixa: hipotensão
+  acucar alto: hiperglicemia
+  acucar baixo: hipoglicemia
+  acucar no sangue: glicemia
+  colesterol alto: dislipidemia
+  derrame cerebral: AVC
+  ataque do coracao: infarto agudo do miocárdio
+  desmaio: síncope
+  vista escura: turvação visual
+  formigamento: parestesia
+  dormencia: hipoestesia
+  coceira: prurido
+  inchaco: edema
+  pe inchado: edema de pé
+  perna inchada: edema de membro inferior
+  catarro: expectoração
+  febrao: febre alta
+  suor frio: sudorese fria
+  tremedeira: tremor
+  falta de apetite: hiporexia
+  sede demais: polidipsia
+  olho amarelo: icterícia
+  pele amarela: icterícia

@@ -1219,41 +1219,62 @@ const PROTOCOL_STATUS: Record<ProtocolItem["status"], { label: string; variant: 
   pendente: { label: "Pendente", variant: "atencao" },
   sem_registro: { label: "Sem registro", variant: "atencao" },
   fora_do_alvo: { label: "Fora do alvo", variant: "critico" },
+  abordado: { label: "Abordado", variant: "ok" },
+  critico: { label: "Risco crítico", variant: "critico" },
 };
 
 function ProtocolsCard({ items, patientId }: { items: ProtocolItem[]; patientId: string }) {
-  const groups = [...new Set(items.map((i) => i.protocolo))];
+  const axes = [...new Set(items.map((i) => i.eixo || "Protocolos"))];
   return (
     <AppCard
       title="Protocolos de acompanhamento"
       Icon={ListChecks}
-      hint="Linha de cuidado (atenção primária) checada no prontuário. Base de demonstração."
+      hint="Linhas de cuidado da atenção primária por eixo, com a fonte oficial. O que for dito na consulta aparece como abordado."
     >
       {items.length === 0 ? (
-        <Empty>Nenhum protocolo se aplica aos diagnósticos ativos.</Empty>
+        <Empty>Nenhum protocolo se aplica a este paciente.</Empty>
       ) : (
-        <div className="space-y-3">
-          {groups.map((g) => (
-            <div key={g}>
-              <p className="flex items-center gap-1.5 text-sm font-bold">
-                <FileHeart aria-hidden className="size-4 text-primary" /> {g}
-              </p>
-              <ul className="mt-1 space-y-1">
-                {items
-                  .filter((i) => i.protocolo === g)
-                  .map((i) => (
-                    <li key={i.item} className="flex flex-wrap items-center gap-1.5 text-sm">
-                      <Badge variant={PROTOCOL_STATUS[i.status].variant} className="text-[11px]">
-                        {PROTOCOL_STATUS[i.status].label}
-                      </Badge>
-                      <span className="font-bold">{i.item}</span>
-                      <span className="text-xs text-muted-foreground">{i.ultimo ?? i.orientacao}</span>
-                      <SourceRefs patientId={patientId} refs={i.refs} />
-                    </li>
+        <div className="space-y-4">
+          {axes.map((axis) => {
+            const inAxis = items.filter((i) => (i.eixo || "Protocolos") === axis);
+            const groups = [...new Set(inAxis.map((i) => i.protocolo))];
+            return (
+              <section key={axis} aria-label={`Eixo ${axis}`}>
+                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{axis}</h4>
+                <div className="mt-1 space-y-3">
+                  {groups.map((g) => (
+                    <div key={g}>
+                      <p className="flex items-center gap-1.5 text-sm font-bold">
+                        <FileHeart aria-hidden className="size-4 text-primary" /> {g}
+                      </p>
+                      <ul className="mt-1 space-y-1.5">
+                        {inAxis
+                          .filter((i) => i.protocolo === g)
+                          .map((i) => (
+                            <li key={i.id || i.item} className="text-sm">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <Badge variant={PROTOCOL_STATUS[i.status].variant} className="text-[11px]">
+                                  {PROTOCOL_STATUS[i.status].label}
+                                </Badge>
+                                <span className="font-bold">{i.item}</span>
+                                {i.local && (
+                                  <Badge variant="outline" className="text-[11px]">
+                                    Local
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground">{i.ultimo ?? i.orientacao}</span>
+                                <SourceRefs patientId={patientId} refs={i.refs} />
+                              </div>
+                              {i.fonte && <p className="text-xs text-muted-foreground">Fonte: {i.fonte}</p>}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
                   ))}
-              </ul>
-            </div>
-          ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
     </AppCard>

@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult import acoes, cronologia, idiomas, notas, note_templates
+from app.consult import acoes, cronologia, glossario, idiomas, notas, note_templates
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -1031,6 +1031,7 @@ def run_note(
         _validate_sentences(section, name, v, valid, result.mode)
     note_templates.complete(note, template, engine, ins, valid)
     acoes.inject_into_note(note, ins)  # o que o profissional aceitou entra na nota mesmo que o LLM tenha omitido
+    glossario.aplicar_nota(note, engine.specialty)  # "xixi" sai como "diurese" (a fala original não muda)
     note.cids = v.keep(note.cids, "cids")
     # CID da nota precisa existir na tabela oficial; diagnóstico/hipótese não pode ser causa externa nem de outro sexo
     note.cids, bad_cids = screen(

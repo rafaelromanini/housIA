@@ -1,0 +1,101 @@
+eixo: Mulher
+fontes:
+  colo:
+    documento: "Diretrizes Brasileiras para o Rastreamento do Câncer do Colo do Útero (2ª ed.)"
+    orgao: INCA
+    ano: 2016
+    pagina: "cap. de recomendações: faixa etária e periodicidade"
+  mama:
+    documento: "Diretrizes para a Detecção Precoce do Câncer de Mama no Brasil"
+    orgao: INCA
+    ano: 2015
+    pagina: "cap. de recomendações para o rastreamento"
+  cab32:
+    documento: "Caderno de Atenção Básica nº 32: Atenção ao pré-natal de baixo risco"
+    orgao: Ministério da Saúde
+    ano: 2012
+    pagina: "cap. 3, assistência pré-natal: calendário de consultas e exames"
+  pnvac:
+    documento: "Calendário Nacional de Vacinação (gestante)"
+    orgao: Ministério da Saúde, PNI
+    ano: 2024
+    pagina: "quadro da gestante"
+itens:
+  - id: mulher.colo
+    protocolo: Saúde da mulher, rastreio de colo do útero
+    sexo: F
+    idade_min: 25
+    idade_max: 64
+    item: Citopatológico do colo do útero (Papanicolau)
+    fonte: colo
+    registro: "texto:papanicolau|papanicolaou|citopatolog|colpocitolog|preventivo"
+    intervalo_dias: 1095
+    orientacao: Dos 25 aos 64 anos; após dois exames anuais normais, repetir a cada 3 anos.
+    fala: [papanicolau, papanicolaou, citopatologico, colpocitologia, preventivo]
+    pergunta: Quando foi o último preventivo (Papanicolau)?
+  - id: mulher.mamografia
+    protocolo: Saúde da mulher, rastreio de mama
+    sexo: F
+    idade_min: 50
+    idade_max: 69
+    item: Mamografia
+    fonte: mama
+    registro: "texto:mamografia|mamograf"
+    intervalo_dias: 730
+    orientacao: Dos 50 aos 69 anos, a cada 2 anos.
+    fala: [mamografia, mamograf]
+    pergunta: Quando foi a última mamografia?
+  - id: mulher.prenatal.consulta
+    protocolo: Pré-natal
+    sexo: F
+    condicao: [Z34, O09]
+    item: Consulta de pré-natal (peso, PA, altura uterina, BCF)
+    fonte: cab32
+    registro: "texto:pre-natal|prenatal|altura uterina|bcf|batimentos cardiofetais"
+    intervalo_dias: 30
+    orientacao: Mensal até 28 semanas; quinzenal de 28 a 36; semanal a partir de 36.
+    fala: [altura uterina, batimentos cardiofetais, bcf, pre-natal, prenatal]
+  - id: mulher.prenatal.sorologias
+    protocolo: Pré-natal
+    sexo: F
+    condicao: [Z34, O09]
+    trimestre: 1
+    item: Sorologias do 1º trimestre (HIV, sífilis, hepatite B, toxoplasmose)
+    fonte: cab32
+    registro: "texto:hiv|vdrl|sifilis|hepatite b|toxoplasmose|sorologia"
+    intervalo_dias: 0
+    orientacao: Na primeira consulta; repetir HIV e sífilis no 3º trimestre.
+    fala: [sorologia, vdrl, sifilis, toxoplasmose, teste rapido]
+    pergunta: Já foram colhidas as sorologias do pré-natal (HIV, sífilis, hepatite B, toxoplasmose)?
+  - id: mulher.prenatal.totg
+    protocolo: Pré-natal
+    sexo: F
+    condicao: [Z34, O09]
+    trimestre: 2
+    item: Rastreio de diabetes gestacional (TOTG 75 g)
+    fonte: cab32
+    registro: "texto:totg|curva glicemica|tolerancia a glicose|glicemia de jejum"
+    intervalo_dias: 0
+    orientacao: Glicemia de jejum na 1ª consulta e TOTG 75 g entre 24 e 28 semanas.
+    fala: [totg, curva glicemica, tolerancia a glicose, diabetes gestacional]
+  - id: mulher.prenatal.gbs
+    protocolo: Pré-natal
+    sexo: F
+    condicao: [Z34, O09]
+    trimestre: 3
+    item: Cultura para estreptococo do grupo B (35–37 semanas)
+    fonte: cab32
+    registro: "texto:estreptococo|streptococcus|gbs|swab retal"
+    intervalo_dias: 0
+    orientacao: Entre 35 e 37 semanas, para decidir a profilaxia no parto.
+    fala: [estreptococo, gbs, swab vaginal]
+  - id: mulher.prenatal.vacinas
+    protocolo: Pré-natal
+    sexo: F
+    condicao: [Z34, O09]
+    item: Vacinas da gestante (dTpa, hepatite B, influenza, covid-19)
+    fonte: pnvac
+    registro: "vacina:dtpa|dt|hepatite b|influenza|covid"
+    intervalo_dias: 0
+    orientacao: dTpa a partir da 20ª semana; influenza e covid-19 conforme a campanha.
+    fala: [dtpa, vacina da gestante, carteira de vacina]

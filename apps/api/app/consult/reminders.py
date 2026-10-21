@@ -62,10 +62,10 @@ def allergy(eng: Engine) -> list[Reminder]:
 def protocols(eng: Engine) -> list[Reminder]:
     labs = knowledge.lab_catalog()
     out = []
-    for p in eng.chart.protocols():
+    for p in eng.protocols:
         if p.status not in ("pendente", "sem_registro"):
             continue
-        defn = next((d for d in knowledge.protocols() if d.protocol == p.protocolo and d.item == p.item), None)
+        defn = next((d for d in knowledge.protocols() if d.id == p.id), None)
         kind, _, spec = (defn.source if defn else "").partition(":")
         if kind == "lab":
             words = tuple(w for lab in labs if spec in lab.result_keys for w in lab.words)
@@ -84,7 +84,7 @@ def protocols(eng: Engine) -> list[Reminder]:
                 texto=f"{p.protocolo}: {p.item} {'vencido' if late else 'sem registro'}{last}. {p.orientacao}",
                 refs=p.refs,
                 severidade="atencao" if late else "info",
-                fonte="care_protocols.csv",
+                fonte=p.fonte or "data/reference/protocols",
             )
         )
     out.sort(key=lambda r: r.severidade != "atencao")

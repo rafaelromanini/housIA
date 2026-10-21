@@ -1,5 +1,5 @@
 id: pediatria
-versao: 1.0.0
+versao: 1.1.0
 rotulo: Consulta pediátrica
 titulo: Nota de consulta pediátrica
 tipo: consulta
@@ -50,6 +50,22 @@ secoes:
   - 'come '
   - comida
   - apetite
+- key: hidratacao_eliminacoes
+  rotulo: Hidratação e eliminações
+  soap: S
+  obrigatoria: false
+  dica: Líquidos que aceita, diurese (fraldas molhadas), fezes e vômitos.
+  palavras:
+  - xixi
+  - urina
+  - fralda
+  - diurese
+  - bebendo
+  - liquido
+  - evacua
+  - fezes
+  - vomit
+  prefixo: 'Relato: '
 - key: vacinas
   rotulo: Vacinação
   soap: S

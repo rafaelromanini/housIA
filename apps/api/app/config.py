@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     allow_browser_stt: bool = True
 
     data_dir: Path = Field(default_factory=_default_data_dir)
+    # Protocolos de APS (#28): pasta de sobrescrita local (padrão: data/reference/protocols/local)
+    protocolos_locais_dir: Path | None = None
     timezone: str = "America/Sao_Paulo"
     cors_origins: str = "http://localhost:3000"
     seed_users: bool = True
