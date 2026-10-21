@@ -51,6 +51,18 @@ itens:
       - melhor estar morta
       - "!nao quero mais viver"
       - "!nao aguento mais viver"
+    gatilhos_pergunta:
+      - se machucar
+      - me machucar
+      - se ferir
+      - me ferir
+      - se cortar
+      - me cortar
+      - fazer mal a si
+      - quer morrer
+      - vontade de morrer
+      - ideacao
+      - pensamentos de morte
   - id: mental.phq9
     protocolo: Saúde mental
     condicao: [F32, F33]

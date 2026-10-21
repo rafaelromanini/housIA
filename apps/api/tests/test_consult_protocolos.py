@@ -5,6 +5,7 @@ da API; a base YAML tem teste de esquema e a sobrescrita local é lida de uma pa
 """
 
 from copy import deepcopy
+from datetime import timedelta
 
 import pytest
 import yaml
@@ -323,3 +324,274 @@ def test_api_exposes_axis_source_and_alert_through_the_real_path(client, auth):
     assert any(a["categoria"] == "protocolo_critico" and "Fala/2" in a["refs"] for a in ins["alertas"])
     smart = client.get(f"/consultations/{cid}", headers=h).json()["insights"]
     assert any(p["status"] == "critico" for p in smart["protocolos"])
+
+
+# ---------- verificação cética: segurança clínica (risco de suicídio, arquivo local, idade, fala) ----------
+def risk(ins):
+    return [a for a in ins.alertas if a.categoria == "protocolo_critico"]
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Não penso em me matar, doutora.",
+        "Não tenho vontade de me matar.",
+        "Nunca quis me matar, graças a Deus.",
+        "Eu não quero morrer, só estou cansada.",
+        "Meu irmão pensou em suicídio no ano passado.",
+        "A vizinha tentou suicídio semana passada.",
+        "Meu pai se matou quando eu era criança.",
+        "Não aguento mais essa dor.",
+    ],
+)
+def test_risk_not_raised_by_negation_or_by_a_relative(record, texto):
+    assert not risk(engine(record, [("paciente", texto)]).run()), texto
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "as vezes eu penso em me matar",
+        "Meu irmão se matou e eu penso em me matar também.",
+        "Meu irmão pensou em suicídio e eu também.",
+        "Não aguento mais viver assim.",
+        "Às vezes acho que seria melhor estar morta.",
+    ],
+)
+def test_risk_raised_even_without_accents_or_next_to_a_relative(record, texto):
+    assert risk(engine(record, [("paciente", texto)]).run()), texto
+
+
+def test_acompanhante_report_about_the_patient_is_still_risk(record):
+    # o filho (acompanhante) fala da paciente: "minha mãe disse que quer se matar" não é relato de terceiro
+    assert risk(engine(record, [("acompanhante", "Doutora, minha mãe disse que quer se matar.")]).run())
+
+
+def test_doctor_question_alone_is_not_risk_but_short_yes_is(record):
+    for q in ("A senhora pensa em se machucar?", "A senhora pensa em se matar", "Tem ideação suicida?"):
+        assert not risk(engine(record, [("medico", q)]).run()), q
+    for q, a in (
+        ("A senhora tem pensamentos de se matar?", "Sim."),
+        ("A senhora pensa em se machucar?", "Sim, às vezes."),
+        ("Tem pensado em suicídio?", "Tenho pensado, sim."),
+        ("Nos últimos dias pensou em se ferir?", "Às vezes."),
+    ):
+        ins = engine(record, [("medico", q), ("paciente", a)]).run()
+        alert = risk(ins)
+        assert alert and alert[0].refs[:2] == ["Fala/2", "Fala/1"], (q, a)
+
+
+def test_doctor_question_answered_no_or_unrelated_yes_is_not_risk(record):
+    for falas in (
+        [("medico", "A senhora pensa em se matar?"), ("paciente", "Não.")],
+        [("medico", "A senhora pensa em se matar?"), ("paciente", "Nunca pensei nisso.")],
+        [("medico", "A senhora pensa em se matar?"), ("paciente", "Hum, não sei.")],
+        [("medico", "Bom dia."), ("paciente", "Sim.")],
+        [("medico", "O senhor tem medo de morrer?"), ("paciente", "Tenho sim.")],
+        [("paciente", "Sim."), ("medico", "A senhora pensa em se matar?")],
+    ):
+        assert not risk(engine(record, falas).run()), falas
+
+
+def test_phq9_item9_absent_does_not_cover_the_suicide_item_but_zero_does(record):
+    def mental(respostas):
+        ins = engine(
+            record, [("paciente", "Estou muito triste.")], extra={"escalas": {"phq9": {"respostas": respostas}}}
+        ).run()
+        return {p.id: p.status for p in ins.protocolos}, risk(ins)
+
+    absent, alerts = mental({"humor": "2", "interesse": "1"})
+    assert absent["mental.suicidio"] != "abordado" and absent["mental.phq9"] == "abordado" and not alerts
+    zero, alerts = mental({"ideacao": 0})
+    assert zero["mental.suicidio"] == "abordado" and not alerts
+    for blank in ("", None):
+        status, alerts = mental({"ideacao": blank})
+        assert status["mental.suicidio"] != "abordado" and not alerts
+    positive, alerts = mental({"ideacao": "2"})
+    assert positive["mental.suicidio"] == "critico" and alerts
+
+
+def test_malformed_saved_scale_does_not_break_the_consultation(record):
+    for escalas in ({"phq9": None}, {"phq9": {"respostas": [1]}}, {"phq9": {"respostas": None}}):
+        engine(record, [("paciente", "Estou muito triste.")], extra={"escalas": escalas}).run()
+
+
+def test_age_boundaries_and_unknown_age_or_sex(record):
+    today = clock.now().date()
+
+    def born(years, days_late=0):
+        return (today.replace(year=today.year - years) + timedelta(days=days_late)).isoformat()
+
+    def has(id_, **kw):
+        return id_ in {p.id for p in items(engine(record, [("medico", "Bom dia.")], **kw))}
+
+    assert not has("mulher.colo", birth=born(25, 1), gender="female") and has(
+        "mulher.colo", birth=born(25), gender="female"
+    )
+    assert has("mulher.colo", birth=born(65, 1), gender="female") and not has(
+        "mulher.colo", birth=born(65), gender="female"
+    )
+    assert not has("mulher.mamografia", birth=born(50, 1), gender="female") and has(
+        "mulher.mamografia", birth=born(50), gender="female"
+    )
+    assert has("mulher.mamografia", birth=born(70, 1), gender="female") and not has(
+        "mulher.mamografia", birth=born(70), gender="female"
+    )
+    assert not has("idoso.ivcf20", birth=born(60, 1)) and has("idoso.ivcf20", birth=born(60))
+    for sex in ("male", "other", "unknown"):
+        assert not [
+            p
+            for p in items(engine(record, [("medico", "Fez o papanicolau?")], birth=born(40), gender=sex))
+            if p.eixo == "Mulher"
+        ], sex
+    # sem data de nascimento nenhum item por faixa de idade vale
+    rec = record("cen6")
+    rec.patient = {k: v for k, v in rec.patient.items() if k != "birthDate"}
+    segs = [Segment(n=1, t=1.0, falante="medico", texto="Bom dia.")]
+    ids = {
+        p.id
+        for p in Engine(rec, build_timeline(rec), build_context(rec), segs, "clinica_geral", "consulta", clock.now())
+        .run()
+        .protocolos
+    }
+    assert not ids & {"mulher.colo", "mulher.mamografia", "idoso.ivcf20", "idoso.beers"}
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Não examinei os pés.",
+        "Ainda não examinei os pés hoje.",
+        "Deixei de examinar os pés.",
+        "Não deu tempo de examinar os pés, vou fazer na próxima consulta.",
+        "Preciso examinar os pés depois.",
+        "O senhor examina os pés todo dia?",
+        "Nao examinei os pes",
+    ],
+)
+def test_foot_exam_not_addressed_by_omission_postponement_or_question(record, texto):
+    assert items(engine(record, [("medico", texto)]), id="cronico.dm2.pes")[0].status != "abordado", texto
+
+
+def local_dir(tmp_path, monkeypatch, files):
+    for name, content in files.items():
+        (tmp_path / name).write_text(
+            content if isinstance(content, str) else yaml.safe_dump(content, allow_unicode=True), encoding="utf-8"
+        )
+    monkeypatch.setenv("PROTOCOLOS_LOCAIS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    knowledge.protocols.cache_clear()
+
+
+@pytest.fixture
+def _restore_settings():
+    yield
+    get_settings.cache_clear()
+    knowledge.protocols.cache_clear()
+
+
+def test_malformed_or_unknown_local_files_never_break_or_weaken_the_base(
+    record, tmp_path, monkeypatch, _restore_settings
+):
+    base = {d.id: d for d in knowledge.protocols()}
+    local_dir(
+        tmp_path,
+        monkeypatch,
+        {
+            "a_quebrado.yaml": "eixo: [Mulher\n  itens: : :",
+            "b_lista.yaml": "- 1\n- 2",
+            "c_itens.yaml": {
+                "eixo": "Mulher",
+                "itens": ["x", {"intervalo_dias": 10}, {"id": "nao.existe", "intervalo_dias": 10}],
+            },
+            "d_tipos.yaml": {
+                "eixo": "Mulher",
+                "itens": [{"id": "mulher.colo", "intervalo_dias": "abc"}, {"id": "mulher.mamografia", "idade_min": -3}],
+            },
+            "e_critico.yaml": {
+                "eixo": "Saúde mental",
+                "itens": [
+                    {
+                        "id": "mental.suicidio",
+                        "ativo": False,
+                        "critico": False,
+                        "gatilhos_criticos": [],
+                        "idade_min": 99,
+                        "sexo": "M",
+                    },
+                    {"id": "mental.phq9", "ativo": False},
+                ],
+            },
+        },
+    )
+    got = {d.id: d for d in knowledge.protocols()}
+    assert "mental.phq9" not in got  # não crítico: o local pode desligar
+    assert set(base) - set(got) == {"mental.phq9"} and set(got) == set(base) - {"mental.phq9"}
+    s = got["mental.suicidio"]
+    assert (
+        s.critical
+        and s.critical_triggers == base["mental.suicidio"].critical_triggers
+        and s.age_min is None
+        and not s.sex
+        and not s.local
+    )
+    assert (
+        got["mulher.colo"].interval_days == base["mulher.colo"].interval_days and got["mulher.mamografia"].age_min == 50
+    )
+    assert risk(engine(record, [("paciente", "Eu penso em me matar.")]).run())  # o alerta continua de pé
+
+
+def test_local_file_changes_only_text_and_interval_of_a_critical_item(tmp_path, monkeypatch, _restore_settings):
+    local_dir(
+        tmp_path,
+        monkeypatch,
+        {
+            "x.yaml": {
+                "eixo": "Saúde mental",
+                "itens": [{"id": "mental.suicidio", "intervalo_dias": 30, "pergunta": "Pergunta local?"}],
+            }
+        },
+    )
+    s = {d.id: d for d in knowledge.protocols()}["mental.suicidio"]
+    assert s.interval_days == 30 and s.question == "Pergunta local?" and s.critical and s.local
+
+
+def test_every_source_needs_document_organ_year_and_page(tmp_path):
+    def load(fonte):
+        (tmp_path / "t.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "eixo": "Mulher",
+                    "fontes": {"x": fonte},
+                    "itens": [
+                        {
+                            "id": "t.1",
+                            "protocolo": "p",
+                            "item": "i",
+                            "fonte": "x",
+                            "registro": "nenhum",
+                            "intervalo_dias": 1,
+                            "orientacao": "o",
+                        }
+                    ],
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        return knowledge.load_protocols(tmp_path)
+
+    ok = {"documento": "d", "orgao": "o", "ano": 2020, "pagina": "p. 1"}
+    assert load(ok)[0].citation == "o, d, 2020, p. 1"
+    for broken in (
+        {**ok, "pagina": ""},
+        {**ok, "pagina": "  "},
+        {k: v for k, v in ok.items() if k != "pagina"},
+        {**ok, "orgao": ""},
+        {**ok, "documento": ""},
+        {**ok, "ano": 0},
+        {**ok, "ano": "abc"},
+        None,
+    ):
+        with pytest.raises(ValueError, match="fonte 'x'"):
+            load(broken)

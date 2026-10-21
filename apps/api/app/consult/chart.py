@@ -417,9 +417,9 @@ class ChartView:
         age = self.r.age
         if p.sex and self.r.sex != p.sex:
             return None
-        if age is not None and (
-            (p.age_min is not None and age < p.age_min) or (p.age_max is not None and age > p.age_max)
-        ):
+        if (p.age_min is not None or p.age_max is not None) and (
+            age is None or (p.age_min is not None and age < p.age_min) or (p.age_max is not None and age > p.age_max)
+        ):  # sem data de nascimento, o item por idade não vale (não dá para saber se a faixa é a dele)
             return None
         if p.months_min is not None or p.months_max is not None:
             months = protocolos.meses_de_vida(self.r.patient.get("birthDate"), self.now.date())
@@ -513,15 +513,17 @@ class ChartView:
             refs = motive["refs"] + refs
             kind, _, spec = p.source.partition(":")
             if kind == "escala" and spec in escalas:
-                answers = {k: str(v) for k, v in (escalas[spec].get("respostas") or {}).items()}
+                answers = protocolos.respostas_da_escala(escalas[spec])
                 res = scales.calcular(spec, answers)
-                if res.completo or answers:
+                item9 = protocolos.item9_phq9(answers) if p.critical and spec == "phq9" else None
+                # o item de risco só fica "abordado" pelo PHQ-9 se o item 9 foi respondido (PHQ-9 sem ele não o cobre)
+                if (res.completo or answers) and (not (p.critical and spec == "phq9") or item9 is not None):
                     status = "abordado"
                     ultimo = f"abordado — {res.nome} respondido na consulta" + (
                         f" ({res.total} pontos)" if res.total is not None else ""
                     )
                     refs = refs or [f"Patient/{self.r.id}"]
-                if p.critical and spec == "phq9" and answers.get("ideacao") not in (None, "0"):
+                if item9 is True:
                     status, ultimo = "critico", "item 9 do PHQ-9 positivo na consulta"
                     refs = refs or [f"Patient/{self.r.id}"]
             talked = protocolos.falas_com(segments, p.said) if p.said else []

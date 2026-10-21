@@ -439,7 +439,7 @@ def calcular(escala_id: str, respostas: dict[str, str], refs: dict[str, list[str
     completo = not faltam
     faixa = _faixa(escala, total) if completo else None
     aviso = escala.aviso
-    if escala.id == "phq9" and respostas.get("ideacao") not in (None, "0"):
+    if escala.id == "phq9" and respostas.get("ideacao") not in (None, "", "0"):
         aviso = "ATENÇÃO: item 9 (ideação) positivo — avaliar risco de suicídio hoje. " + aviso
     return Resultado(
         id=escala.id,
