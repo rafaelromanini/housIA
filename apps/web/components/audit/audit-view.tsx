@@ -77,6 +77,8 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.envio_com_pendencia": "Nota enviada com pendência crítica justificada",
   "consulta.enviada": "Nota enviada ao prontuário",
   "consulta.envio_erro": "Envio ao prontuário falhou (a nota ficou na fila para reenvio)",
+  "consulta.expurgada": "Consulta expurgada pelo prazo de retenção",
+  "consulta.dados_excluidos": "Dados da consulta excluídos a pedido do titular",
   "consulta.propostas": "Propostas para o prontuário aceitas pelo profissional",
   "cirurgia.prontidao": "Prontidão para faturamento verificada",
   "impacto.linha_de_base": "Linha de base de tempo informada (Impacto)",

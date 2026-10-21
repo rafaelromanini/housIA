@@ -385,3 +385,17 @@ def test_pa_e_peso_ditos_so_valem_do_paciente_e_sem_pergunta(who, texto, esperad
 
     segs = [Segment(n=1, t=1.0, falante=who, texto=texto)]
     assert {k for k, _, _ in propostas._spoken_measures(segs)} == esperado
+
+
+# ---------- privacidade: a fila é da organização e não guarda dado clínico depois do envio ----------
+def test_fila_tem_a_organizacao_da_consulta_e_apaga_o_bundle_depois_do_envio(client, auth, store, writeback):
+    h = auth("medico")
+    cid = consulta_pronta(client, h)
+    assert enviar(client, h, cid).status_code == 200
+    row = outbox(cid)
+    with db_session.SessionLocal() as db:
+        from app.db.models import Consultation
+
+        c = db.get(Consultation, cid)
+        assert row.organization_id is not None and row.organization_id == c.organization_id
+    assert row.status == "enviado" and row.payload_json is None
