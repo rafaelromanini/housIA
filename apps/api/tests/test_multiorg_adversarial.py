@@ -35,6 +35,7 @@ CORPOS = {
     ("POST", "/consultations/{cid}/segments"): {"segmentos": [{"texto": "dor de cabeça"}]},
     ("PUT", "/consultations/{cid}/hipoteses"): {"cid": "I10", "decisao": "confirmada"},
     ("PUT", "/consultations/{cid}/opme-autorizado"): {"itens": []},
+    ("PUT", "/consultations/{cid}/escalas/{escala}"): {"respostas": {"1": 0}},
 }
 
 
@@ -89,6 +90,7 @@ def test_toda_rota_de_consulta_responde_404_para_outra_organizacao(client, auth)
     sem_404 = []
     for metodo, path, corpo in rotas:
         url = path.replace("{cid}", str(cid)).replace("{n}", "1").replace("{draft_id}", "x").replace("{item_id}", "1")
+        url = url.replace("{escala}", "phq9")
         res = client.request(metodo, url, json=corpo, headers=hb)
         if res.status_code != 404:
             sem_404.append((metodo, path, res.status_code))
