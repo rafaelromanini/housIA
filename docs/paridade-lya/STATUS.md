@@ -703,3 +703,27 @@ texto digitado ou colado.
   durante a passagem); a atribuição da fala usa as mesmas palavras-chave das regras (com IA no `final`, um fato que o modelo
   achou por sinônimo fica `mencionado` sem `fala_ref`); a conferência parcial por regras é por palavra-chave, então sinônimos
   coloquiais podem aparecer como "ainda não citado" até o `final` com IA; sem teste com motor de fala real (só o falso).
+
+## #47/#42: verificação interrompida (2026-10-23, cota)
+
+Verificação independente parada no meio, **sem nenhuma correção de código feita**. Só esta seção foi adicionada.
+- **Conferido**: critérios de aceite de #47 e #42 batem com o código e os testes (`test_consult_tarefas.py`, `test_handoff_ao_vivo.py`,
+  `test_journey.py` verdes); `alembic heads` = `c302` (cabeça única) e o upgrade até a cabeça roda em SQLite; só fala da equipe
+  vira tarefa; sandbox, outra organização, finalizar duas vezes e texto fora da auditoria estão cobertos; WebSocket recusa sem
+  login, sem ciência, perfil errado e plano sem o módulo.
+- **LGPD (ponto 4)**: decisão proposta, ainda não gravada em código: manter o FHIR Task (é registro de pedido no prontuário, como o
+  `DocumentReference` já enviado; retenção do prontuário prevalece) e registrar na auditoria/resposta quantos Tasks ficaram.
+- **Bugs achados e NÃO corrigidos (#47)**: "Não é necessário retornar em 30 dias" gera tarefa (falta `nao e necessari\w+` em
+  `_NEGATION`); "Isso não é urgente, retorno em 1 mês" vira tarefa crítica (urgência negada); "Vou encaminhar a senhora para o
+  cardiologista" não gera tarefa (objeto lido antes do "para"); título herda "urgente"; fala com falante automático
+  (`falante_auto`) vira tarefa sem aviso; `edit_task` rebaixa a prioridade FHIR de tarefa da jornada de urgent para routine
+  (a coluna `critical` é falsa nelas).
+- **Bugs achados e NÃO corrigidos (#42)**: `_says_stable` usa substring: "também" contém "bem" (PA 184/102 dita com "também" vira
+  divergência falsa), "não está estável" conta como estabilidade (divergência falsa), "Ok" solto também; `CORRECTION` aceita
+  qualquer dígito, então "PA estável. Aferi a PA às 8h e às 14h" deixa de divergir (falso negativo crítico); o teto de 6000
+  caracteres devolve 413 também no `final` (a passagem longa não fecha nem audita) enquanto o WebSocket não tem teto de texto
+  acumulado (cada parcial reprocessa tudo); a auditoria não registra a ciência.
+- **Sem conferir**: prompt-injection no caminho com IA real, `garantir_criticos` no caminho final com casos novos, token de outra
+  organização e teto de duração no WebSocket, e os 9 pontos do implementador (ciência no lugar do consentimento, parcial por
+  palavra-chave, contexto fixo, `sem_registro`, `_ORDERABLE`, auditoria só no final, `critical` das tarefas da jornada) além do
+  que está acima. Nenhum teste novo foi escrito.
