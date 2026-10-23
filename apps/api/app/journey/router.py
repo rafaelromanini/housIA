@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,6 +28,15 @@ class TaskIn(BaseModel):
 class TaskUpdateIn(BaseModel):
     status: Literal["concluida", "cancelada"]
     observacao: str | None = Field(None, max_length=1000)
+
+
+class TaskEditIn(BaseModel):
+    titulo: str | None = Field(None, min_length=3, max_length=300)
+    detalhe: str | None = Field(None, max_length=1000)
+    papel: Role | None = None
+    prazo: datetime | None = None
+    critica: bool | None = None
+    justificativa: str | None = Field(None, max_length=1000, description="obrigatória para tirar a marca de crítica")
 
 
 class ContactIn(BaseModel):
@@ -81,11 +91,13 @@ def get_metrics(
 def get_tasks(
     status: Literal["aberta", "concluida", "cancelada"] | None = None,
     papel: Role | None = None,
+    patient_id: str | None = None,
+    consulta: int | None = None,
     db: Session = Depends(get_db),
     fhir: FhirSource = Depends(get_fhir),
     _: User = Depends(get_current_user),
 ) -> list[dict]:
-    return service.list_tasks(db, fhir, status, papel)
+    return service.list_tasks(db, fhir, status, papel, patient_id, consulta)
 
 
 @router.post("/tasks", status_code=201)
@@ -108,6 +120,18 @@ def patch_task(
     user: User = Depends(get_current_user),
 ) -> dict:
     return service.update_task(db, fhir, user, task_id, body.status, body.observacao)
+
+
+@router.put("/tasks/{task_id}")
+def put_task(
+    task_id: int,
+    body: TaskEditIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Edita título, responsável (papel), prazo e criticidade de uma tarefa aberta; atualiza o FHIR Task e audita."""
+    return service.edit_task(db, fhir, user, task_id, body)
 
 
 @router.get("/patients/{patient_id}/contact-script")

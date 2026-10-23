@@ -1,9 +1,12 @@
+from zoneinfo import ZoneInfo
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
 from app.audit.service import log_action
-from app.db.models import Alert
+from app.config import get_settings
+from app.db.models import Alert, JourneyTask
 
 SEVERITY_RANK = {"info": 0, "atencao": 1, "critico": 2}
 
@@ -132,3 +135,49 @@ def communication_facts(db: Session, patient_id: str) -> list:
         for a in rows
         if a.source_refs
     ]
+
+
+def tarefa_facts(db: Session, patient_id: str) -> list:
+    """Tarefas abertas do paciente (pendências da consulta e da jornada, #47) como fatos da passagem de plantão: com
+    responsável, prazo e a fonte (a tarefa FHIR e o encontro). Tarefa crítica vai aos dois públicos; vencida sobe para
+    atenção. O motivo (consulta e fala) fica no texto: a fala em si nunca vai."""
+    from app.handoff.schemas import Fact
+    from app.journey.reference import PAPEL_LABEL
+
+    now = clock.now()
+    rows = db.scalars(
+        select(JourneyTask)
+        .where(JourneyTask.patient_id == patient_id, JourneyTask.status == "aberta")
+        .order_by(JourneyTask.critical.desc(), JourneyTask.due_at)
+    ).all()
+    out = []
+    for t in rows:
+        refs = ([t.fhir_ref] if t.fhir_ref else []) + [r for r in (t.source_refs or []) if not r.startswith("Fala/")]
+        refs = list(dict.fromkeys(refs)) or [f"Patient/{patient_id}"]
+        motivo = [r for r in (t.source_refs or []) if r.startswith("Fala/")]
+        origem = (
+            (f"consulta #{t.consultation_id}" + (f", {', '.join(motivo)}" if motivo else ""))
+            if t.consultation_id
+            else "jornada"
+        )
+        vencida = t.due_at < now
+        prazo = t.due_at.astimezone(ZoneInfo(get_settings().timezone)).strftime("%d/%m")
+        texto = (
+            f"{t.title} — responsável: {PAPEL_LABEL.get(t.role, t.role)}, prazo {prazo}"
+            f"{' (vencida)' if vencida else ''} ({origem})"
+        )
+        publico = (
+            ["medico", "enfermagem"]
+            if (t.critical or t.role == "gestor")
+            else ["medico" if t.role == "medico" else "enfermagem"]
+        )
+        out.append(
+            Fact(
+                tipo="tarefa_aberta",
+                texto=texto,
+                severidade="critico" if t.critical else ("atencao" if vencida else "info"),
+                refs=refs,
+                publico=publico,
+            )
+        )
+    return out

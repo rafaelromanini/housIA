@@ -33,6 +33,7 @@ from app.consult import (
     stt,
     stt_stream,
     stt_vocab,
+    tarefas_service,
 )
 from app.consult import ask as copilot
 from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
@@ -1133,3 +1134,39 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
         await asyncio.to_thread(
             _ws_auditar, uid, org, cid, {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
         )
+
+
+# ---------- pendências viram tarefas (#47) ----------
+class TarefaIn(BaseModel):
+    titulo: str = Field(min_length=3, max_length=300)
+    detalhe: str = Field("", max_length=1000)
+    papel: Literal["medico", "enfermagem", "gestor"] = "medico"
+    prazo_horas: int = Field(72, ge=1, le=24 * 365)
+    critica: bool = False
+
+
+@router.get("/consultations/{cid}/tarefas")
+def tarefas_da_consulta(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), _: User = Depends(clinician)
+) -> dict:
+    """Tarefas que a consulta gerou (retorno, pedido, ligação com o resultado, protocolo atrasado), com responsável e
+    prazo. Editar, concluir ou cancelar: PUT/PATCH /journey/tasks/{id}."""
+    return tarefas_service.listar(db, fhir, cid)
+
+
+@router.post("/consultations/{cid}/tarefas", status_code=201)
+def tarefa_da_consulta_nova(
+    cid: int,
+    body: TarefaIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Pendência escrita pelo profissional na revisão (origem profissional, sem fala)."""
+    c = service._get(db, cid)
+    task = tarefas_service.adicionar(
+        db, fhir, user, c, body.titulo, body.papel, body.prazo_horas, body.critica, body.detalhe
+    )
+    from app.journey.service import task_out
+
+    return task_out(task)

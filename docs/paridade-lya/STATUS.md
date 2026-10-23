@@ -631,3 +631,38 @@ alerta de dose bloqueado; perfil muda com 3 notas). Testes novos: `tests/test_co
   a conferência de tradução por cognato manda para o português o alérgeno sem cognato óbvio (camarão/shrimp): é o erro seguro;
   a tradução ainda não foi exercitada com um LLM real; o mock de resumir corta a frase na primeira vírgula e pode perder
   detalhe (só no modo sem IA externa).
+
+## #47 pendências viram tarefas (FHIR Task) com responsável, prazo e ligação com passagem e alta (2026-10-23)
+
+Branch `claude/integracao-paridade-lya`. **Uma migração** (`c302`, sobre `c301`): `journey_tasks` ganha `consultation_id`, `critical` e
+`chave` (idempotência); golden de `tests/test_journey.py` atualizado. Sem dependência nova.
+- **Regras** (`app/consult/tarefas.py`, só fala da equipe, sem IA): "retorno em X" (dias, semanas, meses, números por extenso,
+  "semana que vem"), "solicitar/pedir" exame, parecer ou encaminhamento (vários por frase), "ligar com o resultado" e protocolo
+  atrasado (`pendente`) ou gatilho de risco (`critico`). Pergunta, negação, condicional ("se piorar, volte em 3 dias") e retorno
+  sem prazo não viram tarefa. "Urgente/hoje mesmo/imediato" na frase marca a tarefa como **crítica**. `sem_registro` de protocolo
+  não é atraso (cen6 teria 10+ tarefas de ruído).
+- **Gravação** (`tarefas_service.py`, chamado no `finish`): cada proposta vira `JourneyTask` + FHIR `Task` (papel em
+  `performerType`, prazo em `restriction.period`, `focus` = Encounter, `reasonCode` = "Consulta #N, Fala/M", `input` com a fala e
+  os recursos, `priority` urgent se crítica). Sandbox e cirurgia não geram. A mesma chave não duplica (finalizar de novo; protocolo
+  já aberto de outra consulta). Se o FHIR falhar a tarefa fica só no banco. O texto da fala nunca vai ao Task, à tarefa ou à
+  auditoria (só o assunto).
+- **Revisão**: `GET/POST /consultations/{id}/tarefas` (lista; pendência escrita pelo profissional, origem profissional),
+  `PUT /journey/tasks/{id}` (título, detalhe, papel, prazo, criticidade; atualiza o Task; tirar a marca de crítica exige
+  justificativa), `GET /journey/tasks?consulta=&patient_id=`. Tela: `components/consult/tasks-panel.tsx` na revisão.
+- **Segurança**: tarefa crítica só conclui com justificativa (≥10 caracteres, 422); cancelar sempre exige motivo; o fechamento
+  audita `jornada.tarefa_concluida/cancelada` (crítica, consulta, se houve justificativa, nunca o texto) e a edição
+  `jornada.tarefa_editada` (campos).
+- **Passagem de plantão**: `tarefa_facts` (alerts/service) entra em `generate_handoff` e na conferência verbal: tarefa aberta com
+  responsável e prazo, crítica para os dois públicos (vira risco e pendência), vencida sobe para atenção; não cria Alert. Prompt
+  `handoff` 1.1.0. Omitir a tarefa crítica no relato verbal aparece como omissão crítica.
+- **Alta (Waze)**: sugestão "Resolver a pendência aberta" por tarefa (prompt `discharge` 1.3.0). **Trava suave**: tarefa crítica
+  aberta bloqueia `confirm` (409) mesmo com risco baixo, até a tarefa ser concluída com justificativa ou haver override com
+  justificativa registrado depois da tarefa mais recente; `register_override` agora aceita esse caso. `assessment_out` traz
+  `tarefas` e `trava.por_tarefas`; a tela mostra as tarefas abertas.
+- **Cartão "Antes de entrar" e LGPD**: a linha de tarefa não leva `Fala/N` de outra consulta e não repete o protocolo que a nota já
+  listou; excluir os dados do paciente apaga as tarefas nascidas das consultas (o FHIR Task já criado **não** é apagado).
+- Mantida a decisão do #44: `Task` fora de `PATIENT_SCOPED` (o `remove_stale` apagaria as Tasks da jornada).
+- Pendências/ressalvas: não há fechamento automático quando a tarefa é cumprida em outra consulta (retorno feito, exame
+  resultado); o papel padrão é fixo por regra (médico, exceto ligação = enfermagem) e a edição corrige; "retorno" dito pelo
+  paciente/acompanhante não conta; frases como "vamos pedir exames" sem nome de exame conhecido não geram tarefa (lista
+  `_ORDERABLE`); sem e2e. Testes: `tests/test_consult_tarefas.py` (31).

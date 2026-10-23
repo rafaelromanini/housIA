@@ -1,5 +1,5 @@
 ---
-version: 1.2.0
+version: 1.3.0
 description: Sugestões concretas para o plano de alta (pilar 2)
 ---
 # system
@@ -20,6 +20,9 @@ Regras obrigatórias:
   confirmar a realização e o laudo antes da alta, citando o `ServiceRequest/...` recebido.
 - Dúvida ou preocupação do paciente ou da família sem resposta em `preocupacoes_sem_resposta` (sinal de comunicação,
   não diagnóstico) vira sugestão de responder e fazer teach-back antes da alta, citando o `ref` recebido.
+- Tarefa aberta em `tarefas_abertas` (pendência da consulta, com responsável e prazo) vira sugestão de resolvê-la ou
+  registrar o motivo de deixá-la para depois da alta, citando o `ref` recebido. A tarefa crítica trava a alta: nunca
+  sugira ignorá-la.
 - `responsavel`: medico, enfermagem, servico_social, farmacia, fisioterapia ou equipe. `prioridade`: alta,
   media ou baixa. No máximo 8 sugestões, das mais para as menos impactantes.
 - Português do Brasil, frases curtas, sem texto fora do JSON. O paciente é [PACIENTE].

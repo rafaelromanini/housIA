@@ -22,6 +22,7 @@ import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
 import { DocumentsPanel } from "@/components/consult/documents-panel";
+import { TasksPanel } from "@/components/consult/tasks-panel";
 import { SectionRewrite } from "@/components/consult/section-rewrite";
 import { ProposalsPanel } from "@/components/consult/proposals-panel";
 import { api, downloadFile, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
@@ -928,6 +929,8 @@ export function NoteReview({
         )}
 
         {!surgical && c.nota && <DocumentsPanel consultId={c.id} patientId={patient.id} ready />}
+
+        {!surgical && c.nota && !c.sandbox && <TasksPanel consultId={c.id} patientId={patient.id} />}
 
         {c.envio?.status === "erro" && !sent && (
           <Alert variant="atencao" data-testid="envio-erro">

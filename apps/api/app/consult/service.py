@@ -43,6 +43,7 @@ from app.consult import (
     stt,
     stt_vocab,
     summary,
+    tarefas_service,
 )
 from app.consult import ask as copilot
 from app.consult import orders as order_drafts
@@ -1697,9 +1698,13 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
     c.status = "finalizada"
     c.finished_at = clock.now()
     c.extra_json = (c.extra_json or {}) | {"nota_original": note, "versoes_nota": []}  # base da métrica "% editado"
-    sem_resposta = (
-        0 if c.kind == "cirurgia" else _sync_communication(db, c, _insights(c, record, events, ctx, segments))
-    )
+    final = None if c.kind == "cirurgia" else _insights(c, record, events, ctx, segments)
+    sem_resposta = 0 if final is None else _sync_communication(db, c, final)
+    novas = (
+        {"criadas": 0, "criticas": 0}
+        if final is None
+        else tarefas_service.sincronizar(db, fhir, user, c, segments, final)
+    )  # pendências da consulta viram tarefas (#47)
     log_action(
         db,
         user,
@@ -1711,6 +1716,8 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
             "falas": len(segments),
             "falas_no_corpo": len(pending),
             "duvidas_sem_resposta": sem_resposta,
+            "tarefas_criadas": novas["criadas"],
+            "tarefas_criticas": novas["criticas"],
             "modo": "regras" if rules_only else result.mode,
             "sem_ia": rules_only,
             "itens_descartados": len(dropped),

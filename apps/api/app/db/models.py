@@ -346,6 +346,10 @@ class JourneyTask(Tenant, Base):
     closed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     closing_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # pendência da consulta (#47): ligação com a consulta, criticidade e chave que impede duplicar ao finalizar de novo
+    consultation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    critical: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    chave: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
 
 class ImpactBaseline(Tenant, Base):

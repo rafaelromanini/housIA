@@ -380,7 +380,8 @@ export interface DischargeAssessment {
   sugestoes: DischargeSuggestion[];
   descartados: DischargeSuggestion[];
   meta: { modo: "mock" | "real"; modelo: string; prompt_version: string };
-  trava: { ativa: boolean; motivo: string | null };
+  trava: { ativa: boolean; motivo: string | null; por_tarefas?: boolean };
+  tarefas?: { abertas: { id: number; titulo: string; papel: string; prazo: string; critica: boolean }[]; criticas: number[] };
   overrides: { id: number; usuario: string; papel: string; justificativa: string; created_at: string }[];
   confirmada: { em: string; por: string | null } | null;
 }

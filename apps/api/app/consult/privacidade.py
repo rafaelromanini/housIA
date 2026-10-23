@@ -16,7 +16,7 @@ from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import estilo, stt
 from app.db import crypto
-from app.db.models import Consultation, User
+from app.db.models import Consultation, JourneyTask, User
 
 logger = logging.getLogger("housia")
 KINDS = ("consulta", "visita", "cirurgia")
@@ -224,6 +224,9 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
     ids = [c.id for c in rows]
     for c in rows:
         db.delete(c)
+    tarefas = list(db.scalars(select(JourneyTask).where(JourneyTask.consultation_id.in_(ids)))) if ids else []
+    for t in tarefas:  # o título da tarefa nasceu da conversa (#47): vai embora com a consulta
+        db.delete(t)
     estilo.esquecer_consultas(db, ids)  # a memória de estilo (#46) guarda só números, mas por consulta
     log_action(
         db,
@@ -231,7 +234,7 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
         "consulta.dados_excluidos",
         "patient",
         patient_id,
-        {"consultas": len(ids), "ids": ids},
+        {"consultas": len(ids), "ids": ids, "tarefas": len(tarefas)},
         commit=False,
     )
     db.commit()

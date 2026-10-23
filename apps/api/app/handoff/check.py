@@ -59,6 +59,9 @@ class HandoffCheckOutput(BaseModel):
 
 def fact_keywords(fact: Fact, record: PatientRecord, events_by_ref: dict[str, ClinicalEvent]) -> list[str]:
     words: list[str] = list(TYPE_KEYWORDS.get(fact.tipo, []))
+    if fact.tipo == "tarefa_aberta":  # o assunto da tarefa (#47): as palavras do título, sem o responsável e o prazo
+        title = normalize(fact.texto.split(" — ", 1)[0])
+        words += [w for w in re.findall(r"[a-z0-9]{5,}", title) if w not in ("solicitar", "retorno", "ligar")]
     meds = {m.ref: m for m in record.medications}
     for ref in fact.refs:
         if ref in meds:

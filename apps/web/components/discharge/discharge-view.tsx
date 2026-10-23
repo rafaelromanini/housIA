@@ -347,6 +347,20 @@ export function DischargeView() {
                         </Alert>
                       )
                     )}
+                    {a.tarefas && a.tarefas.abertas.length > 0 && (
+                      <div className="rounded-md border bg-card p-3 text-sm" data-testid="tarefas-abertas">
+                        <p className="font-medium">Tarefas abertas do paciente</p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                          {a.tarefas.abertas.map((t) => (
+                            <li key={t.id}>
+                              {t.titulo}
+                              {t.critica && <span className="font-semibold text-destructive"> (crítica)</span>} · prazo{" "}
+                              {new Date(t.prazo).toLocaleDateString("pt-BR")}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         variant="accent"

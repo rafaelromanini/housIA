@@ -224,12 +224,15 @@ def _pending(chart: ChartView, src: Sources) -> list[PreLine]:
                 tipo="nota",
             )
         )
+    in_note = [p["texto"] for p in (note or {}).get("pendencias", [])]
     for t in src.tasks:
+        if any(x.startswith(t["texto"]) for x in in_note):
+            continue  # a tarefa do protocolo atrasado (#47) é a mesma pendência que a nota já listou
         out.append(
             PreLine(
                 texto=f"Tarefa de acompanhamento aberta: {t['texto']}"
                 + (f" (prazo {t['prazo']})" if t.get("prazo") else ""),
-                refs=t.get("refs", []),
+                refs=[r for r in t.get("refs", []) if not r.startswith("Fala/")],  # Fala/N é de outra consulta
                 fonte="Jornada do paciente (HousIA)",
                 tipo="tarefa",
             )
