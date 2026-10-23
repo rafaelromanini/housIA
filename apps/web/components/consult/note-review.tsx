@@ -21,6 +21,7 @@ import { CidEditor } from "@/components/consult/cid-editor";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
+import { DocumentsPanel } from "@/components/consult/documents-panel";
 import { ProposalsPanel } from "@/components/consult/proposals-panel";
 import { api, downloadFile, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { focusFala } from "@/components/source-ref";
@@ -911,6 +912,8 @@ export function NoteReview({
             onChange={(propostas) => onChange({ ...c, propostas })}
           />
         )}
+
+        {!surgical && c.nota && <DocumentsPanel consultId={c.id} patientId={patient.id} ready />}
 
         {c.envio?.status === "erro" && !sent && (
           <Alert variant="atencao" data-testid="envio-erro">

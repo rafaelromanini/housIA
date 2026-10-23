@@ -517,3 +517,36 @@ pendência da nota some ao ser citada). Testes novos: `tests/test_consult_sinais
   avaliação mais recente (sem conferir se a internação já terminou); o cen6 não tem internação semeada (uma `IMP`
   anterior vira `record.hospitalization`); a resposta por termos em comum ainda erra para resposta sem o mesmo
   vocabulário (fica aberta, o erro seguro).
+
+## #45 documentos derivados e resumo ao paciente (2026-10-23)
+
+Branch `claude/integracao-paridade-lya`. Sem migração e sem dependência nova (estado em `extra_json["documentos"]`).
+- **Módulos**: `app/consult/documentos.py` (regras puras) e `documentos_service.py` (estado, aprovação, envio). Rotas em
+  `/consultations/{id}/documentos[/{tipo}]` (`GET` lista e disponibilidade; `POST` gera; `PUT` edita; `/aprovar`;
+  `/export`, `/export.pdf`; `/send`). Aba "Documentos" na revisão (`components/consult/documents-panel.tsx`).
+- **Sete tipos**: resumo ao paciente, atestado, encaminhamento, contrarreferência, relatório para convênio, receita e
+  solicitação de exames. Receita e exames saem só dos pedidos que o médico **assinou**; encaminhamento só dos cards
+  decididos como "encaminhar"; sem isso o tipo fica indisponível com o motivo.
+- **Fonte em cada linha**: item sem `refs` é descartado e listado em `descartados` (exceto o texto-padrão do modelo e o que o
+  profissional escreve, marcados `origem` "modelo"/"profissional"). As orientações soltas da nota (`orientacoes_paciente`,
+  sem fonte) não entram no resumo: vão para `descartados` com aviso.
+- **Resumo ao paciente**: remédios com horário e para quê (reaproveita `PURPOSE`/`home_meds` da alta), alergias, **sinais de
+  alarme por regra** (gerais, diagnóstico, classe do remédio, remédio novo e urgência do protocolo do encaminhamento),
+  folha de exames com tendência (as duas refs) e retorno. **Índice de legibilidade** em português (Flesch adaptado por
+  Martins et al., 1996; sílabas por grupo de vogais) com aviso abaixo de 50. Idioma do paciente: tradução item a item por
+  IA (prompt `consult_documentos` 1.0.0) só em modo real e com consentimento de tradução; cada item passa por
+  `fidelidade.divergencias` e o que diverge fica em português (`divergentes`). No mock o documento sai em português com aviso.
+- **Segurança e privacidade**: CID no atestado e no convênio só com `autorizacao_cid` (padrão sem CID, aviso quando pedido sem
+  autorização); item `obrigatorio` (alergia e sinais de alarme) não pode ser removido nem esvaziado na edição (422); editar
+  zera a aprovação; exportar/enviar exige nota revisada e atestada, sem pendência crítica (`_gate_clinical_export`),
+  documento aprovado e a nota igual à da geração (hash; nota mudou = "desatualizado"). Audit só com contagens.
+- **FHIR**: cada documento é um `DocumentReference` próprio (identifier `{consulta}:{tipo}`, LOINC do tipo, `docStatus` final,
+  `context.related` com os recursos citados); reenvio devolve 409. Sem `EHR_WRITEBACK`, ou em sandbox, só devolve o recurso.
+- **Contrarreferência de alta**: com o módulo `alta` e uma avaliação do paciente, traz as sugestões do Waze, o risco (LACE
+  e social) e a lista de remédios em uso como reconciliação.
+- **Pendências/ressalvas**: **QR na impressão não foi feito** (nenhuma biblioteca de QR no projeto e sem dependência nova): o
+  PDF e o texto levam o "Código de verificação" (hash da nota); os códigos LOINC por tipo (69730-0, 51852-2, 57133-1,
+  18761-7, 34133-9, 57833-6, 46209-3) vêm de memória e devem ser conferidos na tabela oficial; o PDF é texto simples
+  (sem assinatura digital); a "folha de exames" lista até 8 dosagens (as que mudaram primeiro); o consentimento de CID é
+  uma caixa na tela, ainda não um registro no consentimento da consulta; a versão em outro idioma não foi exercitada com um
+  LLM real. Testes: `tests/test_consult_documentos.py` (21).

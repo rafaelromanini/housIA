@@ -17,6 +17,7 @@ from app.consult import (
     cid,
     consentimento,
     consultorio,
+    documentos_service,
     idiomas,
     knowledge,
     note_templates,
@@ -725,6 +726,109 @@ def export_pdf(
     return Response(
         data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+
+class DocumentoIn(BaseModel):
+    dias: int | None = Field(None, ge=1, le=365)  # atestado: dias de afastamento (decisão do profissional)
+    incluir_cid: bool = False  # atestado: o CID só entra com a autorização do paciente
+    autorizacao_cid: bool = False
+
+
+class DocumentoEdicao(BaseModel):
+    secoes: list[dict] = Field(max_length=40)
+
+
+@router.get("/consultations/{cid}/documentos")
+def documentos_lista(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+) -> dict:
+    """Aba Documentos: o que pode ser gerado agora e o estado de cada documento (gerado, aprovado, enviado)."""
+    return documentos_service.listar(db, fhir, user, cid)
+
+
+@router.post("/consultations/{cid}/documentos/{tipo}")
+def documento_gerar(
+    cid: int,
+    tipo: str,
+    body: DocumentoIn | None = Body(None),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Gera (ou gera de novo) o rascunho do documento a partir da nota revisada, dos pedidos e do prontuário."""
+    return documentos_service.gerar(db, fhir, user, cid, tipo, body.model_dump() if body else {})
+
+
+@router.get("/consultations/{cid}/documentos/{tipo}")
+def documento_obter(
+    cid: int,
+    tipo: str,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return documentos_service.obter(db, fhir, user, cid, tipo)
+
+
+@router.put("/consultations/{cid}/documentos/{tipo}")
+def documento_editar(
+    cid: int,
+    tipo: str,
+    body: DocumentoEdicao,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Edição do texto item a item. Item de segurança não sai; editar tira a aprovação."""
+    return documentos_service.editar(db, fhir, user, cid, tipo, body.secoes)
+
+
+@router.post("/consultations/{cid}/documentos/{tipo}/aprovar")
+def documento_aprovar(
+    cid: int,
+    tipo: str,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return documentos_service.aprovar(db, fhir, user, cid, tipo)
+
+
+@router.get("/consultations/{cid}/documentos/{tipo}/export")
+def documento_exportar(
+    cid: int,
+    tipo: str,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return documentos_service.exportar(db, fhir, user, cid, tipo)
+
+
+@router.get("/consultations/{cid}/documentos/{tipo}/export.pdf")
+def documento_pdf(
+    cid: int,
+    tipo: str,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> Response:
+    data, filename = documentos_service.pdf_bytes(db, fhir, user, cid, tipo)
+    return Response(
+        data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.post("/consultations/{cid}/documentos/{tipo}/send")
+def documento_enviar(
+    cid: int,
+    tipo: str,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Envia o documento aprovado como um DocumentReference próprio (LOINC do tipo)."""
+    return documentos_service.enviar(db, fhir, user, cid, tipo)
 
 
 class AskIn(BaseModel):
