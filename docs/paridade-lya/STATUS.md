@@ -339,7 +339,7 @@ Branches no remoto, ainda sem PR:
 
 Ordem de merge: #11 → #12 → #38 → resto. Nenhuma migração nova nessas branches.
 
-### Prompt da próxima sessão
+### Prompt da próxima sessão (substituído pelo da Pausa 4, no fim do arquivo)
 
 > Continue o HousIA (rafaelromanini/housIA) de forma AUTÔNOMA a partir da main, seguindo as mesmas regras da sessão
 > anterior (ver "Regras do projeto" e "Pausa 3" em docs/paridade-lya/STATUS.md): agentes Sonnet (verificação alta em
@@ -727,3 +727,44 @@ Verificação independente parada no meio, **sem nenhuma correção de código f
   organização e teto de duração no WebSocket, e os 9 pontos do implementador (ciência no lugar do consentimento, parcial por
   palavra-chave, contexto fixo, `sem_registro`, `_ORDERABLE`, auditoria só no final, `critical` das tarefas da jornada) além do
   que está acima. Nenhum teste novo foi escrito.
+
+## Pausa 4 (2026-10-23, cota em ~60%+)
+
+Trabalho acumulado na branch **`claude/integracao-paridade-lya`** (a partir da main em `15c64db`, cabeça Alembic **c302**),
+**sem PR** de propósito: decidido juntar as funcionalidades e testar tudo junto para poupar cota. Tudo está no remoto.
+A suíte completa (~20 min) e os e2e **ainda não foram rodados** nesta branch; só testes parciais por item.
+
+Já na branch, implementado e verificado: #11 (Whisper no servidor), #12 (PWA no celular), #38, #43, #44, #45, #46.
+Implementado mas com verificação interrompida: **#47 e #42** (ver seção "#47/#42: verificação interrompida" acima,
+com os bugs achados e **ainda abertos**). Ambiente: Windows, venv `apps/api/.venv/Scripts/python` (Python 3.13).
+
+Falta, na ordem:
+1. Corrigir os bugs abertos de #47 e #42 e terminar a verificação (inclui a decisão da LGPD × FHIR Task).
+2. #41 (ditado), #48 (laudos em PDF ou foto).
+3. **Suíte completa + e2e + PR único** da branch de integração (CI: API, Web, Helm, E2E), merge na main. Não deixe para o fim
+   da fila: faça logo após o item 2.
+4. Validar com LLM real (`ANTHROPIC_API_KEY`, `LLM_MODE=real`): saída estruturada dos itens novos só foi testada em mock.
+5. P1 restantes na ordem: #52, #53, #54, #40, #56. Fora do piloto salvo pedido: #39, #49, #50, #51, #55, #57.
+6. Vídeo de pitch (#0) com foco na Consulta com IA (scripts em `brag-output/scripts/`, que apontam para
+   `/home/user/housIA/...`: ajustar para o Windows), `share-copy.txt`, `login-form.tsx`, `description` em `app/layout.tsx`,
+   topo do README. Depois polir o front.
+
+Conferência humana pendente (não é código): códigos LOINC dos documentos (#45), tabelas oficiais CIAP-2/SIGTAP, faixas
+pediátricas, avisos de consentimento em 9 idiomas.
+
+### Prompt da próxima sessão
+
+> Continue o HousIA (rafaelromanini/housIA) de forma AUTÔNOMA na branch `claude/integracao-paridade-lya` (já no remoto;
+> faça `git fetch` e `git checkout`). Leia a seção "Pausa 4" e "Regras do projeto" em docs/paridade-lya/STATUS.md.
+> Regras: UM agente por vez, em série (implementação, depois verificação cética de escopo fechado: critérios de aceite
+> + ~12 entradas adversariais; sem worktree paralelo); agentes Sonnet (effort medium; high só na verificação de
+> segurança clínica/privacidade; Haiku para tarefas mecânicas); orquestrador com effort baixo e respostas curtas;
+> NÃO abrir PR por item: junte tudo nesta branch e teste junto; commit e push após cada entrega; LLM_MODE=mock; só
+> dados sintéticos; nunca commitar chaves. Migração nova encadeia na cabeça atual (c302) e atualiza o golden de
+> tests/test_journey.py. Ordem: (1) corrigir os bugs abertos de #47/#42 listados em "#47/#42: verificação interrompida"
+> e concluir a verificação; (2) #41 e #48; (3) rodar a suíte completa (`pytest -o addopts=""`), ruff, typecheck/lint web
+> e e2e no modo do CI, abrir UM PR em português da branch contra a main e fazer o merge só com API/Web/Helm/E2E verdes;
+> (4) validar com LLM real se houver chave; (5) #52, #53, #54, #40, #56; (6) vídeo pitch e polimento do front. Ao
+> chegar a 80% da cota: não inicie entrega nova; commit wip, push e atualize este STATUS com novo prompt. Se eu
+> informar a cota, use-a; senão, pare depois de abrir o PR do item (3).
+
