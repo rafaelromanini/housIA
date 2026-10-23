@@ -479,3 +479,41 @@ Sem migração. `GET /patients/{id}/pre-consulta[?consulta=N][&resumo=true]` (`a
   cen6**: uma `IMP` anterior vira `record.hospitalization` e trataria a paciente ambulatorial como internada; o critério é
   coberto por teste que monta o cen6 com uma internação no builder. A tendência do exame compara com o resultado
   anterior, não com a meta; a resposta por termos em comum tem os mesmos limites do #43; não há e2e (a cobertura é de API).
+
+## #43/#44 verificados (2026-10-23)
+
+Branch `claude/integracao-paridade-lya`. Sem migração, sem dependência nova, sem mudança no web. Critérios de aceite dos
+dois itens conferidos contra o código e os testes (cen6: dúvida da filha sem resposta até o médico responder; "muito
+medo" = alta; internado → passagem e alta; cen6: creatinina 1,3 → 1,5 e HCTZ com as refs; internação no histórico;
+pendência da nota some ao ser citada). Testes novos: `tests/test_consult_sinais_verificacao.py` e
+`tests/test_consult_pre_consulta_verificacao.py`.
+- **#43, achados corrigidos** (o erro perigoso é dar por respondida): (1) o médico que só repetia a palavra, devolvia a
+  pergunta ("Qual ibuprofeno a senhora toma?") ou adiava citando o assunto ("já explico a catarata depois") fechava a
+  dúvida; agora só conta a oração afirmativa e sem adiamento. (2) "Não sei", "não precisa falar disso agora" e "sim" a
+  "o que é…?" valiam como resposta direta; "calma, vamos ao exame" valia como acolhimento. (3) Dois alertas de
+  `comunicacao` de consultas do **mesmo encontro** (internado) se sobrescreviam (o `upsert_alert` casa por fonte FHIR e
+  ambos citam `Encounter/x`): a dúvida sem resposta da primeira consulta sumia da passagem; cada dúvida agora é um alerta
+  (consulta + fala + assunto), idempotente ao finalizar de novo. (4) Na mescla com a IA a intensidade lia a fala crua:
+  "tengo mucho miedo" com tradução virava "baixa"; agora lê a mesma fala que as regras. (5) O registro de decisões
+  (`insight_actions_json`) guardava o assunto da dúvida descartada e sobrevivia ao expurgo; agora guarda só o tipo.
+- **#43, cobertos sem mudança**: negação ("não tenho medo"), emoção do acompanhante atribuída a ele, consentimento de
+  emoções desligado (sem insights nem alerta), fala fora de alerta/auditoria/passagem/insights expurgados, item
+  descartado não vira alerta (consulta finalizada não aceita mais ação), lista GENERIC.
+- **#44, achados corrigidos**: (1) o paciente que dizia "não fiz a retinografia" marcava o pedido como tratado; a oração
+  negada do paciente/acompanhante não trata mais, e os termos têm de estar na mesma oração. (2) O validador do resumo
+  aceitava número que só existia dentro de um id de recurso (`Observation/123`); agora vale só número do texto do cartão.
+- **#44, cobertos sem mudança**: paciente avulso de outra organização e consulta de outro paciente/organização (404),
+  paciente sem histórico, remédio iniciado/suspenso fora da janela ou sem data, encontro sem fuso ou só com data, ref
+  inventada e frase sem ref (caem para as regras), módulo de alta ausente (sem alta no cartão nem no resumo),
+  internação anterior não torna a consulta de hoje internação, tarefa de jornada aberta/concluída/de outra organização.
+- **Task do FHIR (decisão do implementador): aceita.** Os critérios não pedem a leitura; `JourneyTask` é a fonte da
+  verdade da jornada (a Task do FHIR é cópia, fechada junto) e ler Task em `PATIENT_SCOPED` apagaria as Tasks da jornada
+  no `remove_stale`. Limite: Task criada por outro sistema do prontuário não aparece. Agora com teste.
+- **`test_smart_apps.py::test_duplicate_app_id_and_module_without_run_are_refused`**: era do ambiente (Windows), não do
+  Python 3.13: o teste gravava o módulo com `write_text` sem `encoding`, o Windows grava em cp1252 e o import lê UTF-8
+  ("m\xf3dulo" → SyntaxError). Corrigido com `encoding="utf-8"` no teste; no Linux/CI já passava.
+- **Pendências**: "é grave?" sem outro assunto não tem termo de conteúdo e não vira dúvida rastreada; o assunto (termos)
+  continua no título do alerta de passagem depois do expurgo (decisão do #43: só o assunto); resumo da alta usa a
+  avaliação mais recente (sem conferir se a internação já terminou); o cen6 não tem internação semeada (uma `IMP`
+  anterior vira `record.hospitalization`); a resposta por termos em comum ainda erra para resposta sem o mesmo
+  vocabulário (fica aberta, o erro seguro).

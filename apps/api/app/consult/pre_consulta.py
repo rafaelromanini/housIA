@@ -8,6 +8,7 @@ de até 3 frases, e cada frase precisa citar uma referência que já está no ca
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from app.consult import sinais
 from app.consult.chart import ChartView, fmt_date, fmt_num
 from app.consult.schemas import Segment, fala_ref
+from app.consult.text import norm
 from app.fhir_client import codes
 from app.timeline.record import parse_dt
 
@@ -270,17 +272,34 @@ def _discharge(src: Sources) -> list[PreLine]:
     return out
 
 
+NEGATION = re.compile(r"\b(nao|nunca|nem|ainda nao|esqueci|esqueceu|sem|faltou|perdi)\b")
+
+
+def _mentions(segments: list[Segment]) -> list[tuple[int, set[str]]]:
+    """(n da fala, radicais de uma oração) de cada oração que pode tratar uma pendência. A oração do paciente ou do
+    acompanhante que nega ("não fiz a retinografia") confirma que a pendência continua: não a trata."""
+    out: list[tuple[int, set[str]]] = []
+    for s in segments:
+        if s.origem == "marco":
+            continue
+        for sentence in sinais.sentences(s.texto):
+            if s.falante in sinais.PATIENT_SIDE and NEGATION.search(norm(sentence)):
+                continue
+            out.append((s.n, {sinais.stem(w) for w in sinais.terms(sentence)}))
+    return out
+
+
 def mark_treated(lines: list[PreLine], segments: list[Segment]) -> None:
     """A pendência some do cartão quando a conversa cita o assunto: pelo menos 2 termos de conteúdo em comum (1, se
-    o assunto só tem 1), em qualquer fala. Guarda as `Fala/N` que a trataram."""
-    spoken = [(s.n, {sinais.stem(w) for w in sinais.terms(s.texto)}) for s in segments if s.origem != "marco"]
+    o assunto só tem 1) na mesma oração. Guarda as `Fala/N` que a trataram."""
+    spoken = _mentions(segments)
     for line in lines:
         subject = line.texto.split(":", 1)[-1] if ":" in line.texto else line.texto
         stems = {sinais.stem(w) for w in sinais.terms(subject)}
         need = min(2, len(stems))
         if not need:
             continue
-        hits = [n for n, words in spoken if len(stems & words) >= need]
+        hits = list(dict.fromkeys(n for n, words in spoken if len(stems & words) >= need))
         if hits:
             line.tratada, line.tratada_refs = True, [fala_ref(n) for n in hits[:3]]
 

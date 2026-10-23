@@ -569,7 +569,8 @@ def merge_live(
     ]
     out.queixas = tags + [t for t in base.queixas if not any(_similar(t.rotulo, x.rotulo) for x in tags)]
 
-    by_n = {f"Fala/{s.n}": s for s in segments}
+    # as regras leem fala estrangeira pela tradução (ou pelos sinônimos); a intensidade lê o mesmo texto (#43)
+    by_n = {f"Fala/{s.n}": Engine._for_rules(s) for s in segments}
     words = {d.key: d.words for d in emotions()}
 
     def lexicon(e) -> tuple[str, list[str]]:

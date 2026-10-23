@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 
 from fastapi import HTTPException
@@ -123,7 +122,8 @@ def _resumo(pre: pre_consulta.PreConsulta, record: PatientRecord, specialty: str
         pre.resumo_ia, pre.modo_resumo = base, "regras"
         return
     valid = pre_consulta.all_refs(pre)
-    allowed = set(NUMBER.findall(json.dumps(cartao, ensure_ascii=False)))
+    # só valem os números do texto das linhas: os que estão dentro de um id de recurso (Observation/123) não contam
+    allowed = {n for x in cartao["destaques"] for n in NUMBER.findall(x["texto"])}
     kept = [
         f
         for f in result.output.frases

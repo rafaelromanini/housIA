@@ -270,19 +270,31 @@ def _sync_communication(db: Session, c: Consultation, ins: Insights) -> int:
         return 0
     open_ = [x for x in ins.preocupacoes if not x.respondida]
     ref = f"Encounter/{c.encounter_id}" if c.encounter_id else f"Patient/{c.patient_id}"
-    claimed: set[int] = set()
+    ativos = db.scalars(
+        select(Alert).where(
+            Alert.patient_id == c.patient_id, Alert.source == COMM_SOURCE, Alert.status.in_(("aberto", "reconhecido"))
+        )
+    ).all()
     for x in open_:
         falas = ", ".join(r.split("/")[1] for r in x.refs)
-        upsert_alert(
-            db,
-            patient_id=c.patient_id,
-            source=COMM_SOURCE,
-            severity="atencao",
-            title=f"{WHO_LABEL.get(x.quem, 'Paciente')}: {', '.join(x.termos) or x.tipo}",
-            detail=f"Consulta #{c.id}, fala {falas}; sinal de comunicação, não diagnóstico; teach-back recomendado",
-            refs=[ref],
-            claimed=claimed,
-        )
+        title = f"{WHO_LABEL.get(x.quem, 'Paciente')}: {', '.join(x.termos) or x.tipo}"
+        detail = f"Consulta #{c.id}, fala {falas}; sinal de comunicação, não diagnóstico; teach-back recomendado"
+        # cada dúvida é um alerta próprio (consulta + fala): as consultas de um mesmo encontro compartilham a fonte
+        # FHIR, então casar por fonte (upsert_alert) apagaria a dúvida da consulta anterior
+        alert = next((a for a in ativos if a.detail == detail and a.title == title[:300]), None)
+        if alert is None:
+            alert = Alert(
+                patient_id=c.patient_id,
+                source=COMM_SOURCE,
+                severity="atencao",
+                status="aberto",
+                title="",
+                created_at=clock.now(),
+            )
+            db.add(alert)
+            ativos.append(alert)
+        alert.title, alert.detail, alert.source_refs = title[:300], detail, [ref]
+    db.flush()
     return len(open_)
 
 

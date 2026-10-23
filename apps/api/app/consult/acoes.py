@@ -178,7 +178,8 @@ def record(actions: dict | None, tipo: str, item: Any, acao: str, motivo: str, w
     entry = dict(data["acoes"].get(item.item_key) or {})
     entry |= {
         "tipo": tipo,
-        "rotulo": label[:300],
+        # o rótulo da dúvida leva os termos da fala: o registro de decisões não guarda assunto de conversa (#43)
+        "rotulo": (TYPE_LABEL[tipo] if tipo == "preocupacao" else label)[:300],
         "origem": getattr(item, "origem", "regra"),
         "sk": stable_key(tipo, label),
     }

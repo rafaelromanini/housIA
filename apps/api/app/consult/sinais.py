@@ -29,12 +29,15 @@ GENERIC = frozenset(
     "fazer feito estou estava fico fiquei ficar vamos vai vou como quando onde porque porquê quanto qual quais para "
     "pela pelo muito muita mais menos tambem ainda sempre nunca depois antes agora hoje ontem aqui entao assim bom "
     "bem tudo todo toda nada algo alguma algum ter ser estar tomar queria queria saber sobre entender entendi "
-    "grave serio seria minha meu minhas meus quase junto mesmo mesma outra outro desde".split()
+    "grave serio seria acha acho achar minha meu minhas meus quase junto mesmo mesma outra outro desde".split()
 )
-DIRECT_ANSWER = re.compile(r"^(sim|nao|pode|claro|isso|exato|exatamente|pode ser|e sim|e verdade|nao precisa|calma)\b")
-ACKNOWLEDGE = re.compile(
-    r"\b(entendo|compreendo|imagino|e normal|fica tranquil|calma|vamos resolver|nao se preocupe)\b"
+DIRECT_ANSWER = re.compile(r"^(sim|nao|pode|claro|isso|exato|exatamente|pode ser|e sim|e verdade|nao precisa)\b")
+NOT_AN_ANSWER = re.compile(  # começa com "não", mas é o contrário de responder
+    r"^(nao sei|nao tenho certeza|nao lembro|nao posso (falar|dizer)|nao vou (falar|dizer)|nao precisa falar|"
+    r"nao e (hora|momento)|nao agora)\b"
 )
+WH = re.compile(r"^(e )?(o que|por que|porque|qual|quais|que|quando|como|quanto|quantos|onde|quem)\b")
+ACKNOWLEDGE = re.compile(r"\b(entendo|compreendo|imagino|e normal|fica tranquil|vamos resolver|nao se preocupe)\b")
 DEFER = re.compile(
     r"\b(ja explico|ja vou|ja te explico|ja falo|ja respondo|depois|mais tarde|em seguida|antes disso)\b"
 )
@@ -44,7 +47,7 @@ INTERROGATIVE = re.compile(  # sem "?" (microfone) só estes começos valem; com
 )
 
 
-def _sentences(text: str) -> list[str]:
+def sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", text) if s.strip()]
 
 
@@ -106,7 +109,7 @@ def _doubts(s: Segment, emotions_on: bool) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     defs = [d for d in knowledge.emotions() if d.key in CONCERN_EMOTIONS] if emotions_on else []
     doubt_defs = [d for d in defs if d.key == "confusao"]
-    for sentence in _sentences(s.texto):
+    for sentence in sentences(s.texto):
         t = norm(sentence)
         if not terms(sentence):
             continue
@@ -126,15 +129,26 @@ def _doubts(s: Segment, emotions_on: bool) -> list[tuple[str, str]]:
     return out
 
 
-def _answers(concern_terms: list[str], reply: str, immediate: bool, kind: str) -> bool:
-    t = norm(reply)
-    if {stem(w) for w in concern_terms} & {stem(w) for w in terms(reply)}:
+def _asks(sentence: str) -> bool:
+    """A frase é pergunta (com "?" ou começo de pergunta): quem pergunta de volta não está respondendo."""
+    t = norm(sentence)
+    return "?" in sentence or bool(INTERROGATIVE.match(t) or WH.match(t))
+
+
+def _answers(concern_terms: list[str], reply: str, immediate: bool, kind: str, wh: bool = False) -> bool:
+    """A fala do profissional responde à dúvida? O erro perigoso é dizer que sim sem ter respondido, então só conta a
+    oração afirmativa que cita o assunto (não a que pergunta de volta nem a que adia) e, na fala seguinte, a resposta
+    direta a uma pergunta de sim ou não ("não sei" e "sim" a "o que é" não respondem)."""
+    stems = {stem(w) for w in concern_terms}
+    afirmativas = [x for x in sentences(reply) if not _asks(x) and not DEFER.search(norm(x))]
+    if any(stems & {stem(w) for w in terms(x)} for x in afirmativas):
         return True
-    if not immediate or DEFER.search(t):
+    t = norm(" ".join(afirmativas))
+    if not immediate or not t or DEFER.search(norm(reply)):
         return False
     if kind == "preocupacao":
         return bool(ACKNOWLEDGE.search(t))
-    return bool(DIRECT_ANSWER.match(t))
+    return not wh and not NOT_AN_ANSWER.match(t) and bool(DIRECT_ANSWER.match(t))
 
 
 def unanswered_concerns(segments: list[Segment], emotions_on: bool = True) -> list[Concern]:
@@ -153,7 +167,7 @@ def unanswered_concerns(segments: list[Segment], emotions_on: bool = True) -> li
             keys = terms(sentence)[:6]
             reply = None
             for j, r in enumerate(later):
-                if _answers(keys, r.texto, j == 0, kind):
+                if _answers(keys, r.texto, j == 0, kind, bool(WH.match(norm(sentence)))):
                     reply = r
                     break
             quote = sentence if len(sentence) <= 110 else sentence[:110] + "…"
