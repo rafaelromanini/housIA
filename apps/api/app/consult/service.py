@@ -734,7 +734,10 @@ def transcribe_audio(
     record, _, _ = _chart(fhir, c.patient_id)
     try:
         res = stt.transcribe_words(
-            audio, content_type, language, stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else ""
+            audio,
+            content_type,
+            language,
+            stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else "",
         )
     except stt.STTUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
