@@ -287,3 +287,36 @@ Decisões:
   lb/g/zero/antigo, mL e concentração, dose diária x por tomada, mg/kg, adolescente com dose de adulto, NYHA/IPSS com
   negação, glossário sem trocar sentido). Pendências: percentil/escore z de IMC da OMS (tabelas LMS não embarcadas) e
   conferência humana das faixas de `pediatric_doses.csv` e dos itens do IVCF-20 contra bula/SBP/MS.
+
+## Pausa 3 (2026-10-21, cota)
+
+Entregue na main nesta sessão (todos com os 4 checks verdes): #7 (fix do CI: rota de escalas no teste multi-org),
+#8 (#17 bundle FHIR, c202→e341), #9 (#35 planos, e351→c202), #10 (#29 antes de encaminhar), #11 (#18 codificação;
+também deixou determinístico o teste de cookie adulterado em test_prontidao). Cabeça alembic da main: **e351**.
+
+Branches no remoto, ainda sem PR:
+- `claude/onda3-11-whisper-servidor` (#11): implementado + verificado (alto); main já mesclada. Falta: suíte completa,
+  e2e, PR e merge.
+- `claude/onda3-12-pwa-celular-tablet` (#12): implementado + verificado (alto); e2e local verde (22). Falta: merge da
+  main, suíte, PR. Decisão: projetos "iPhone 13"/"iPad" rodam em Chromium com emulação (CI só instala Chromium);
+  WebKit real pendente.
+- `claude/onda4-38-transcricao-vocabulario` (#38, sobre o #11): implementado; verificação de esforço alto interrompida
+  (commit wip NÃO verificado). Ponto central: rebaixar alerta crítico por baixa confiança do STT é seguro? (ADR 0009:
+  regra de segurança nunca some; preferir manter crítico com "confirmar o que foi ouvido").
+- `claude/onda4-43-sinais-comunicacao` (#43): só criado, sem implementação.
+
+Ordem de merge: #11 → #12 → #38 → resto. Nenhuma migração nova nessas branches.
+
+### Prompt da próxima sessão
+
+> Continue o HousIA (rafaelromanini/housIA) de forma AUTÔNOMA a partir da main, seguindo as mesmas regras da sessão
+> anterior (ver "Regras do projeto" e "Pausa 3" em docs/paridade-lya/STATUS.md): agentes Sonnet (verificação alta em
+> segurança clínica/privacidade), UM agente por vez, em série (implementação, depois verificação; sem frente B nem
+> worktree paralelo), uma verificação cética por entrega (verifyPrompt/common
+> em .claude/workflows/housia-onda.js), um branch e um PR em português por entrega, merge (não rebase) da main antes do
+> PR, merge só com API/Web/Helm/E2E verdes, nunca push na main, LLM_MODE=mock, só dados sintéticos. Antes de cada push:
+> pytest -o addopts="" completo, ruff, typecheck/lint web e e2e no modo do CI. Migração nova encadeia na cabeça da main
+> (hoje e351) e atualiza o golden de tests/test_journey.py. Preparação: venv apps/api/.venv, npm ci em apps/web. Ordem: (1) PR e merge de #11, #12; (2) terminar a verificação do #38 e fazer merge; (3) #43
+> e o restante de P1 (#39–#42, #44–#54) e P2 (#55–#57); (4) vídeo pitch da Consulta com IA (brag-output/scripts,
+> capture-consult.mjs), share-copy.txt, login-form.tsx, description em app/layout.tsx e topo do README; (5) polir o
+> front. Ao chegar a 80% da cota: não inicie entrega nova; commit wip, push, atualizar este STATUS com novo prompt.
