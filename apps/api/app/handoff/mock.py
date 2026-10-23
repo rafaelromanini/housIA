@@ -15,6 +15,7 @@ RISK_PREFIX = {
     "exame_alterado": "Exame alterado",
     "alergia": "Alergia x prescrição",
     "alerta_consulta": "Alerta da consulta",
+    "preocupacao_nao_respondida": "Preocupação sem resposta",
     "interacao": "Interação medicamentosa",
     "omissao": "Possível omissão na transferência",
     "duplicidade": "Duplicidade terapêutica",
@@ -86,6 +87,15 @@ def mock_handoff(audience: str, facts: list[Fact], patient: dict, situation_refs
         {"texto": f"Exame pendente: {f.texto}", "horario": f.horario or "sem horário", "refs": f.refs}
         for f in rel
         if f.tipo == "exame_pendente"
+    ]
+    pendencias += [
+        {
+            "texto": f"Retomar com o paciente/família, com teach-back: {f.texto}",
+            "horario": "sem horário",
+            "refs": f.refs,
+        }
+        for f in rel
+        if f.tipo == "preocupacao_nao_respondida"
     ]
     for f in rel:
         if f.severidade == "critico" and f.tipo in ("sinal_vital_fora_da_faixa", "tendencia"):

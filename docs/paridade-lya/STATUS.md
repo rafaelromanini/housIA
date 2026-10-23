@@ -431,3 +431,28 @@ Branch `claude/integracao-paridade-lya` (o #38 já mesclado). Sem migração, se
   ser trocados (mitigado pelo selo e pela confirmação); a edição de texto apaga a confirmação mesmo se a palavra
   crítica não foi tocada; vocabulário institucional em arquivo (um por organização), não em tabela; e2e/typecheck do
   front não rodaram (nenhum arquivo do web mudou nesta verificação).
+
+## #43 sinais de comunicação (2026-10-23)
+
+Branch `claude/integracao-paridade-lya`. Sem migração e sem dependência nova.
+- **Intensidade por léxico** (`data/reference/consult_intensity.csv`, `app/consult/sinais.py`): vale o maior nível entre as
+  falas da emoção, olhando 30 caracteres em volta da palavra da emoção; "muito medo", "pavor", "demais" = alta;
+  "muito", "bastante" = média; "um pouco" rebaixa; repetir a emoção não sobe mais a intensidade (antes: 3 falas = alta).
+  Na saída da IA a intensidade é recalculada pelo léxico sobre as falas citadas. O card leva `pistas` e o rótulo
+  "sinal de comunicação, não diagnóstico". "pavor" entrou nas palavras de ansiedade.
+- **Dúvidas e preocupações sem resposta** (`Insights.preocupacoes`): frase do paciente/acompanhante com "?" ou começo
+  de pergunta, ou com ansiedade/preocupação/confusão, ligada às falas seguintes do profissional por termos em comum
+  (radical de 5 letras, sem palavras genéricas). Resposta direta ("pode", "sim") só vale na fala imediatamente seguinte;
+  "já explico"/"depois" adiam; preocupação aceita acolhimento ("entendo o medo") na fala seguinte. Itens aceitam
+  "descartar" como as demais. Sem `emocoes` no consentimento tudo isso fica desligado. A lista "Antes de encerrar" está
+  na tela ao lado do botão de finalizar (não bloqueia).
+- **Passagem de plantão e alta**: ao finalizar, cada item aberto vira `Alert(source="comunicacao", atencao)` com só o
+  assunto (termos) e a consulta no detalhe, nunca o texto da fala; sandbox e cirurgia não geram. A passagem lê como fato
+  `preocupacao_nao_respondida` (pendência "retomar com teach-back"); o Waze da alta ganha a sugestão "responder e fazer
+  teach-back" (prompt `discharge` 1.2.0). Fonte FHIR do alerta: `Encounter/{consulta}` (ou `Patient/{id}`).
+- Purge: `termos` é zerado como `trecho`. Golden do cen6 atualizado. 18 testes novos em `tests/test_consult_sinais.py`.
+- Pendências/ressalvas: o alerta não é fechado sozinho quando a pergunta é respondida depois (a consulta já está
+  finalizada); a ligação por sobreposição de termos erra para respostas sem o mesmo vocabulário (a dúvida fica aberta
+  e o profissional descarta, o erro seguro); falas em outro idioma usam a tradução/sinônimos das regras;
+  `test_smart_apps.py::test_duplicate_app_id_and_module_without_run_are_refused` já falhava antes (SyntaxError no
+  módulo de teste do registro; fora do escopo).

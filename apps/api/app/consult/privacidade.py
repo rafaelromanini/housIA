@@ -89,7 +89,16 @@ def _scrub_quotes(node, texts: list[str]):
     if isinstance(node, str):
         return _redact(node, texts)
     if isinstance(node, dict):
-        return {k: ("" if k == "trecho" and isinstance(v, str) else _scrub_quotes(v, texts)) for k, v in node.items()}
+        return {
+            k: (
+                ""
+                if k == "trecho" and isinstance(v, str)
+                else []
+                if k == "termos" and isinstance(v, list)
+                else _scrub_quotes(v, texts)  # assunto da dúvida (#43)
+            )
+            for k, v in node.items()
+        }
     if isinstance(node, list):
         return [_scrub_quotes(v, texts) for v in node]
     return node

@@ -532,7 +532,9 @@ export function SmartAppsPanel({
                     <Badge variant={NEGATIVE.has(e.emocao) ? "atencao" : "ok"}>{e.rotulo}</Badge>
                     <span className="text-xs text-muted-foreground">
                       {e.quem === "acompanhante" ? "acompanhante" : "paciente"} · intensidade {e.intensidade}
+                      {e.pistas && e.pistas.length > 0 && <> (“{e.pistas.join("”, “")}”)</>}
                     </span>
+                    <span className="text-xs italic text-muted-foreground">{e.aviso ?? "sinal de comunicação, não diagnóstico"}</span>
                     <OriginBadge origem={e.origem} />
                     {e.fixado && <Pin aria-label="Fixada no topo" className="size-3.5" />}
                     <NewBadge item={e} falas={ins.falas_analisadas} />
@@ -547,6 +549,31 @@ export function SmartAppsPanel({
                 </li>
               ))}
             </ul>
+          )}
+          {(ins.preocupacoes ?? []).length > 0 && (
+            <div className="mt-3" data-testid="preocupacoes">
+              <p className="text-xs font-bold text-muted-foreground">
+                Dúvidas e preocupações (sinal de comunicação, não diagnóstico)
+              </p>
+              <ul className="mt-1 space-y-1.5">
+                {(ins.preocupacoes ?? []).map((c) => (
+                  <li key={c.item_key || c.refs.join()} className="rounded-md border p-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant={c.respondida ? "ok" : "atencao"}>{c.respondida ? "respondida" : "sem resposta"}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {c.quem === "acompanhante" ? "acompanhante" : "paciente"} · {c.tipo === "duvida" ? "dúvida" : "preocupação"}
+                      </span>
+                      {!c.respondida && c.teach_back && <span className="text-xs">teach-back recomendado</span>}
+                    </div>
+                    <p className="mt-1 italic">{c.trecho}</p>
+                    <SourceRefs patientId={pid} refs={[...c.refs, ...c.resposta_refs]} />
+                    {!c.respondida && (
+                      <ItemActions item={c} label={c.trecho} actions={["descartar"]} onAction={onInsightAction} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {ins.linha_emocional.length > 0 && (
             <div className="mt-3">

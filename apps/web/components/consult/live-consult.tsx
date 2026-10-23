@@ -483,6 +483,8 @@ export function LiveConsult({
     [apply, c.id],
   );
 
+  const openConcerns = (c.insights?.preocupacoes ?? []).filter((x) => !x.respondida);
+
   async function finish() {
     setFinishing(true);
     setError(null);
@@ -642,6 +644,13 @@ export function LiveConsult({
                   <ShieldOff aria-hidden /> Revogar consentimento
                 </Button>
               ))}
+            {openConcerns.length > 0 && (
+              <p className="basis-full text-sm" role="status" data-testid="antes-de-encerrar">
+                <span className="font-bold">Antes de encerrar, ficou sem resposta: </span>
+                {openConcerns.map((x) => x.trecho).join(" · ")}{" "}
+                <span className="text-xs text-muted-foreground">(sinal de comunicação, não diagnóstico)</span>
+              </p>
+            )}
             <Button variant="outline" size="sm" onClick={() => void runAI(true)} disabled={aiRunning || c.segmentos.length === 0 || !canAI}>
               <RefreshCw aria-hidden /> Analisar agora
             </Button>

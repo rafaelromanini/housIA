@@ -107,3 +107,28 @@ def consult_alert_facts(db: Session, patient_id: str) -> list:
         for a in rows
         if a.source_refs
     ]
+
+
+COMM_SOURCE = "comunicacao"
+
+
+def communication_facts(db: Session, patient_id: str) -> list:
+    """Dúvidas e preocupações do paciente ou da família que ficaram sem resposta na consulta (#43), ainda abertas: vão
+    para a passagem de plantão como fato (sinal de comunicação, não diagnóstico), com teach-back recomendado."""
+    from app.handoff.schemas import Fact
+
+    rows = db.scalars(
+        select(Alert)
+        .where(Alert.patient_id == patient_id, Alert.source == COMM_SOURCE, Alert.status.in_(("aberto", "reconhecido")))
+        .order_by(Alert.id)
+    ).all()
+    return [
+        Fact(
+            tipo="preocupacao_nao_respondida",
+            texto=f"{a.title} ({a.detail})",
+            severidade="atencao",
+            refs=list(a.source_refs),
+        )
+        for a in rows
+        if a.source_refs
+    ]

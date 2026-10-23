@@ -155,6 +155,23 @@ class Emotion(ItemAcionavel):
     abordagem: str
     refs: list[str]
     origem: Origin = "regra"
+    pistas: list[str] = []  # intensificadores da fala que definiram a intensidade ("muito medo", "pavor") (#43)
+    aviso: str = "sinal de comunicação, não diagnóstico"
+
+
+class Concern(ItemAcionavel):
+    """Dúvida ou preocupação do paciente ou família e se o profissional já respondeu (#43). Sinal, não diagnóstico."""
+
+    tipo: Literal["duvida", "preocupacao"]
+    quem: Speaker
+    trecho: str
+    termos: list[str] = []  # assunto (termos de conteúdo), com que a resposta do profissional é ligada
+    refs: list[str]  # a fala que levantou a dúvida
+    respondida: bool = False
+    resposta_refs: list[str] = []  # a fala do profissional que respondeu
+    teach_back: bool = False  # recomendado: preocupação da família ou medo
+    origem: Origin = "regra"
+    aviso: str = "sinal de comunicação, não diagnóstico"
 
 
 class EmotionPoint(BaseModel):
@@ -740,6 +757,7 @@ class Insights(BaseModel):
     emocoes: list[Emotion] = []
     linha_emocional: list[EmotionPoint] = []
     comunicacao: CommMetrics | None = None
+    preocupacoes: list[Concern] = []  # dúvidas e preocupações do paciente/família, respondidas ou não (#43)
     perguntas: list[Question] = []
     perguntas_abordadas: list[Question] = []
     hipoteses: list[Hypothesis] = []

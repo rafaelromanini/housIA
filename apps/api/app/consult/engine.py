@@ -21,6 +21,7 @@ from app.consult import (
     orders,
     reminders,
     semiology,
+    sinais,
     summary,
 )
 from app.consult.chart import ChartView, fmt_date
@@ -377,7 +378,8 @@ class Engine:
         by_key = {d.key: d for d in defs}
         for (key, who), segs in hits.items():
             d = by_key[key]
-            intensity = "alta" if len(segs) >= 3 else ("media" if len(segs) == 2 else "baixa")
+            # intensidade pelos intensificadores da fala ("muito medo", "pavor"), não pela contagem de falas (#43)
+            intensity, marks = sinais.combine(sinais.intensity_of(s.texto, d.words) for s in segs)
             out.append(
                 Emotion(
                     emocao=key,
@@ -387,6 +389,7 @@ class Engine:
                     trecho=self.quote(segs[-1]),
                     abordagem=d.approach,
                     refs=[fala_ref(s.n) for s in segs],
+                    pistas=marks,
                 )
             )
         out.sort(key=lambda e: int(e.refs[-1].split("/")[1]), reverse=True)  # mais recente primeiro
@@ -1438,6 +1441,7 @@ class Engine:
             modo="regras",
             queixas=tags,
             emocoes=emotions,
+            preocupacoes=sinais.unanswered_concerns(self.segments, not self.extra.get("sem_emocoes")),
             linha_emocional=timeline,
             comunicacao=metrics,
             perguntas=questions,

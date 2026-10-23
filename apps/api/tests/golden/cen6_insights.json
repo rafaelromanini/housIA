@@ -669,11 +669,13 @@
   {
    "abordagem": "Reforçar a adesão entregando a orientação escrita e marcando o retorno.",
    "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
    "emocao": "confianca",
    "fixado": false,
    "intensidade": "baixa",
    "item_key": "",
    "origem": "regra",
+   "pistas": [],
    "primeira_fala": 0,
    "quem": "paciente",
    "refs": [
@@ -685,11 +687,13 @@
   {
    "abordagem": "Consolidar: resumir o plano combinado e confirmar a data do retorno.",
    "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
    "emocao": "alivio",
    "fixado": false,
    "intensidade": "baixa",
    "item_key": "",
    "origem": "regra",
+   "pistas": [],
    "primeira_fala": 0,
    "quem": "paciente",
    "refs": [
@@ -701,11 +705,13 @@
   {
    "abordagem": "Explicar de novo com palavras do dia a dia e pedir para a pessoa repetir com as próprias palavras.",
    "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
    "emocao": "confusao",
    "fixado": false,
    "intensidade": "baixa",
    "item_key": "",
    "origem": "regra",
+   "pistas": [],
    "primeira_fala": 0,
    "quem": "paciente",
    "refs": [
@@ -717,11 +723,15 @@
   {
    "abordagem": "Responder primeiro à dúvida principal, sem jargão, e combinar sinais claros de quando procurar ajuda.",
    "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
    "emocao": "preocupacao",
    "fixado": false,
    "intensidade": "media",
    "item_key": "",
    "origem": "regra",
+   "pistas": [
+    "muito"
+   ],
    "primeira_fala": 0,
    "quem": "acompanhante",
    "refs": [
@@ -734,11 +744,13 @@
   {
    "abordagem": "Explicar de novo com palavras do dia a dia e pedir para a pessoa repetir com as próprias palavras.",
    "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
    "emocao": "confusao",
    "fixado": false,
    "intensidade": "baixa",
    "item_key": "",
    "origem": "regra",
+   "pistas": [],
    "primeira_fala": 0,
    "quem": "acompanhante",
    "refs": [
@@ -750,11 +762,13 @@
   {
    "abordagem": "Validar o medo com uma frase empática, explicar o próximo passo em linguagem simples e checar o entendimento (teach-back).",
    "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
    "emocao": "ansiedade",
    "fixado": false,
    "intensidade": "baixa",
    "item_key": "",
    "origem": "regra",
+   "pistas": [],
    "primeira_fala": 0,
    "quem": "paciente",
    "refs": [
@@ -766,11 +780,15 @@
   {
    "abordagem": "Abordar o controle da dor antes de seguir a conversa.",
    "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
    "emocao": "dor",
    "fixado": false,
-   "intensidade": "baixa",
+   "intensidade": "media",
    "item_key": "",
    "origem": "regra",
+   "pistas": [
+    "muito"
+   ],
    "primeira_fala": 0,
    "quem": "paciente",
    "refs": [
@@ -2439,6 +2457,141 @@
    ]
   }
  ],
+ "preocupacoes": [
+  {
+   "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "acompanhante",
+   "refs": [
+    "Fala/5"
+   ],
+   "respondida": false,
+   "resposta_refs": [],
+   "teach_back": true,
+   "termos": [
+    "preocupada"
+   ],
+   "tipo": "preocupacao",
+   "trecho": "“Eu fiquei muito preocupada.”"
+  },
+  {
+   "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/16"
+   ],
+   "respondida": true,
+   "resposta_refs": [
+    "Fala/17"
+   ],
+   "teach_back": true,
+   "termos": [
+    "medo",
+    "insulina"
+   ],
+   "tipo": "preocupacao",
+   "trecho": "“Doutora, eu tenho medo de ter que tomar insulina.”"
+  },
+  {
+   "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "acompanhante",
+   "refs": [
+    "Fala/18"
+   ],
+   "respondida": false,
+   "resposta_refs": [],
+   "teach_back": true,
+   "termos": [
+    "significa",
+    "hemoglobina",
+    "glicada"
+   ],
+   "tipo": "duvida",
+   "trecho": "“O que significa essa hemoglobina glicada?”"
+  },
+  {
+   "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "acompanhante",
+   "refs": [
+    "Fala/18"
+   ],
+   "respondida": false,
+   "resposta_refs": [],
+   "teach_back": true,
+   "termos": [
+    "potassio",
+    "alto"
+   ],
+   "tipo": "preocupacao",
+   "trecho": "“E o potássio alto é grave?”"
+  },
+  {
+   "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/23"
+   ],
+   "respondida": true,
+   "resposta_refs": [
+    "Fala/24"
+   ],
+   "teach_back": false,
+   "termos": [
+    "operar",
+    "diabetes"
+   ],
+   "tipo": "duvida",
+   "trecho": "“Posso operar com essa diabetes?”"
+  },
+  {
+   "acao": "",
+   "aviso": "sinal de comunicação, não diagnóstico",
+   "fixado": false,
+   "item_key": "",
+   "origem": "regra",
+   "primeira_fala": 0,
+   "quem": "paciente",
+   "refs": [
+    "Fala/26"
+   ],
+   "respondida": true,
+   "resposta_refs": [
+    "Fala/27"
+   ],
+   "teach_back": false,
+   "termos": [
+    "remedio",
+    "novo",
+    "pressao"
+   ],
+   "tipo": "duvida",
+   "trecho": "“Será que é o remédio novo da pressão?”"
+  }
+ ],
  "protocolos": [
   {
    "eixo": "Adulto crônico",
@@ -3149,14 +3302,13 @@
     "texto": "Mudança recente de medicamento: Hidroclorotiazida iniciado em 21/07/2026 (há 91 dias), no lugar de Anlodipino; relato: “Será que é o remédio novo da pressão? Comecei aquele diurético na última consulta.”"
    },
    {
-    "chave": "emocao:preocupacao:acompanhante",
+    "chave": "emocao:dor:paciente",
     "nova": false,
     "origem": "regra",
     "refs": [
-     "Fala/5",
-     "Fala/18"
+     "Fala/13"
     ],
-    "texto": "Emoção principal (acompanhante): preocupação, “O que significa essa hemoglobina glicada? E o potássio alto é grave?”"
+    "texto": "Emoção principal (paciente): sofrimento por dor, “O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia…”"
    },
    {
     "chave": "exames",
@@ -3196,7 +3348,7 @@
     "texto": "Plano dito pelo médico: “Vamos olhar os exames juntas antes de decidir qualquer coisa.”; “Pode, sim, mas a gente precisa deixar a glicemia e a pressão bem controladas antes.”; “Vamos ajustar.”"
    }
   ],
-  "texto": "[PACIENTE], 60 anos, com diabetes mellitus tipo 2, hipertensão arterial sistêmica, doença renal crônica estágio 3, dislipidemia, obesidade (TFG estimada ~40 mL/min). Queixa de tontura (3 sem · ao levantar). Queixa de queda ou quase queda. Queixa de cansaço (constante). Queixa de suor frio e tremor (antes do almoço · às vezes). Também relata falta de apetite, dor no joelho e urina à noite. Nega dor no peito e falta de ar. Toma glibenclamida em jejum ou sem comer em seguida: “Às vezes eu tomo o remédio do açúcar cedo e só como mais tarde, porque não tenho fome.”; “Não tomei, doutora. Tomei a glibenclamida e vim direto.”; glicemia capilar de hoje 64 mg/dL. Toma ibuprofeno por conta própria (sem prescrição no prontuário): “O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia…”. Mudança recente de medicamento: Hidroclorotiazida iniciado em 21/07/2026 (há 91 dias), no lugar de Anlodipino; relato: “Será que é o remédio novo da pressão? Comecei aquele diurético na última consulta.”. Emoção principal (acompanhante): preocupação, “O que significa essa hemoglobina glicada? E o potássio alto é grave?”. Exames alterados: glicemia capilar (ponta do dedo) 64 mg/dL; hemoglobina glicada 7,1 %; glicose 118 mg/dL; creatinina 1,5 mg/dL. Hipóteses principais: hipoglicemia induzida por sulfonilureia; hipotensão ortostática por anti-hipertensivo/diurético; piora da função renal por aine (com bra e diurético). Plano dito pelo médico: “Vamos olhar os exames juntas antes de decidir qualquer coisa.”; “Pode, sim, mas a gente precisa deixar a glicemia e a pressão bem controladas antes.”; “Vamos ajustar.”."
+  "texto": "[PACIENTE], 60 anos, com diabetes mellitus tipo 2, hipertensão arterial sistêmica, doença renal crônica estágio 3, dislipidemia, obesidade (TFG estimada ~40 mL/min). Queixa de tontura (3 sem · ao levantar). Queixa de queda ou quase queda. Queixa de cansaço (constante). Queixa de suor frio e tremor (antes do almoço · às vezes). Também relata falta de apetite, dor no joelho e urina à noite. Nega dor no peito e falta de ar. Toma glibenclamida em jejum ou sem comer em seguida: “Às vezes eu tomo o remédio do açúcar cedo e só como mais tarde, porque não tenho fome.”; “Não tomei, doutora. Tomei a glibenclamida e vim direto.”; glicemia capilar de hoje 64 mg/dL. Toma ibuprofeno por conta própria (sem prescrição no prontuário): “O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia…”. Mudança recente de medicamento: Hidroclorotiazida iniciado em 21/07/2026 (há 91 dias), no lugar de Anlodipino; relato: “Será que é o remédio novo da pressão? Comecei aquele diurético na última consulta.”. Emoção principal (paciente): sofrimento por dor, “O joelho direito dói muito pra subir escada. Comprei um ibuprofeno na farmácia e tomo duas, três vezes por dia…”. Exames alterados: glicemia capilar (ponta do dedo) 64 mg/dL; hemoglobina glicada 7,1 %; glicose 118 mg/dL; creatinina 1,5 mg/dL. Hipóteses principais: hipoglicemia induzida por sulfonilureia; hipotensão ortostática por anti-hipertensivo/diurético; piora da função renal por aine (com bra e diurético). Plano dito pelo médico: “Vamos olhar os exames juntas antes de decidir qualquer coisa.”; “Pode, sim, mas a gente precisa deixar a glicemia e a pressão bem controladas antes.”; “Vamos ajustar.”."
  },
  "sugestoes_medicamentos": [
   {

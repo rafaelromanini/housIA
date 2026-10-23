@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.alerts.service import consult_alert_facts, upsert_alert
+from app.alerts.service import communication_facts, consult_alert_facts, upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
 from app.db.models import HandoffReport, User
@@ -90,7 +90,11 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
     events = build_timeline(record)
     in_window = window(events, now, req.window_hours)
     ctx = build_context(record)
-    facts: list[Fact] = compute_facts(record, events, now, req.window_hours) + consult_alert_facts(db, patient_id)
+    facts: list[Fact] = (
+        compute_facts(record, events, now, req.window_hours)
+        + consult_alert_facts(db, patient_id)
+        + communication_facts(db, patient_id)
+    )
     sector = record.current_sector
 
     model_id = "mock-deterministico" if settings.llm_mode == "mock" else settings.llm_model
@@ -210,7 +214,9 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
     content = output.model_dump()
     claimed: set[int] = set()
     for risk in content["riscos_proximas_horas"]:
-        if risk["severidade"] in ("critico", "atencao") and not risk["texto"].startswith("Alerta da consulta"):
+        if risk["severidade"] in ("critico", "atencao") and not risk["texto"].startswith(
+            ("Alerta da consulta", "Preocupação sem resposta")
+        ):
             alert = upsert_alert(  # o alerta da consulta já existe no módulo de alertas (source='consulta')
                 db,
                 patient_id=patient_id,

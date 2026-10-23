@@ -664,6 +664,22 @@ export interface ConsultEmotion extends InsightItem {
   abordagem: string;
   refs: string[];
   origem: Origin;
+  /** intensificadores da fala que definiram a intensidade ("muito medo", "pavor") */
+  pistas?: string[];
+  aviso?: string;
+}
+/** Dúvida ou preocupação do paciente/família e se o profissional já respondeu: sinal de comunicação, não diagnóstico. */
+export interface ConsultConcern extends InsightItem {
+  tipo: "duvida" | "preocupacao";
+  quem: Speaker;
+  trecho: string;
+  termos: string[];
+  refs: string[];
+  respondida: boolean;
+  resposta_refs: string[];
+  teach_back: boolean;
+  origem: Origin;
+  aviso: string;
 }
 export interface ConsultQuestion extends InsightItem {
   pergunta: string;
@@ -1185,6 +1201,7 @@ export interface ConsultInsights {
   modo: "regras" | "ia";
   queixas: ConsultTag[];
   emocoes: ConsultEmotion[];
+  preocupacoes?: ConsultConcern[];
   linha_emocional: { n: number; falante: Speaker; emocoes: string[] }[];
   comunicacao: {
     falas: number;

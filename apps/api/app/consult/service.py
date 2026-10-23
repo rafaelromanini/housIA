@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
 from app import clock
-from app.alerts.service import upsert_alert
+from app.alerts.service import COMM_SOURCE, upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import (
@@ -215,7 +215,7 @@ def _decided(c: Consultation, ins: Insights, engine: Engine) -> Insights:
 def _consent_filter(c: Consultation, ins: Insights) -> Insights:
     """Sem consentimento para emoções, nada delas sobra: nem o que a IA acrescentou na mescla."""
     if not consentimento.flags(c.extra_json).emocoes:
-        ins.emocoes, ins.linha_emocional = [], []
+        ins.emocoes, ins.linha_emocional, ins.preocupacoes = [], [], []
     return ins
 
 
@@ -258,6 +258,32 @@ def _sync_alerts(c: Consultation, ins: Insights) -> None:
             changed = True
     if changed:
         c.insight_actions_json = {**data, "alertas": mapping}
+
+
+WHO_LABEL = {"paciente": "Paciente", "acompanhante": "Família/acompanhante"}
+
+
+def _sync_communication(db: Session, c: Consultation, ins: Insights) -> int:
+    """Dúvidas e preocupações que ficaram sem resposta ao encerrar viram Alert(source='comunicacao'), que a passagem de
+    plantão e o plano de alta leem (#43). O título leva só o assunto (termos), nunca o texto das falas."""
+    if c.sandbox or c.kind == "cirurgia" or c.id is None:
+        return 0
+    open_ = [x for x in ins.preocupacoes if not x.respondida]
+    ref = f"Encounter/{c.encounter_id}" if c.encounter_id else f"Patient/{c.patient_id}"
+    claimed: set[int] = set()
+    for x in open_:
+        falas = ", ".join(r.split("/")[1] for r in x.refs)
+        upsert_alert(
+            db,
+            patient_id=c.patient_id,
+            source=COMM_SOURCE,
+            severity="atencao",
+            title=f"{WHO_LABEL.get(x.quem, 'Paciente')}: {', '.join(x.termos) or x.tipo}",
+            detail=f"Consulta #{c.id}, fala {falas}; sinal de comunicação, não diagnóstico; teach-back recomendado",
+            refs=[ref],
+            claimed=claimed,
+        )
+    return len(open_)
 
 
 def _nota(c: Consultation) -> dict | None:
@@ -1658,6 +1684,9 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
     c.status = "finalizada"
     c.finished_at = clock.now()
     c.extra_json = (c.extra_json or {}) | {"nota_original": note, "versoes_nota": []}  # base da métrica "% editado"
+    sem_resposta = (
+        0 if c.kind == "cirurgia" else _sync_communication(db, c, _insights(c, record, events, ctx, segments))
+    )
     log_action(
         db,
         user,
@@ -1668,6 +1697,7 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
             "patient_id": c.patient_id,
             "falas": len(segments),
             "falas_no_corpo": len(pending),
+            "duvidas_sem_resposta": sem_resposta,
             "modo": "regras" if rules_only else result.mode,
             "sem_ia": rules_only,
             "itens_descartados": len(dropped),

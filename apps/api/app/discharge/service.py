@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.alerts.service import upsert_alert
+from app.alerts.service import communication_facts, upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import idiomas
@@ -116,6 +116,9 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
     new_meds = _new_meds(record)
     ctx = build_context(record)
     pending = record.pending_exams
+    concerns = [
+        {"texto": f.texto.split(" (", 1)[0], "refs": f.refs} for f in communication_facts(db, patient_id)
+    ]  # só o assunto, sem o texto das falas
 
     pseudo = Pseudonymizer(**record.identifiers_for_pseudonymization())
     variables = pseudo.apply(
@@ -131,6 +134,7 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
             "checklist": {k: v for k, v in checklist.model_dump().items() if v is not None}
             | {"refs_disponiveis": [f"Checklist/{k}" for k in checklist.model_dump()]},
             "contexto": {
+                "preocupacoes_sem_resposta": concerns,
                 "idade": record.age,
                 "motivo_internacao": record.admission_reason,
                 "diagnosticos": [{"ref": d.source_ref, "texto": d.summary} for d in ctx.diagnosticos],
@@ -146,10 +150,12 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
         PROMPT,
         variables,
         DischargeLLMOutput,
-        mock=lambda _v: mock_suggestions(checklist.model_dump(), components, social_items, meds, new_meds, pending),
+        mock=lambda _v: mock_suggestions(
+            checklist.model_dump(), components, social_items, meds, new_meds, pending, concerns
+        ),
     )
     valid = {f"Checklist/{k}" for k in checklist.model_dump()} | {m.ref for m in record.medications} | ctx.refs()
-    valid |= {e.ref for e in pending}
+    valid |= {e.ref for e in pending} | {r for c in concerns for r in c["refs"]}
     valid |= {r for comp in components.values() for r in comp.get("refs", [])}
     suggestions, dropped = [], []
     for s in result.output.sugestoes:

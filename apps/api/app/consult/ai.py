@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.consult import acoes, coding, cronologia, glossario, idiomas, notas, note_templates
+from app.consult import acoes, coding, cronologia, glossario, idiomas, notas, note_templates, sinais
 from app.consult.cid import screen
 from app.consult.engine import PATIENT_SIDE, TEAM_SIDE, Engine
 from app.consult.knowledge import (
@@ -569,12 +569,23 @@ def merge_live(
     ]
     out.queixas = tags + [t for t in base.queixas if not any(_similar(t.rotulo, x.rotulo) for x in tags)]
 
+    by_n = {f"Fala/{s.n}": s for s in segments}
+    words = {d.key: d.words for d in emotions()}
+
+    def lexicon(e) -> tuple[str, list[str]]:
+        """A intensidade vem dos intensificadores das falas citadas, não da opinião do modelo (#43)."""
+        cited = [by_n[r] for r in e.refs if r in by_n]
+        if not cited or e.emocao not in words:
+            return e.intensidade, []
+        return sinais.combine(sinais.intensity_of(s.texto, words[e.emocao]) for s in cited)
+
     emo = [
         Emotion(
             emocao=e.emocao,
             rotulo=labels.get(e.emocao, e.emocao),
             quem=e.quem,
-            intensidade=e.intensidade,
+            intensidade=lexicon(e)[0],
+            pistas=lexicon(e)[1],
             trecho=e.trecho,
             abordagem=e.abordagem or approach.get(e.emocao, ""),
             refs=e.refs,
