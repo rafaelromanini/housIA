@@ -18,6 +18,7 @@ from app.consult import (
     consentimento,
     consultorio,
     documentos_service,
+    estilo,
     idiomas,
     knowledge,
     note_templates,
@@ -25,6 +26,8 @@ from app.consult import (
     perfis,
     pre_consulta_service,
     privacidade,
+    reescrita,
+    reescrita_service,
     scales,
     service,
     stt,
@@ -627,6 +630,49 @@ def update_note(
 def note_diff(cid: int, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
     """Quanto o profissional mudou, seção a seção, em relação ao rascunho que a IA gerou (que fica guardado intacto)."""
     return service.note_diff(db, user, cid)
+
+
+class RewriteIn(BaseModel):
+    instrucao: str = Field(min_length=3, max_length=reescrita.MAX_INSTRUCAO)
+    aplicar: bool = False  # false: só a prévia com o diff; true: grava na nota e tira a atestação
+
+
+@router.post("/consultations/{cid}/note/sections/{key}/rewrite")
+def rewrite_section(
+    cid: int,
+    key: str,
+    body: RewriteIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Reescreve só esta seção por instrução, com diff e refs preservadas. Bloqueia a reescrita que tira alerta de
+    medicamento, alergia ou pendência crítica; aplicar volta a nota para a revisão (a atestação cai)."""
+    return reescrita_service.reescrever(db, fhir, user, cid, key, body.instrucao, body.aplicar)
+
+
+class StyleIn(BaseModel):
+    desligado: bool
+
+
+@router.get("/consult/estilo")
+def style_profile(db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    """Memória de estilo do profissional: só preferências de forma, aprendidas dos diffs rascunho x final."""
+    return estilo.obter(db, user)
+
+
+@router.put("/consult/estilo")
+def style_switch(body: StyleIn, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    out = estilo.desligar(db, user, body.desligado)
+    log_action(db, user, "consulta.estilo_alterado", "user", user.id, {"desligado": body.desligado})
+    return out
+
+
+@router.delete("/consult/estilo")
+def style_forget(db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    estilo.esquecer(db, user)
+    log_action(db, user, "consulta.estilo_apagado", "user", user.id, {})
+    return estilo.obter(db, user)
 
 
 @router.post("/consultations/{cid}/surgical/recompute")

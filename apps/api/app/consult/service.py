@@ -26,6 +26,7 @@ from app.consult import (
     consentimento,
     consultorio,
     encaminhamento,
+    estilo,
     fidelidade,
     gs1,
     hipoteses,
@@ -1859,6 +1860,9 @@ def update_note(db: Session, user: User, cid: int, note: dict, fhir: FhirSource 
         "atestada": attested,
         "secoes_editadas": {k: v for k, v in version["secoes"].items() if v > 0},
     } | ({"opme": changes} if changes else {})
+    if attested and c.kind != "cirurgia":  # memória de estilo (#46): só números, só da versão final atestada
+        perfil = estilo.registrar(db, user, c.id, draft, c.note_json)
+        payload |= {"estilo_notas": perfil["notas"], "estilo_ativo": perfil["ativo"]}
     log_action(db, user, "consulta.nota_revisada", "consultation", c.id, payload)
     return out(c)
 

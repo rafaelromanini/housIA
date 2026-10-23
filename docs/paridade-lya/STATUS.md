@@ -550,3 +550,34 @@ Branch `claude/integracao-paridade-lya`. Sem migração e sem dependência nova 
   (sem assinatura digital); a "folha de exames" lista até 8 dosagens (as que mudaram primeiro); o consentimento de CID é
   uma caixa na tela, ainda não um registro no consentimento da consulta; a versão em outro idioma não foi exercitada com um
   LLM real. Testes: `tests/test_consult_documentos.py` (21).
+
+## #46 edição da nota por instrução, com diff e memória de estilo (2026-10-23)
+
+Branch `claude/integracao-paridade-lya`. **Uma migração** (`c301`, sobre `e351`): tabela `estilo_notas` (tenant, uma linha por
+profissional); golden de `tests/test_journey.py` atualizado. Sem dependência nova.
+- **Rota**: `POST /consultations/{id}/note/sections/{key}/rewrite {instrucao, aplicar}` (`reescrita.py`, `reescrita_service.py`,
+  prompt `consult_note_rewrite` 1.0.0). `aplicar=false` (padrão) devolve só a prévia (antes, depois, diff por palavra, refs,
+  descartadas); `aplicar=true` grava só aquela seção, **tira a atestação** (a nota volta à revisão) e registra a proveniência
+  (`extra_json["reescritas"]`, sem texto). Vale para as nove seções clássicas; pendências não são reescrevíveis (422).
+  Tela: campo "Reescrever por instrução" abaixo de cada seção, com prévia lado a lado e botão "Aplicar".
+- **Fonte e origem**: a saída do modelo (ou do mock) é remontada pelo servidor. Frase igual a uma existente volta como estava;
+  com refs válidas é "ia"; sem refs herda as da frase parecida (razão ≥ 0,5); sem parecida só entra se for o que a instrução
+  mandou escrever (origem **"profissional"**, sem refs); fora disso é descartada ("sem fonte"). Número ou medicamento que não
+  estava na seção nem na instrução derruba a frase (fato novo). Ref inventada cai.
+- **Trava de segurança**: são protegidas a seção de alergias inteira, as frases com o texto de um alerta de medicamento
+  (crítico ou de atenção) e as que citam um alérgeno; elas precisam seguir **literalmente** na seção nova, senão 422
+  `reescrita_bloqueada` (nada é gravado, audit `consulta.nota_reescrita_bloqueada` só com códigos). Além disso a nota candidata
+  não pode criar pendência crítica nova (`clinical_pending` antes x depois). O prompt também manda copiar as protegidas.
+- **Memória de estilo** (`estilo.py`): a cada nota **atestada** que difere do rascunho da IA guarda 3 números por consulta
+  (razão de tamanho nas seções que ele mexeu, variação de siglas por 100 palavras, se reordenou frases); salvar de novo
+  substitui, não soma; guarda as 30 mais recentes. Com ≥ 3 notas editadas o perfil fica ativo (mais_curto/mais_longo,
+  mais_siglas/menos_siglas, reordena) e vai ao prompt da reescrita como dicas de forma. **Nenhum texto** entra na tabela.
+  `GET/PUT/DELETE /consult/estilo` (ver, desligar, apagar); excluir os dados do paciente tira as contribuições daquelas consultas.
+- **Mock** (`LLM_MODE=mock`): obedece "resuma/encurte", "remova/retire X" (inclusive "o alerta"), "acrescente: …", "sem siglas /
+  use siglas" e "no meu estilo"; instrução que não reconhece deixa a seção igual e avisa. O mock obedece de propósito ao pedido de
+  tirar o alerta, para que a trava (que é do servidor) seja exercitada.
+- **Pendências/ressalvas**: a proteção é por frase literal, então o plano do cen6 (todas as frases citam um alerta) não
+  encurta, só ganha texto; a regra de "fato novo" olha números e medicamentos do catálogo, não afirmações qualitativas; o
+  estilo vai só ao prompt da reescrita, não ao da geração da nota (mudaria a versão de `consult_note`); o perfil aprende de
+  qualquer edição atestada, inclusive correções clínicas (não só de forma); seções do modelo (`secoes`) são aceitas pela
+  chave no servidor mas a tela só oferece a reescrita nas nove clássicas; sem e2e. Testes: `tests/test_consult_reescrita.py` (19).

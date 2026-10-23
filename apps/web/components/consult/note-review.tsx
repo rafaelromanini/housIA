@@ -22,6 +22,7 @@ import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
 import { DocumentsPanel } from "@/components/consult/documents-panel";
+import { SectionRewrite } from "@/components/consult/section-rewrite";
 import { ProposalsPanel } from "@/components/consult/proposals-panel";
 import { api, downloadFile, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { focusFala } from "@/components/source-ref";
@@ -788,6 +789,19 @@ export function NoteReview({
                   )}
                   <SourceRefs patientId={patient.id} refs={section.refs} />
                   <SentenceSources section={section} patientId={patient.id} onPick={pickSource} />
+                  {!sent && FIXED_KEYS.includes(key) && (
+                    <SectionRewrite
+                      consultId={c.id}
+                      sectionKey={key}
+                      disabled={dirty}
+                      onApplied={(nota) => {
+                        setDraft(nota);
+                        onChange({ ...c, nota: nota as unknown as Consultation["nota"], nota_meta: c.nota_meta ? { ...c.nota_meta, atestacao: false } : c.nota_meta });
+                        setAttested(false);
+                        setMessage(`Seção reescrita (${rotulo}). Revise e atestar de novo ao salvar.`);
+                      }}
+                    />
+                  )}
                 </div>
               );
             })}

@@ -378,3 +378,18 @@ class SmartAppProfile(Base):
     especialidade: Mapped[str] = mapped_column(String(40), default="")
     ocultos: Mapped[list] = mapped_column(JsonType, default=list)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class EstiloNota(Tenant, Base):
+    """Memória de estilo da nota (#46): só preferências de forma (tamanho, siglas, ordem) por profissional.
+
+    Guarda números por consulta (razões e contagens), nunca texto clínico de paciente.
+    """
+
+    __tablename__ = "estilo_notas"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_estilo_notas_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    dados_json: Mapped[dict] = mapped_column(JsonType, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)

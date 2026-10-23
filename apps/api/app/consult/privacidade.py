@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import stt
+from app.consult import estilo, stt
 from app.db import crypto
 from app.db.models import Consultation, User
 
@@ -224,6 +224,7 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
     ids = [c.id for c in rows]
     for c in rows:
         db.delete(c)
+    estilo.esquecer_consultas(db, ids)  # a memória de estilo (#46) guarda só números, mas por consulta
     log_action(
         db,
         user,

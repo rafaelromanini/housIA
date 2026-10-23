@@ -90,7 +90,12 @@ def test_toda_rota_de_consulta_responde_404_para_outra_organizacao(client, auth)
     sem_404 = []
     for metodo, path, corpo in rotas:
         url = path.replace("{cid}", str(cid)).replace("{n}", "1").replace("{draft_id}", "x").replace("{item_id}", "1")
-        url = url.replace("{escala}", "phq9").replace("{enc_id}", "uro_hpb").replace("{tipo}", "resumo_paciente")
+        url = (
+            url.replace("{escala}", "phq9")
+            .replace("{enc_id}", "uro_hpb")
+            .replace("{tipo}", "resumo_paciente")
+            .replace("{key}", "plano")
+        )
         res = client.request(metodo, url, json=corpo, headers=hb)
         if res.status_code != 404:
             sem_404.append((metodo, path, res.status_code))
