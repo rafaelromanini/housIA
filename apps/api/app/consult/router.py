@@ -27,6 +27,7 @@ from app.consult import (
     service,
     stt,
     stt_stream,
+    stt_vocab,
 )
 from app.consult import ask as copilot
 from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
@@ -267,6 +268,42 @@ def edit_segment(
 ) -> dict:
     """Corrige o texto e/ou o falante de uma fala: as regras rodam de novo e a nota existente fica desatualizada."""
     return service.edit_segment(db, fhir, user, cid, n, body)
+
+
+@router.post("/consultations/{cid}/segments/{n}/confirm")
+def confirm_segment(
+    cid: int,
+    n: int,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """ "Confirmar o que foi ouvido": medicamento, dose ou alergia de baixa confiança conferidos pelo profissional."""
+    return service.confirm_segment(db, fhir, user, cid, n)
+
+
+class VocabularioIn(BaseModel):
+    itens: list[dict] = Field(default_factory=list, max_length=stt_vocab.MAX_TERMOS_VOCAB)
+
+
+@router.get("/consult/vocabulario")
+def vocabulario(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    """Vocabulário institucional do reconhecimento de fala (siglas, nomes de serviços e de medicamentos locais)."""
+    return {"itens": stt_vocab.vocab_institucional(db.info.get("org_id"))}
+
+
+@router.put("/consult/vocabulario")
+def salvar_vocabulario(
+    body: VocabularioIn, db: Session = Depends(get_db), user: User = Depends(require_roles("gestor"))
+) -> dict:
+    """O gestor troca o vocabulário institucional inteiro; vale nas próximas transcrições."""
+    try:
+        n = stt_vocab.salvar_vocab(body.itens, db.info.get("org_id"))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    log_action(db, user, "consulta.vocabulario", "stt_vocab", "institucional", {"termos": n})
+    db.commit()
+    return {"itens": stt_vocab.vocab_institucional(db.info.get("org_id"))}
 
 
 class MarkerIn(BaseModel):
@@ -776,14 +813,23 @@ def _ws_autenticar(ws: WebSocket) -> tuple[int, int, float]:
 def _ws_contexto(user_id: int, org_id: int, cid: int, speaker: str) -> tuple[str, str]:
     with db_session.SessionLocal() as db:
         set_org(db, org_id)
-        return service.stream_context(db, db.get(User, user_id), cid, speaker)  # type: ignore[arg-type]
+        return service.stream_context(db, get_fhir(), db.get(User, user_id), cid, speaker)  # type: ignore[arg-type]
 
 
-def _ws_persistir(user_id: int, org_id: int, cid: int, texto: str, speaker: str, t: float) -> dict:
+def _ws_persistir(
+    user_id: int,
+    org_id: int,
+    cid: int,
+    texto: str,
+    speaker: str,
+    t: float,
+    palavras: list[tuple[str, float | None]] | None = None,
+    avg_logprob: float | None = None,
+) -> dict:
     with db_session.SessionLocal() as db:
         set_org(db, org_id)
         user = db.get(User, user_id)
-        return service.stream_segment(db, get_fhir(), user, cid, texto, speaker, t)  # type: ignore[arg-type]
+        return service.stream_segment(db, get_fhir(), user, cid, texto, speaker, t, palavras, avg_logprob)  # type: ignore[arg-type]
 
 
 def _ws_auditar(user_id: int, org_id: int, cid: int, payload: dict) -> None:
@@ -827,7 +873,9 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                     if enviar:
                         await ws.send_json({"tipo": "parcial", "texto": ev.texto, "falante": speaker})
                     continue
-                res = await asyncio.to_thread(_ws_persistir, uid, org, cid, ev.texto, speaker, ev.inicio)
+                res = await asyncio.to_thread(
+                    _ws_persistir, uid, org, cid, ev.texto, speaker, ev.inicio, list(ev.palavras), ev.avg_logprob
+                )
             except HTTPException as exc:
                 if enviar:
                     await erro(str(exc.detail))
@@ -838,7 +886,10 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                 return False
             finais += 1
             if enviar:
-                await ws.send_json({"tipo": "final", "texto": ev.texto, "falante": speaker, **res})
+                texto = (
+                    res["novos"][0]["texto"] if res.get("novos") else ev.texto
+                )  # com a correção por similaridade (#38)
+                await ws.send_json({"tipo": "final", "texto": texto, "falante": speaker, **res})
         return True
 
     await ws.send_json({"tipo": "pronto", "formato": "pcm16", "taxa": stt_stream.TAXA, "bloco_ms": 500})

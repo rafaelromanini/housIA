@@ -618,6 +618,13 @@ export interface Segment {
   /** clínica, social ou administrativa (regra; a IA só reclassifica fala sem medicamento, dose, alergia ou alarme) */
   relevancia?: Relevance | null;
   relevancia_origem?: "regra" | "ia";
+  /** transcrição que conhece o paciente (#38): confiança 0–1, palavras duvidosas, termos corrigidos e o que pede confirmação */
+  confianca?: number | null;
+  palavras_baixas?: string[];
+  corrigidos?: { de: string; para: string; razao: number }[];
+  confirmar?: string[];
+  confirmado_por?: string | null;
+  confirmado_em?: string | null;
 }
 export type Relevance = "clinica" | "social" | "administrativa";
 
@@ -768,6 +775,8 @@ export interface MedItem {
 }
 export interface MedSuggestion extends InsightItem {
   texto: string;
+  /** a fala citada tem medicamento, dose ou alergia de baixa confiança: confirmar o que foi ouvido (#38) */
+  confirmar_ouvido?: boolean;
   tipo:
     | "ajuste_dose"
     | "alternativa"

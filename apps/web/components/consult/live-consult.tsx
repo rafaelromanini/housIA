@@ -510,6 +510,18 @@ export function LiveConsult({
     }
   }
 
+  // "confirmar o que foi ouvido" (#38): o servidor devolve a conversa e os alertas com a gravidade da regra
+  const confirmSegment = useCallback(
+    async (n: number) => {
+      await queue.current;
+      const updated = await api<Consultation>(`/consultations/${c.id}/segments/${n}/confirm`, { method: "POST" });
+      setConsultation((prev) =>
+        prev ? { ...prev, segmentos: updated.segmentos, insights: updated.insights ?? prev.insights } : prev,
+      );
+    },
+    [c.id, setConsultation],
+  );
+
   // correção de uma fala (texto e/ou quem falou): o servidor reroda as regras e devolve a conversa inteira
   const editSegment = useCallback(
     async (n: number, patch: SegmentPatch) => {
@@ -894,6 +906,7 @@ export function LiveConsult({
             proLabel={proLabel}
             patientLanguage={c.idioma_paciente}
             onEdit={editSegment}
+            onConfirm={confirmSegment}
             speakers={speakers.filter((sp) => sp !== "desconhecido")}
           />
           <PrivacyPanel panel={c.privacidade ?? config.privacidade} expurgadaEm={c.privacidade?.expurgada_em} />

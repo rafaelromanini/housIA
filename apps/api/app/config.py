@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     stt_janela_s: float = 8.0
     stt_sobreposicao_s: float = 1.0
     stt_silencio_s: float = 0.7
+    # Transcrição que conhece o paciente (#38): abaixo desta confiança (0 a 1) a palavra é "de baixa confiança";
+    # medicamento, dose ou alergia nessa situação pedem "confirmar o que foi ouvido". WER máximo aceito no CI.
+    stt_confianca_minima: float = 0.6
+    stt_wer_max: float = 0.15
+    # Vocabulário institucional do STT (CSV termo,tipo,observacao); vazio: data/reference/vocab_institucional.csv
+    vocab_institucional_path: Path | None = None
     # Envio da nota aprovada ao prontuário (FHIR DocumentReference). Desligado por padrão; ligado no compose demo.
     ehr_writeback: bool = False
 

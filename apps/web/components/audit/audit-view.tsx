@@ -50,6 +50,8 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.marco_privacidade": "Marco de privacidade (pausa, retomada ou revogação)",
   "consulta.fala_editada": "Fala da transcrição corrigida (o texto não vai para o registro)",
   "consulta.audio": "Áudio transcrito (o áudio não é guardado)",
+  "consulta.fala_confirmada": "Fala de baixa confiança conferida pelo profissional (o texto não vai para o registro)",
+  "consulta.vocabulario": "Vocabulário institucional da transcrição atualizado",
   "consulta.audio_stream": "Áudio em fluxo transcrito no servidor (o áudio não é guardado)",
   "consulta.analise_ia": "Análise da consulta pela IA",
   "consulta.traducao": "Falas traduzidas",

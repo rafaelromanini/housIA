@@ -27,7 +27,6 @@ from app.consult import (
     consultorio,
     encaminhamento,
     fidelidade,
-    glossario,
     gs1,
     hipoteses,
     idiomas,
@@ -41,6 +40,7 @@ from app.consult import (
     relevancia,
     scales,
     stt,
+    stt_vocab,
     summary,
 )
 from app.consult import ask as copilot
@@ -63,6 +63,7 @@ from app.consult.export import urn as export_urn
 from app.consult.schemas import (
     ConsultCreate,
     ConsultNote,
+    Correcao,
     FinishIn,
     Insights,
     Segment,
@@ -157,6 +158,10 @@ def reidentify(data, record: PatientRecord):
     if isinstance(data, dict):
         return {k: reidentify(v, record) for k, v in data.items()}
     return data
+
+
+def _org(db: Session) -> int | None:
+    return db.info.get("org_id")
 
 
 def _get(db: Session, cid: int) -> Consultation:
@@ -510,6 +515,9 @@ def _add_segments(c: Consultation, segments: list[Segment], items: list[SegmentI
             client_id=item.client_id,
             relevancia=relevancia.classify(text, previous, speaker),
         )
+        if item.origem == "servidor":  # confiança e correções vêm do motor de fala, não do cliente da API
+            seg.confianca, seg.palavras_baixas = item.confianca, item.palavras_baixas
+            seg.corrigidos, seg.confirmar = item.corrigidos, item.confirmar
         segments.append(seg)
         new.append(seg)
     c.segments_json = [s.model_dump() for s in segments]
@@ -614,6 +622,7 @@ def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, bo
         if text != seg.texto:
             seg.texto_original = seg.texto_original if seg.texto_original is not None else seg.texto
             seg.texto, seg.traducao = text, None  # a tradução antiga não vale para o texto novo
+            seg.confirmar, seg.palavras_baixas = [], []  # quem corrigiu o texto já conferiu o que foi ouvido
             seg.traducao_divergente = []
             changed.append("texto")
     if body.falante is not None and body.falante != seg.falante:
@@ -722,41 +731,101 @@ def transcribe_audio(
     _require_capture(c)
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+    record, _, _ = _chart(fhir, c.patient_id)
     try:
-        text = stt.transcribe(
-            audio, content_type, language, glossario.prompt_stt(c.specialty) if language.startswith("pt") else ""
+        res = stt.transcribe_words(
+            audio, content_type, language, stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else ""
         )
     except stt.STTUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
-    log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(text)})
-    if not text:
+    log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(res.texto)})
+    if not res.texto:
         return {"novos": [], "insights": c.insights_json, "total": len(c.segments_json or [])}
-    return append_segments(
-        db,
-        fhir,
-        user,
-        cid,
-        [SegmentIn(falante=speaker, texto=text, origem="servidor")],  # type: ignore[arg-type]
+    item = _item_servidor(
+        record, speaker, res.texto, None, [(p.texto, p.prob) for p in res.palavras], res.avg_logprob, language, _org(db)
+    )
+    return append_segments(db, fhir, user, cid, [item])
+
+
+def _item_servidor(
+    record,
+    speaker: str,
+    text: str,
+    start: float | None,
+    palavras: list[tuple[str, float | None]],
+    avg_logprob: float | None,
+    language: str,
+    org_id: int | None = None,
+) -> SegmentIn:
+    """Fala vinda do motor de fala (#38): corrige medicamento por similaridade e marca o que merece confirmação."""
+    text = text[:2000]
+    if not language.startswith("pt"):
+        return SegmentIn(falante=speaker, texto=text, t=start, origem="servidor")  # type: ignore[arg-type]
+    termos = stt_vocab.termos_paciente(record) + [v["termo"] for v in stt_vocab.vocab_institucional(org_id)]
+    aval = stt_vocab.avaliar(text, palavras, avg_logprob, termos)
+    novo, correcoes = stt_vocab.corrigir(text, termos)
+    baixas, confirmar = list(aval.palavras_baixas), list(aval.confirmar)
+    for cor in correcoes:  # a palavra corrigida passa a ter o nome do catálogo no texto
+        partes = {norm(w) for w in cor.de.split()}
+        baixas = [cor.para if norm(w) in partes else w for w in baixas]
+        confirmar = [cor.para if norm(w) in partes else w for w in confirmar]
+    return SegmentIn(
+        falante=speaker,  # type: ignore[arg-type]
+        texto=novo,
+        t=start,
+        origem="servidor",
+        confianca=aval.confianca,
+        palavras_baixas=list(dict.fromkeys(baixas)),
+        corrigidos=[Correcao(**c.dump()) for c in correcoes],
+        confirmar=list(dict.fromkeys(confirmar)),
     )
 
 
+def confirm_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int) -> dict:
+    """ "Confirmar o que foi ouvido" (#38): o profissional confere a fala de baixa confiança; os alertas voltam à
+    gravidade da regra."""
+    c = _get(db, cid)
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário: a transcrição não pode mais ser alterada.")
+    segments = _segments(c)
+    seg = next((s for s in segments if s.n == n), None)
+    if seg is None:
+        raise HTTPException(404, "Fala não encontrada")
+    if not seg.confirmar or seg.confirmado_em:
+        raise HTTPException(409, "Esta fala não tem nada pendente de confirmação.")
+    seg.confirmado_por, seg.confirmado_em = user.name, clock.now().isoformat()
+    c.segments_json = [s.model_dump() for s in segments]
+    record, events, ctx = _chart(fhir, c.patient_id)
+    _refresh_insights(c, record, events, ctx, segments)
+    log_action(
+        db, user, "consulta.fala_confirmada", "consultation", c.id, {"n": n, "palavras": len(seg.confirmar)}
+    )  # nunca o texto da fala
+    db.commit()
+    return out(c)
+
+
 def stream_segment(
-    db: Session, fhir: FhirSource, user: User, cid: int, text: str, speaker: str, start: float | None = None
+    db: Session,
+    fhir: FhirSource,
+    user: User,
+    cid: int,
+    text: str,
+    speaker: str,
+    start: float | None = None,
+    palavras: list[tuple[str, float | None]] | None = None,
+    avg_logprob: float | None = None,
 ) -> dict:
     """Frase fechada da transmissão em fluxo (#11): mesmas travas do POST /audio e passa por append_segments."""
     c = _get(db, cid)
     _require_capture(c)
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
-    return append_segments(
-        db,
-        fhir,
-        user,
-        cid,
-        [SegmentIn(falante=speaker, texto=text[:2000], t=start, origem="servidor")],  # type: ignore[arg-type]
-    )
+    record, _, _ = _chart(fhir, c.patient_id)
+    language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+    item = _item_servidor(record, speaker, text, start, palavras or [], avg_logprob, language, _org(db))
+    return append_segments(db, fhir, user, cid, [item])
 
 
-def stream_context(db: Session, user: User, cid: int, speaker: str) -> tuple[str, str]:
+def stream_context(db: Session, fhir: FhirSource, user: User, cid: int, speaker: str) -> tuple[str, str]:
     """(idioma, vocabulário) do STT para a transmissão; recusa quando a captura ou o consentimento não permitem."""
     c = _get(db, cid)
     if c.status != "em_andamento":
@@ -764,7 +833,8 @@ def stream_context(db: Session, user: User, cid: int, speaker: str) -> tuple[str
     _require_capture(c)
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
-    return language, glossario.prompt_stt(c.specialty) if language.startswith("pt") else ""
+    record, _, _ = _chart(fhir, c.patient_id)
+    return language, stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else ""
 
 
 CHECKLIST_LABEL = {"sign_in": "sign-in", "time_out": "time-out", "sign_out": "sign-out"}
