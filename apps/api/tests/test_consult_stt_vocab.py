@@ -94,10 +94,19 @@ def test_correcao_nao_inventa_remedio(fala, esperado):
 
 
 def test_correcao_usa_vocabulario_do_paciente_com_limiar_menor():
-    # nome fora dos catálogos (ratio 0,86): só o prontuário/vocabulário institucional o conhece
-    novo, cor = stt_vocab.corrigir("uso cardiotase", ["Cardiotrace 50 mg"])
-    assert novo == "uso cardiotrace" and cor[0].de == "cardiotase"
-    assert stt_vocab.corrigir("uso cardiotase") == ("uso cardiotase", [])
+    # nome fora dos catálogos, uma letra trocada (ratio 0,83: abaixo do limiar de 0,88 do catálogo e acima do 0,82
+    # do paciente): só o prontuário/vocabulário institucional o conhece
+    assert "zolmax" not in stt_vocab._catalogo()
+    novo, cor = stt_vocab.corrigir("uso zolmex", ["Zolmax 50 mg"])
+    assert novo == "uso zolmax" and cor[0].de == "zolmex" and 0.82 <= cor[0].razao < stt_vocab.RAZAO_MINIMA
+    assert stt_vocab.corrigir("uso zolmex") == ("uso zolmex", [])
+
+
+def test_correcao_com_duas_letras_de_diferenca_nunca_vale_nem_com_o_vocabulario_do_paciente():
+    # "cardiotase" → "cardiotrace" (ratio 0,86, 2 edições) deixou de ser corrigido de propósito: com 2 edições a
+    # troca vira "prednisolona" → "prednisona" para quem toma prednisona, e a conduta muda
+    assert stt_vocab.corrigir("uso cardiotase", ["Cardiotrace 50 mg"]) == ("uso cardiotase", [])
+    assert stt_vocab.corrigir("uso prednisolona", ["Prednisona 20 mg"]) == ("uso prednisolona", [])
 
 
 def test_palavra_seguinte_nao_e_engolida_pelo_par():
@@ -147,6 +156,10 @@ def test_prompt_vai_no_campo_prompt_do_post_audio_com_verbose_json(client, auth,
     assert nova["confianca"] == pytest.approx(0.905, abs=0.01)
 
 
+def org_de(client, h) -> int:
+    return client.get("/auth/me", headers=h).json()["organizacao"]["id"]
+
+
 def test_endpoint_do_vocabulario_so_o_gestor_edita(client, auth):
     corpo = {"itens": [{"termo": "Clínica Aurora", "tipo": "servico"}, {"termo": "clínica aurora"}, {"termo": " "}]}
     assert client.put("/consult/vocabulario", json=corpo, headers=auth("medico")).status_code == 403
@@ -155,7 +168,7 @@ def test_endpoint_do_vocabulario_so_o_gestor_edita(client, auth):
     assert [i["termo"] for i in client.get("/consult/vocabulario", headers=auth("medico")).json()["itens"]] == [
         "Clínica Aurora"
     ]
-    assert "Clínica Aurora" in stt_vocab.prompt(None)
+    assert "Clínica Aurora" in stt_vocab.prompt(None, "", org_de(client, auth("medico")))
     audit = client.get("/audit", headers=auth("gestor")).json()
     linhas = audit if isinstance(audit, list) else audit.get("itens", audit.get("items", []))
     assert any(a.get("action") == "consulta.vocabulario" for a in linhas)
@@ -314,3 +327,155 @@ def test_vocabulario_e_por_organizacao_e_higienizado(tmp_path):
     assert len(a[0]["termo"]) <= stt_vocab.MAX_TERMO and "\n" not in a[0]["termo"] and not a[0]["termo"].startswith("=")
     assert "Clínica B" not in stt_vocab.prompt(None, "", 1)
     assert "HbA1c" in [i["termo"] for i in stt_vocab.vocab_institucional(3)]  # sem edição própria: base de demonstração
+
+
+# ---------- verificação cética 2: segurança do alerta, privacidade, vazamento entre organizações ----------
+def _severidades(no) -> list[tuple[str, str]]:
+    """Todo (tipo, severidade) de qualquer alerta do JSON dos insights, em qualquer nível."""
+    if isinstance(no, dict):
+        achados = [(str(no.get("tipo", "")), str(no["severidade"]))] if "severidade" in no else []
+        return achados + [x for v in no.values() for x in _severidades(v)]
+    if isinstance(no, list):
+        return [x for v in no for x in _severidades(v)]
+    return []
+
+
+def test_baixa_confianca_nunca_muda_a_gravidade_de_nenhum_alerta(client, auth, monkeypatch):
+    """Mesma consulta com e sem trecho incerto: o conjunto de alertas e suas gravidades é idêntico (ADR 0009)."""
+    h = auth()
+    limpo = fala_ibuprofeno(client, h, monkeypatch)
+    duvidoso = fala_ibuprofeno(client, h, monkeypatch, logprob=-3.0)
+    a = client.get(f"/consultations/{limpo}", headers=h).json()["insights"]
+    b = client.get(f"/consultations/{duvidoso}", headers=h).json()["insights"]
+    assert ultimo_servidor(client, h, duvidoso)["confirmar"]
+    assert sorted(_severidades(a)) == sorted(_severidades(b))
+    assert any(sev == "critico" for _, sev in _severidades(b))
+    assert [m["severidade"] for m in a["sugestoes_medicamentos"]] == [
+        m["severidade"] for m in b["sugestoes_medicamentos"]
+    ]
+    assert any(m["confirmar_ouvido"] for m in b["sugestoes_medicamentos"])
+    assert not any(m["confirmar_ouvido"] for m in a["sugestoes_medicamentos"])
+
+
+def test_nome_trocado_pela_correcao_pede_confirmacao_e_guarda_o_que_foi_ouvido(client, auth, monkeypatch):
+    vocab = sorted({"tomo", "glibem", "clamida", "de", "manha"})
+    motor_falso(monkeypatch, vocab)
+    h = auth()
+    cid = start(client, h)["id"]
+    falar(client, h, cid, "tomo glibem clamida de manha", vocab)
+    seg = ultimo_servidor(client, h, cid)
+    assert seg["corrigidos"][0]["de"] == "glibem clamida"  # o ouvido fica guardado
+    assert [c.lower() for c in seg["confirmar"]] == ["glibenclamida"]
+    ins = client.get(f"/consultations/{cid}", headers=h).json()["insights"]
+    citam = [m for m in ins["sugestoes_medicamentos"] if f"Fala/{seg['n']}" in m["refs"]]
+    assert all(m["confirmar_ouvido"] for m in citam)
+    assert client.post(f"/consultations/{cid}/segments/{seg['n']}/confirm", headers=h).status_code == 200
+
+
+def test_correcao_preserva_a_negacao_e_nao_mexe_na_dose():
+    novo, cor = stt_vocab.corrigir("não tomo glibem clamida 5 mg")
+    assert novo.startswith("não tomo ") and novo.endswith(" 5 mg") and "glibenclamida" in novo.lower()
+    assert [c.de for c in cor] == ["glibem clamida"]
+
+
+def test_nenhum_nome_do_catalogo_e_alterado_pela_correcao():
+    """Idempotência: nome conhecido (inclusive de duas palavras) passa intacto, com e sem vocabulário."""
+    nomes = sorted(set(stt_vocab._catalogo().values()) | set(stt_vocab._catalogo()))
+    assert len(nomes) > 100
+    for nome in nomes:
+        frase = f"uso {nome} de manhã"
+        assert stt_vocab.corrigir(frase) == (frase, []), nome
+        assert stt_vocab.corrigir(frase.lower(), [nome]) == (frase.lower(), []), nome
+
+
+def test_alergeno_em_lista_longa_de_baixa_confianca_pede_confirmacao():
+    texto = "tenho alergia a penicilina, sulfa, látex e dipirona"
+    palavras = [(p, 0.2 if p == "dipirona" else 0.95) for p in texto.replace(",", "").split()]
+    assert stt_vocab.avaliar(texto, palavras, None, []).confirmar == ["dipirona"]
+    # alérgeno antes da palavra "alergia"; e palavra de outra oração não conta
+    assert stt_vocab.avaliar("dipirona me dá alergia", [("dipirona", 0.2)], None, []).confirmar == ["dipirona"]
+    assert stt_vocab.avaliar("tomo dieta. alergia não tenho", [("dieta", 0.2)], None, []).confirmar == []
+
+
+def test_alergia_vem_primeiro_no_prompt_e_sobrevive_ao_limite():
+    rec = SimpleNamespace(
+        real_allergies=[{"code": {"text": "Ioexol"}}],
+        active_meds=[SimpleNamespace(name=f"Medicamento{i:03d} 10 mg") for i in range(60)],
+        active_conditions=[{"code": {"text": f"Diagnóstico longo número {i:03d}"}} for i in range(60)],
+    )
+    p = stt_vocab.prompt(rec)
+    assert p.startswith("Ioexol") and len(p) <= stt_vocab.MAX_PROMPT_CHARS + 200
+
+
+def test_confianca_vale_tambem_em_outro_idioma_sem_correcao():
+    item = consult_service._item_servidor(
+        None, "paciente", "tomo ibuprofeno 600 mg", None, [("ibuprofeno", 0.2)], None, "es-MX"
+    )
+    assert item.confirmar == ["ibuprofeno"] and item.corrigidos == []
+
+
+def test_vocabulario_editado_no_mesmo_instante_nao_serve_cache_velho():
+    import os
+
+    stt_vocab.salvar_vocab([{"termo": "Alfa"}], org_id=7)
+    arq = stt_vocab.caminho_vocab(7)
+    antes = arq.stat()
+    assert [i["termo"] for i in stt_vocab.vocab_institucional(7)] == ["Alfa"]
+    arq.write_text("termo,tipo,observacao\nBeta Gama,,\n", "utf-8")  # outro processo editou; mesmo mtime (FS de 1-2 s)
+    os.utime(arq, ns=(antes.st_atime_ns, antes.st_mtime_ns))
+    assert [i["termo"] for i in stt_vocab.vocab_institucional(7)] == ["Beta Gama"]
+
+
+def test_vocabulario_de_uma_organizacao_nao_aparece_para_outra_pela_api(client, auth):
+    from tests.test_multiorg import cadastro_completo
+
+    client.put("/consult/vocabulario", json={"itens": [{"termo": "Clínica Aurora"}]}, headers=auth("gestor"))
+    hb, _ = cadastro_completo(
+        client,
+        "gestora@hospital.test",
+        organizacao_tipo="hospital",
+        conselho=None,
+        conselho_numero=None,
+        uf=None,
+        organizacao_nome="Hospital Sul",
+    )
+    assert "Clínica Aurora" not in json.dumps(client.get("/consult/vocabulario", headers=hb).json())
+    assert client.put("/consult/vocabulario", json={"itens": [{"termo": "Sul"}]}, headers=hb).status_code == 200
+    assert [i["termo"] for i in client.get("/consult/vocabulario", headers=auth("medico")).json()["itens"]] == [
+        "Clínica Aurora"
+    ]  # a edição da outra organização não alterou a primeira
+
+
+def test_confirmar_fala_de_outra_organizacao_e_404_e_o_audit_nao_tem_texto(client, auth, monkeypatch):
+    from tests.test_multiorg import cadastro_completo
+
+    h = auth()
+    cid = fala_ibuprofeno(client, h, monkeypatch, probs={"ibuprofeno": 0.3})
+    hb, _ = cadastro_completo(client, "dra.bia@clinica.test")
+    assert client.post(f"/consultations/{cid}/segments/13/confirm", headers=hb).status_code == 404
+    assert ultimo_servidor(client, h, cid)["confirmado_por"] is None  # nada mudou
+    assert client.post(f"/consultations/{cid}/segments/13/confirm", headers=h).status_code == 200
+    audit = client.get("/audit", headers=auth("gestor")).json()
+    linhas = audit if isinstance(audit, list) else audit.get("itens", audit.get("items", []))
+    registrado = json.dumps([a for a in linhas if a.get("action", "").startswith("consulta.")], ensure_ascii=False)
+    assert "consulta.fala_confirmada" in registrado
+    assert "ibuprofeno" not in registrado.lower()
+
+
+def test_expurgo_apaga_palavras_baixas_corrigidos_e_a_conferir(client, auth, monkeypatch):
+    from app.consult import purge
+    from app.db import session as db_session
+    from app.db.models import Consultation
+
+    h = auth()
+    cid = fala_ibuprofeno(client, h, monkeypatch, logprob=-3.0)
+    with db_session.SessionLocal() as db:
+        seg = db.get(Consultation, cid).segments_json[-1]
+        assert seg["palavras_baixas"] and seg["confirmar"]  # tudo o que foi dito está nessas listas
+    client.post(f"/consultations/{cid}/finish", headers=h)
+    monkeypatch.setattr(get_settings(), "transcript_retention_days", "consulta=0")
+    assert purge.main() == 1
+    with db_session.SessionLocal() as db:
+        seg = db.get(Consultation, cid).segments_json[-1]
+    assert seg["texto"] == "" and seg["palavras_baixas"] == [] and seg["confirmar"] == [] and seg["corrigidos"] == []
+    assert "ibuprofeno" not in json.dumps(client.get(f"/consultations/{cid}", headers=h).json()["segmentos"])

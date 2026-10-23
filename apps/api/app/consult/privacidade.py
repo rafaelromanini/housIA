@@ -145,6 +145,10 @@ def purge_consultation(db: Session, c: Consultation, days: int) -> None:
                 "traducao": None,
                 "traducao_divergente": [],
                 "texto_original": None,
+                # confiança (#38): palavras de baixa confiança, termos corrigidos e a conferir são pedaços da fala
+                "palavras_baixas": [],
+                "corrigidos": [],
+                "confirmar": [],
                 "expurgada": True,
             }
         )

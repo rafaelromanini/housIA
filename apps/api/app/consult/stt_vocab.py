@@ -6,8 +6,9 @@
    ("glibem clamida") é trocada pelo nome certo, com a marca "corrigido" (o que foi ouvido fica guardado). Similaridade
    por `difflib` (sem dependência nova), com limiar alto, mesma inicial e tamanho mínimo.
 3. `avaliar(...)`: confiança do trecho (a partir de `avg_logprob` ou da probabilidade por palavra) e as palavras de
-   baixa confiança; as que são medicamento, dose ou alergia viram "confirmar o que foi ouvido" (o alerta crítico
-   desce para atenção até o profissional confirmar; ver `engine.med_safety`).
+   baixa confiança; as que são medicamento, dose ou alergia viram "confirmar o que foi ouvido". A gravidade do alerta
+   NUNCA desce por causa disso (ADR 0009): o alerta crítico continua crítico, com o aviso, até o profissional
+   confirmar a fala (ver `engine.med_safety`). Todo termo trocado pela correção também pede confirmação.
 """
 
 from __future__ import annotations
@@ -32,7 +33,6 @@ RAZAO_MINIMA_PACIENTE = 0.82  # o que o paciente já toma é mais provável: lim
 TAMANHO_MINIMO = 6
 DOSE = re.compile(r"^\d+([.,]\d+)?(mg|mcg|g|ml|ui|u|%)?$")
 UNIDADES = {"mg", "mcg", "g", "ml", "ui", "comprimido", "comprimidos", "gota", "gotas", "unidade", "unidades"}
-CONTEXTO_ALERGIA = {"alergia", "alergica", "alergico", "alergias", "alergia."}
 TOKEN = re.compile(r"[\wÀ-ÿ]+(?:[-'][\wÀ-ÿ]+)*|[^\w\s]", re.UNICODE)
 
 
@@ -57,7 +57,7 @@ def _leitura(org_id: int | None) -> Path:
 
 
 @lru_cache
-def _ler(caminho: str, mtime: float) -> tuple[tuple[str, str, str], ...]:
+def _ler(caminho: str, mtime_ns: int, tamanho: int) -> tuple[tuple[str, str, str], ...]:
     p = Path(caminho)
     if not p.exists():
         return ()
@@ -72,8 +72,9 @@ def _ler(caminho: str, mtime: float) -> tuple[tuple[str, str, str], ...]:
 
 def vocab_institucional(org_id: int | None = None) -> list[dict]:
     p = _leitura(org_id)
-    mtime = p.stat().st_mtime if p.exists() else 0.0
-    return [{"termo": t, "tipo": tipo, "observacao": obs} for t, tipo, obs in _ler(str(p), mtime)]
+    st = p.stat() if p.exists() else None
+    chave = (st.st_mtime_ns, st.st_size) if st else (0, 0)  # mtime sozinho engana em sistemas de arquivos de 1-2 s
+    return [{"termo": t, "tipo": tipo, "observacao": obs} for t, tipo, obs in _ler(str(p), *chave)]
 
 
 MAX_TERMO = 60  # um termo é nome, sigla ou serviço, não frase: o texto cai no prompt do STT
@@ -104,19 +105,21 @@ def salvar_vocab(itens: list[dict], org_id: int | None = None) -> int:
         w = csv.DictWriter(fh, ["termo", "tipo", "observacao"])
         w.writeheader()
         w.writerows(vistos.values())
+    _ler.cache_clear()
     return len(vistos)
 
 
 # ---------- prompt ----------
 def termos_paciente(record) -> list[str]:
-    """Medicamentos ativos, diagnósticos e alergias do prontuário (nomes como o profissional diria)."""
+    """Alergias, medicamentos ativos e diagnósticos do prontuário (nomes como o profissional diria). Alergia vem
+    primeiro: se o prompt estourar o limite, o que se corta é o diagnóstico, nunca o alérgeno."""
     out: list[str] = []
+    for a in record.real_allergies:
+        out.append(str((a.get("code") or {}).get("text") or "").strip())
     for m in record.active_meds:
         out.append(m.name)
     for c in record.active_conditions:
         out.append(str((c.get("code") or {}).get("text") or "").strip())
-    for a in record.real_allergies:
-        out.append(str((a.get("code") or {}).get("text") or "").strip())
     return [t for t in dict.fromkeys(out) if t]
 
 
@@ -233,6 +236,7 @@ def corrigir(texto: str, termos_extra: list[str] | None = None) -> tuple[str, li
                 j not in usados
                 and len(toks[j][0]) >= 3
                 and norm(toks[j][0]) not in alvos
+                and norm(f"{toks[i][0]} {toks[j][0]}") not in alvos  # "insulina nph" já é um nome do catálogo
                 and texto[toks[i][2] : toks[j][1]].strip() == ""
             ):
                 cand.append(([i, j], toks[i][0] + toks[j][0]))
@@ -295,15 +299,26 @@ def avaliar(
     normais = [norm(t) for t in toks]
     confirmar: list[str] = []
     for b in dict.fromkeys(baixas):
-        if _critica(b, False, alvos) or _perto_de_alergia(norm(b), normais):
+        if _critica(b, False, alvos) or _perto_de_alergia(norm(b), normais, texto):
             confirmar.append(b)
     return Avaliacao(conf, list(dict.fromkeys(baixas)), confirmar)
 
 
-def _perto_de_alergia(palavra: str, normais: list[str]) -> bool:
-    """Palavra dentro de 3 palavras depois de "alergia/alérgico" (o alérgeno dito)."""
-    for i, t in enumerate(normais):
-        if t in CONTEXTO_ALERGIA or t.startswith("alerg"):
-            if palavra in normais[i + 1 : i + 4]:
-                return True
+_ORACAO = re.compile(r"[.!?;\n]+")
+_SEM_VALOR = {  # palavras de ligação: baixa confiança nelas não muda o alérgeno
+    "a", "o", "as", "os", "ao", "aos", "de", "da", "do", "das", "dos", "e", "ou", "em", "eu", "um", "uma", "que",
+    "com", "para", "por", "tenho", "tem", "ter", "tive", "tinha", "sou", "fico", "fica", "ja", "muito", "tambem",
+    "nao", "nunca", "qualquer", "alguma", "algum", "doutor", "doutora", "to", "tou", "estou",
+}  # fmt: skip
+
+
+def _perto_de_alergia(palavra: str, normais: list[str], texto: str = "") -> bool:
+    """Palavra na mesma oração de "alergia/alérgico/allergy" (o alérgeno dito, mesmo numa lista longa: "alergia a
+    penicilina, sulfa e dipirona"), exceto palavras de ligação."""
+    if palavra in _SEM_VALOR or palavra.startswith(("alerg", "allerg")):
+        return False
+    for oracao in _ORACAO.split(texto) if texto else [" ".join(normais)]:
+        ts = [norm(m.group()) for m in TOKEN.finditer(oracao) if m.group()[0].isalnum()]
+        if any(t.startswith(("alerg", "allerg")) for t in ts) and palavra in ts:
+            return True
     return False

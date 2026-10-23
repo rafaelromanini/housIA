@@ -762,8 +762,19 @@ def _item_servidor(
 ) -> SegmentIn:
     """Fala vinda do motor de fala (#38): corrige medicamento por similaridade e marca o que merece confirmação."""
     text = text[:2000]
-    if not language.startswith("pt"):
-        return SegmentIn(falante=speaker, texto=text, t=start, origem="servidor")  # type: ignore[arg-type]
+    if not language.startswith(
+        "pt"
+    ):  # sem correção (o catálogo é em português), mas a confiança vale em qualquer idioma
+        aval = stt_vocab.avaliar(text, palavras, avg_logprob, [])
+        return SegmentIn(
+            falante=speaker,  # type: ignore[arg-type]
+            texto=text,
+            t=start,
+            origem="servidor",
+            confianca=aval.confianca,
+            palavras_baixas=aval.palavras_baixas,
+            confirmar=aval.confirmar,
+        )
     termos = stt_vocab.termos_paciente(record) + [v["termo"] for v in stt_vocab.vocab_institucional(org_id)]
     aval = stt_vocab.avaliar(text, palavras, avg_logprob, termos)
     novo, correcoes = stt_vocab.corrigir(text, termos)
@@ -772,6 +783,8 @@ def _item_servidor(
         partes = {norm(w) for w in cor.de.split()}
         baixas = [cor.para if norm(w) in partes else w for w in baixas]
         confirmar = [cor.para if norm(w) in partes else w for w in confirmar]
+    # um nome trocado por similaridade é palpite do HousIA, não o que o motor ouviu: o profissional confere
+    confirmar += [cor.para for cor in correcoes]
     return SegmentIn(
         falante=speaker,  # type: ignore[arg-type]
         texto=novo,

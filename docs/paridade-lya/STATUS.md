@@ -391,11 +391,43 @@ Branch `claude/onda4-38-transcricao-vocabulario` (sobre a do #11). Sem migraçã
 - Confiança: `Segment.confianca` = exp(`avg_logprob`) ou média da probabilidade por palavra; `palavras_baixas` abaixo
   de `STT_CONFIANCA_MINIMA` (0,6), sublinhadas no Transcript. Trecho incerto sem palavra incerta marca as palavras
   críticas. `Segment.confirmar` guarda só medicamento, dose/unidade ou alérgeno (até 3 palavras depois de "alergia").
-- "Confirmar o que foi ouvido": `Engine.med_safety` rebaixa de crítico para atenção o alerta que cita uma fala com
-  `confirmar` pendente (texto prefixado, `MedSuggestion.confirmar_ouvido`) até `POST /consultations/{id}/segments/{n}/confirm`
-  (audit `consulta.fala_confirmada`, sem texto) ou até o profissional corrigir o texto da fala. Isso também vale para
-  o `ask.py` (copiloto), que reaproveita `med_safety`.
+- "Confirmar o que foi ouvido": `Engine.med_safety` marca o alerta que cita uma fala com `confirmar` pendente (texto
+  prefixado, `MedSuggestion.confirmar_ouvido`) até `POST /consultations/{id}/segments/{n}/confirm` (audit
+  `consulta.fala_confirmada`, sem texto) ou até o profissional corrigir o texto da fala. **A gravidade nunca desce**
+  (ver "#38 verificado"). Também vale para o `ask.py` (copiloto), que reaproveita `med_safety`.
 - `scripts/wer.py` (CI, depois do pytest, com resumo no `GITHUB_STEP_SUMMARY`): sintetiza o áudio das 12 primeiras
   falas do cen6, passa pela mesma `Sessao` do WebSocket e mede o WER (limite `STT_WER_MAX`, 0,15). **Limitação honesta:**
   o motor é o falso, então o número mede a fidelidade do caminho (janela, VAD, deduplicação, correção) e hoje fica em
   0%; o WER de um Whisper real exige áudio real e `STT_URL`, e não é medido no CI.
+
+## #38 verificado (2026-10-23)
+
+Branch `claude/integracao-paridade-lya` (o #38 já mesclado). Sem migração, sem dependência nova.
+- **Alerta crítico nunca é rebaixado por baixa confiança do STT.** O wip já trocara "desce para atenção" por "continua
+  crítico, com «Confirmar o que foi ouvido»"; confirmado no código (a única leitura de `confirmar` é `Engine.med_safety`,
+  que só acrescenta o aviso e `confirmar_ouvido`; copiloto usa a mesma função). Teste de invariante: a mesma consulta com
+  e sem trecho incerto tem o mesmo conjunto (tipo, severidade) de alertas. Docstring do módulo e este STATUS corrigidos.
+- **O que falhava** (3 testes): (1) `cardiotase`→`cardiotrace` tem 2 edições; a trava de 1 edição do wip a barra de
+  propósito (com 2 edições, `prednisolona` viraria `prednisona` para quem toma prednisona e a conduta mudaria). Não era
+  difflib/rapidfuzz nem Python 3.13: era o código endurecido contra o teste antigo. O teste passou a usar uma troca de
+  1 letra que só o limiar do paciente aceita (`zolmex`→`Zolmax`, razão 0,83) e ganhou o caso negativo de 2 edições.
+  (2) `insulina nph` virava `insulina NPH` com selo de "corrigido": o par de palavras que já forma um nome do catálogo é
+  agora deixado como está (teste de idempotência sobre o catálogo inteiro). (3) o teste do endpoint do vocabulário lia o
+  arquivo global, mas o PUT já grava por organização (teste corrigido).
+- **Achados da verificação cética, todos com teste** (`tests/test_consult_stt_vocab.py`):
+  nome trocado pela correção agora também pede «confirmar o que foi ouvido» (é palpite do HousIA; o ouvido fica em
+  `corrigidos`); alérgeno em lista longa ou antes de "alergia" (a janela era de 3 palavras) agora vale na oração toda;
+  alergia vem primeiro no prompt (o corte por tamanho tirava o alérgeno antes do diagnóstico); fala em outro idioma
+  também recebe confiança e `confirmar` (só não há correção); `palavras_baixas`, `corrigidos` e `confirmar` eram cópias
+  da fala que sobreviviam ao expurgo (com trecho incerto, a frase inteira): agora são zerados; cache do vocabulário
+  por (mtime_ns, tamanho) e limpo ao salvar (mtime sozinho serve arquivo velho em sistemas de arquivos de 1-2 s).
+  Cobertos sem mudança: confirmar fala de outra organização (404, nada muda), vocabulário isolado por organização,
+  audit sem texto, negação e dose preservadas na correção, `glibem clamida`→`glibenclamida`, 12 pares de medicamentos
+  parecidos intactos.
+- Decisões: editar o texto de uma fala continua dispensando a confirmação (quem editou conferiu); correção só com
+  1 edição (a 2 edições o profissional vê o que foi ouvido).
+- Pendências: o WER do CI mede o caminho (motor falso), não um Whisper real; números por extenso ("seiscentos") não
+  contam como dose crítica; pares reais de medicamentos a 1 letra de distância fora de `drugs.csv` ainda poderiam
+  ser trocados (mitigado pelo selo e pela confirmação); a edição de texto apaga a confirmação mesmo se a palavra
+  crítica não foi tocada; vocabulário institucional em arquivo (um por organização), não em tabela; e2e/typecheck do
+  front não rodaram (nenhum arquivo do web mudou nesta verificação).
