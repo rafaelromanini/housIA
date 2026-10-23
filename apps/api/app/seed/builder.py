@@ -207,6 +207,7 @@ class ScenarioBuilder:
         self._scales()
         self._procedures()
         self._surgeries()
+        self._requests()
         self._appointments()
         self._notes()
         return self.out
@@ -833,6 +834,28 @@ class ScenarioBuilder:
             if proc.get("obs"):
                 resource["note"] = [{"text": proc["obs"]}]
             self.out.append(resource)
+
+    def _requests(self) -> None:
+        """Pedidos de exame (ServiceRequest) feitos em consultas anteriores: `pedidos` no cenário. Sem resultado
+        (status active), aparecem como pendência no cartão "Antes de entrar" (#44)."""
+        for i, p in enumerate(self.s.get("pedidos", [])):
+            cat = codes.SR_IMAGING if p.get("categoria") == "imagem" else codes.SR_LAB
+            self.out.append(
+                {
+                    "resourceType": "ServiceRequest",
+                    "id": f"{self.sid}-pedido-{p.get('id', i)}",
+                    "status": p.get("status", "active"),
+                    "intent": "order",
+                    "category": [{"coding": [{"system": codes.SNOMED, "code": cat[0], "display": cat[1]}]}],
+                    "code": {"text": p["texto"]},
+                    "subject": self.patient_ref,
+                    "encounter": self.enc_for(p, self.t(p["t"])) if p.get("setor") else None,
+                    "authoredOn": iso(self.t(p["t"])),
+                    "requester": {"display": p.get("profissional", "")},
+                }
+            )
+            if self.out[-1]["encounter"] is None:
+                del self.out[-1]["encounter"]
 
     def _surgeries(self) -> None:
         """Cirurgia agendada: ServiceRequest (com bodySite), Appointment da sala e Consent (termo assinado)."""

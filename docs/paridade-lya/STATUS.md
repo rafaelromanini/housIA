@@ -456,3 +456,26 @@ Branch `claude/integracao-paridade-lya`. Sem migração e sem dependência nova.
   e o profissional descarta, o erro seguro); falas em outro idioma usam a tradução/sinônimos das regras;
   `test_smart_apps.py::test_duplicate_app_id_and_module_without_run_are_refused` já falhava antes (SyntaxError no
   módulo de teste do registro; fora do escopo).
+
+## #44 cartão "Antes de entrar" (2026-10-23)
+
+Sem migração. `GET /patients/{id}/pre-consulta[?consulta=N][&resumo=true]` (`app/consult/pre_consulta.py`, leitura do banco em
+`pre_consulta_service.py`), mesmo papel `clinician` da consulta e guarda de paciente avulso por organização.
+- **Conteúdo**: motivo (`Encounter.reasonCode` da consulta de hoje), o que mudou desde a última consulta ambulatorial
+  finalizada (exames novos com tendência e as duas refs, remédios iniciados/suspensos **a partir do início** da última
+  consulta, para a HCTZ iniciada nela aparecer; PS e internações), pendências (`ServiceRequest` sem resultado =
+  `record.pending_exams`; pendências da última nota finalizada do HousIA; `JourneyTask` aberta) e resumo da última alta
+  (LACE, plano, achados da reconciliação, sinais de alarme; só com o módulo `alta` e até 180 dias). `chart.history()` agora
+  inclui internações finalizadas. Cada linha tem `refs` FHIR e `fonte`; pendência de nota cita a nota de origem.
+- **Some quando tratada**: pendência com ≥2 termos de conteúdo em comum (1 se o assunto só tem 1) com qualquer fala da
+  consulta vira `tratada` com a `Fala/N`. Derivado a cada GET (nada gravado), a tela recarrega a cada fala.
+- **Resumo opcional**: mock = 3 linhas do cartão; real = prompt `consult_pre_consulta` 1.0.0 sobre o cartão pseudonimizado,
+  frase sem ref do cartão ou com número fora do cartão cai (cai para as regras). Audit `consulta.pre_consulta` com contagens.
+- **Seed**: cenário 6 ganhou `pedidos` (RAC e retinografia sem resultado; chave nova no DSL, README atualizado).
+- **Tela**: cartão na agenda (botão "Antes de entrar" ao expandir), no topo da tela inicial da consulta e recolhível na
+  coluna da transcrição durante a consulta.
+- Decisões/pendências: **Task do FHIR não é lida** (entrar em `PATIENT_SCOPED` faria o `remove_stale` do loader apagar as
+  Tasks criadas pela jornada ao recarregar a demo; as tarefas vêm de `JourneyTask`). **Internação não foi semeada no
+  cen6**: uma `IMP` anterior vira `record.hospitalization` e trataria a paciente ambulatorial como internada; o critério é
+  coberto por teste que monta o cen6 com uma internação no builder. A tendência do exame compara com o resultado
+  anterior, não com a meta; a resposta por termos em comum tem os mesmos limites do #43; não há e2e (a cobertura é de API).

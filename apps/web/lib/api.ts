@@ -1759,3 +1759,26 @@ export interface OnboardingConsultorio {
   passos: { chave: string; titulo: string; feito: boolean }[];
   concluido: boolean;
 }
+
+/** Cartão "Antes de entrar" (#44): montado por regras, com fonte em cada linha. */
+export interface PreConsultaLine {
+  texto: string;
+  refs: string[];
+  fonte: string;
+  tipo: string;
+  /** pendência citada na conversa desta consulta */
+  tratada: boolean;
+  tratada_refs: string[];
+}
+export interface PreConsulta {
+  patient_id: string;
+  encounter_id: string | null;
+  ultima_consulta: string | null;
+  motivo: PreConsultaLine[];
+  mudou: PreConsultaLine[];
+  pendencias: PreConsultaLine[];
+  ultima_alta: PreConsultaLine[];
+  resumo_ia: { texto: string; refs: string[] }[];
+  modo_resumo: "regras" | "ia" | null;
+  aviso: string;
+}

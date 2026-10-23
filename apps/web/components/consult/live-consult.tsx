@@ -32,6 +32,7 @@ import {
 } from "@/components/consult/capture";
 import { CopilotPanel } from "@/components/consult/copilot-panel";
 import { PrivacyPanel } from "@/components/consult/privacy-panel";
+import { PreConsultaCard } from "@/components/consult/pre-consulta-card";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
 import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS, type SegmentPatch } from "@/components/consult/transcript";
@@ -908,6 +909,10 @@ export function LiveConsult({
               )}
             </CardContent>
           </Card>
+
+          {c.tipo !== "cirurgia" && (
+            <PreConsultaCard patientId={c.patient_id} consultaId={c.id} falas={c.segmentos.length} defaultOpen={false} />
+          )}
 
           <Transcript
             segments={c.segmentos}

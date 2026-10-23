@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { History, Loader2, Mic, PlusCircle, ShieldCheck, ShieldOff, Volume2 } from "lucide-react";
 
 import { LiveConsult } from "@/components/consult/live-consult";
+import { PreConsultaCard } from "@/components/consult/pre-consulta-card";
 import { NoteReview } from "@/components/consult/note-review";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
@@ -266,6 +267,7 @@ export function ConsultPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      {allowed && (<div className="lg:col-span-2"><PreConsultaCard patientId={patient.id} /></div>)}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

@@ -22,6 +22,7 @@ from app.consult import (
     note_templates,
     opme,
     perfis,
+    pre_consulta_service,
     privacidade,
     scales,
     service,
@@ -214,6 +215,19 @@ def companions(patient_id: str, fhir: FhirSource = Depends(get_fhir), _: User = 
 def patient_language(patient_id: str, fhir: FhirSource = Depends(get_fhir), _: User = Depends(clinician)) -> dict:
     """Idioma preferido em Patient.communication, para a tela pré-selecionar o idioma do paciente."""
     return service.idioma_paciente(fhir, patient_id)
+
+
+@router.get("/patients/{patient_id}/pre-consulta")
+def pre_consulta_card(
+    patient_id: str,
+    consulta: int | None = Query(None, description="Consulta em andamento: as pendências citadas na conversa somem"),
+    resumo: bool = Query(False, description="Acrescenta o resumo de até 3 frases (IA, ou regras sem IA)"),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Cartão "Antes de entrar": motivo, o que mudou desde a última consulta, pendências e resumo da última alta."""
+    return pre_consulta_service.get(db, fhir, user, patient_id, consulta, resumo)
 
 
 @router.post("/patients/{patient_id}/consultations")

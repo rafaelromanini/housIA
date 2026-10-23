@@ -139,6 +139,10 @@ aprovada pelo profissional.
     nunca o texto. A pergunta por voz (Alt+Q, segurar) usa um reconhecimento próprio e vai ao copiloto: não vira
     `Fala/N`. Os comandos "adicionar ao plano …" e "criar pendência …" entram na nota pelo mesmo caminho.
 
+15. **Sinais de comunicação (#43): intensidade por léxico e dúvidas sem resposta.** A intensidade da emoção vem de intensificadores da fala (`consult_intensity.csv`: "muito medo", "pavor", "um pouco"), não da contagem de falas, inclusive na saída da IA. `Insights.preocupacoes` liga cada dúvida ou preocupação do paciente ou da família às falas seguintes do profissional por termos em comum (`app/consult/sinais.py`); sem resposta, aparece antes de encerrar e, ao finalizar, vira `Alert(source="comunicacao")` só com o assunto, lido pela passagem de plantão e pelo plano de alta com teach-back recomendado. É sinal de comunicação, não diagnóstico, e fica desligado sem o consentimento de emoções.
+
+16. **Cartão "Antes de entrar" (#44).** `GET /patients/{id}/pre-consulta` (`app/consult/pre_consulta.py`) monta por regras, com fonte em cada linha, o motivo agendado, o que mudou desde a última consulta (exames com tendência, remédios iniciados ou suspensos, idas ao PS e internações), as pendências (`ServiceRequest` sem resultado, pendências da última nota do HousIA, tarefas de jornada) e o resumo da última alta (só com o módulo "alta" no plano). Com `?consulta=N`, a pendência citada na conversa fica `tratada`; com `?resumo=true` vêm até 3 frases (IA em modo real, com o cartão pseudonimizado e frase sem ref do cartão ou com número novo descartada; regras em mock).
+
 ## Consequências
 
 - Novo cenário ambulatorial (cen6) e agenda do dia (Encounter `AMB`). O construtor de cenários aceita

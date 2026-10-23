@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarClock, ChevronRight, Mic, RefreshCw, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { CalendarClock, ChevronDown, ChevronRight, Mic, RefreshCw, Sparkles } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PreConsultaCard } from "@/components/consult/pre-consulta-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Appointment } from "@/lib/api";
@@ -42,6 +44,7 @@ function age(birth: string | null) {
 /** Agenda ambulatorial do dia (lida do FHIR) com atalho para a consulta com IA. */
 export function Agenda() {
   const { data, error, loading, reload } = useApi<Appointment[]>("/appointments");
+  const [expanded, setExpanded] = useState<string | null>(null);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -94,6 +97,14 @@ export function Agenda() {
                       )}
                     </div>
                     <Badge variant={st.variant}>{st.label}</Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-expanded={expanded === a.encounter_id}
+                      onClick={() => setExpanded(expanded === a.encounter_id ? null : a.encounter_id)}
+                    >
+                      <ChevronDown aria-hidden className={expanded === a.encounter_id ? "rotate-180" : undefined} /> Antes de entrar
+                    </Button>
                     <Button asChild variant={a.consulta_status === "em_andamento" ? "outline" : "default"}>
                       <Link href={`/pacientes/${a.patient_id}/consulta?encontro=${encodeURIComponent(a.encounter_id)}`}>
                         <Mic aria-hidden />
@@ -102,6 +113,11 @@ export function Agenda() {
                       </Link>
                     </Button>
                   </CardContent>
+                  {expanded === a.encounter_id && (
+                    <div className="px-4 pb-4">
+                      <PreConsultaCard patientId={a.patient_id} />
+                    </div>
+                  )}
                 </Card>
               </li>
             );
