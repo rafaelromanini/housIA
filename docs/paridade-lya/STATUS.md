@@ -581,3 +581,53 @@ profissional); golden de `tests/test_journey.py` atualizado. Sem dependência no
   estilo vai só ao prompt da reescrita, não ao da geração da nota (mudaria a versão de `consult_note`); o perfil aprende de
   qualquer edição atestada, inclusive correções clínicas (não só de forma); seções do modelo (`secoes`) são aceitas pela
   chave no servidor mas a tela só oferece a reescrita nas nove clássicas; sem e2e. Testes: `tests/test_consult_reescrita.py` (19).
+
+## #45/#46 verificados (2026-10-23)
+
+Branch `claude/integracao-paridade-lya`. Sem migração nova (a `c301` é a única cabeça do Alembic), sem dependência nova, sem
+mudança no web. Critérios de aceite dos dois itens conferidos contra o código e os testes (cen6: remédios e sinais de alarme
+com refs; atestado sem CID; contrarreferência com o Waze; um DocumentReference por documento; "resumir" mantém as refs;
+alerta de dose bloqueado; perfil muda com 3 notas). Testes novos: `tests/test_consult_documentos_verificacao.py` (25) e
+`tests/test_consult_reescrita_verificacao.py` (16).
+- **#45, achados corrigidos**: (1) o relatório de convênio sem autorização trazia o código CID por outra seção
+  ("Hipóteses ... (N17.9, confiança alta)"): agora o código sai de todas as linhas e o diagnóstico em palavras fica
+  (`sem_codigo_cid`). (2) O hash de "desatualizado" olhava só a nota: pedido que voltava a pendente depois da aprovação
+  deixava a receita/exames exportáveis; agora o hash inclui os pedidos assinados (receita, exames, convênio, resumo) e os
+  encaminhamentos decididos, por tipo (o atestado não cai por causa de pedido). (3) A enfermagem aprovava receita, atestado e
+  solicitação de exames (a assinatura do pedido já era só do médico): 403. (4) A conferência da tradução deixava passar
+  "Pare de tomar X" → "Take X", "de manhã" → "in the evening" e alérgeno trocado quando não era remédio do catálogo; agora
+  há conferência extra (parar x tomar, manhã/tarde/noite, alérgeno por cognato) e o item que diverge fica em português.
+  (5) A edição podia reescrever a linha de alergia sem o alérgeno: 422. (6) O envio usa criação condicional por
+  identifier (`ifNoneExist`), então um envio que caiu depois de gravar no prontuário não duplica o DocumentReference.
+  (7) O display do LOINC 34133-9 era "Summary of episode note"; o nome oficial é "Summarization of episode note".
+- **#45, os 6 pontos do implementador**: *QR ausente*: aceito como pendência (o critério de aceite não pede QR; o texto e o PDF
+  levam o código de verificação, hash do que foi aprovado). *LOINC*: 69730-0 Instructions, 51852-2 Letter, 57133-1 Referral
+  note, 18761-7 Transfer summary note, 34133-9 Summarization of episode note, 57833-6 Prescription for medication e 46209-3
+  Provider orders conferem com o meu conhecimento do LOINC (sem acesso à tabela oficial; só o display do 34133-9 foi
+  trocado); conferir na tabela antes de produção. *Autorização de CID só caixa na tela*: aceito para esta entrega, o servidor
+  nunca inclui CID sem `autorizacao_cid=true`; fica a pendência de gravar a autorização no consentimento da consulta e
+  na auditoria. *Aprovação por documento*: aceita, agora com o papel (médico) nos documentos de ato médico.
+- **#45, cobertos sem mudança**: linha sem fonte, receita/exame só de pedido assinado (crítico exige justificativa), card
+  não decidido ou "manejar na APS", nota sem atestação e com pendência crítica, reenvio (409), documento enviado não edita
+  nem regera, outra organização (404), exclusão LGPD apaga os documentos junto com a consulta, índice de legibilidade.
+- **#46, achados corrigidos**: (1) uma frase nova com ref válida do prontuário (de fora da seção) entrava como "ia"; agora só
+  vale ref que a seção já tinha. (2) Fato novo qualitativo ("nega dor torácica") com ref passava; agora a frase sem
+  parecida na seção, sem pedido na instrução e com mais da metade das palavras de conteúdo novas é descartada. (3) A frase
+  parecida com a negação invertida ("não subiu" x "subiu") herdava a fonte; agora é descartada. (4) O texto que a instrução
+  manda escrever é sempre "profissional", sem refs, mesmo que o modelo anexe uma ref. (5) Seção "Sem registro" que o modelo
+  esvaziava virava vazia; e a seção do modelo numa nota antiga (sem `modelo`) podia "aplicar" sem gravar nada. (6) Memória
+  de estilo desligada continuava aprendendo, e apagar a memória religava; agora desligada não aprende e apagar mantém o
+  desligado.
+- **#46, os pontos do implementador**: *proteção só por frase literal*: aceita (erra para o lado seguro: bloqueia e não
+  grava); fica a pendência de proteger também o alerta reescrito com o mesmo sentido. *Estilo aprendendo de correção
+  clínica*: aceito, pois o perfil guarda 3 números, vai só ao prompt da reescrita como dica de forma e o conteúdo passa pelas
+  travas do servidor; o efeito de uma correção clínica é no máximo "prefere mais curto/longo". *Seção fora das nove*: agora
+  com teste (cardiologia, `classe_nyha`).
+- **#46, cobertos sem mudança**: alergia/alerta/"apagar a parte do remédio" (422), injeção na instrução e no conteúdo (a
+  instrução não vai à auditoria; frase mandada pelo modelo sem fonte cai), número/medicamento novo, ref inventada, aplicar
+  derruba a atestação, estilo sem texto clínico, de outro profissional e de outra organização, LGPD tira as contribuições,
+  `alembic heads` = `c301`.
+- **Pendências**: o painel Documentos mostra o 403 da enfermagem como erro genérico (sem tratamento específico na tela);
+  a conferência de tradução por cognato manda para o português o alérgeno sem cognato óbvio (camarão/shrimp): é o erro seguro;
+  a tradução ainda não foi exercitada com um LLM real; o mock de resumir corta a frase na primeira vírgula e pode perder
+  detalhe (só no modo sem IA externa).

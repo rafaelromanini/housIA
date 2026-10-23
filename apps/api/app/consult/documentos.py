@@ -19,6 +19,7 @@ from datetime import datetime
 from app.consult import fidelidade, idiomas
 from app.consult.chart import fmt_date, fmt_num
 from app.consult.orders import OrderDraft
+from app.consult.text import norm
 from app.discharge.documents import PURPOSE, ROUTE_LABEL, home_meds
 from app.fhir_client import codes
 from app.timeline.events import ClinicalEvent
@@ -29,7 +30,7 @@ TIPOS: dict[str, dict] = {
     "atestado": {"titulo": "Atestado", "loinc": ("51852-2", "Letter")},
     "encaminhamento": {"titulo": "Encaminhamento", "loinc": ("57133-1", "Referral note")},
     "contrarreferencia": {"titulo": "Contrarreferência", "loinc": ("18761-7", "Transfer summary note")},
-    "relatorio_convenio": {"titulo": "Relatório para convênio", "loinc": ("34133-9", "Summary of episode note")},
+    "relatorio_convenio": {"titulo": "Relatório para convênio", "loinc": ("34133-9", "Summarization of episode note")},
     "receita": {"titulo": "Receita", "loinc": ("57833-6", "Prescription for medication")},
     "solicitacao_exames": {"titulo": "Solicitação de exames", "loinc": ("46209-3", "Provider orders")},
 }
@@ -48,6 +49,18 @@ FHIR_TYPES = {
 SYSTEM = "http://housia.dev/fhir/NamingSystem/consulta-documento"
 FOOTER = "Documento preparado com apoio de IA (HousIA); vale só depois de revisado e assinado pelo profissional."
 MIN_LEGIVEL = 50  # abaixo disso (faixa "difícil") o resumo ganha aviso
+
+
+_CODIGO_CID = r"\b(?!B12\b)[A-TV-Z]\d{2}(?:\.\d{1,2})?\b"
+APROVA_MEDICO = ("receita", "atestado", "solicitacao_exames")  # documentos de ato médico: a enfermagem não aprova
+
+
+def sem_codigo_cid(texto_: str) -> str:
+    """Tira o código CID-10 ("(N17.9, confiança alta)" vira "(confiança alta)"); o diagnóstico em palavras fica."""
+    t = re.sub(rf"\s*\(\s*{_CODIGO_CID}\s*\)", "", texto_)
+    t = re.sub(rf"\(\s*{_CODIGO_CID}\s*[,;]\s*", "(", t)
+    t = re.sub(_CODIGO_CID, "", t)
+    return re.sub(r"\s+([,;.)])", r"\1", re.sub(r"[ \t]{2,}", " ", t)).strip()
 
 
 class DocumentoIndisponivel(Exception):
@@ -344,6 +357,7 @@ def resumo_paciente(f: Fontes, opcoes: dict) -> _Montador:
         "Alergias",
         [
             _item(f"Você tem alergia a: {texto_}. Avise sempre que for atendido.", [ref], obrigatorio=True)
+            | {"protegido": _alergeno(texto_)}
             for texto_, ref in f.alergias
         ],
     )
@@ -397,7 +411,7 @@ def _resumo_clinico(f: Fontes) -> list[tuple[str, list[dict]]]:
         ("Conduta", _frases(f, "plano")),
         ("Exames", _frases(f, "exames_complementares") + _tendencias(f)),
         ("Medicamentos em uso", _meds_em_uso(f)),
-        ("Alergias", [_item(t, [r], obrigatorio=True) for t, r in f.alergias]),
+        ("Alergias", [_item(t, [r], obrigatorio=True) | {"protegido": _alergeno(t)} for t, r in f.alergias]),
     ]
 
 
@@ -451,9 +465,11 @@ def relatorio_convenio(f: Fontes, opcoes: dict) -> _Montador:
     if f.faturamento.get("numero_guia"):
         guia.append(_item(f"Guia nº {f.faturamento['numero_guia']}.", _ref_base(f), "profissional"))
     m.secao("Identificação", guia)
+    autorizado = opcoes.get("autorizacao_cid") is True
     for titulo, itens in _resumo_clinico(f)[:4]:
-        m.secao(titulo, itens)
-    if opcoes.get("autorizacao_cid") is True:
+        # o diagnóstico em palavras fica, mas o código CID-10 (ex.: "Hipótese ... (N17.9, ...)") só com autorização
+        m.secao(titulo, itens if autorizado else [i | {"texto": sem_codigo_cid(i["texto"])} for i in itens])
+    if autorizado:
         cid = _cid_item(f)
         m.secao("Diagnóstico", [cid] if cid else [])
     else:
@@ -533,6 +549,27 @@ def hash_nota(nota: dict) -> str:
     return hashlib.sha256(json.dumps(nota, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:16]
 
 
+USA_PEDIDOS = ("resumo_paciente", "relatorio_convenio", "receita", "solicitacao_exames")
+USA_ENCAMINHAMENTOS = ("resumo_paciente", "encaminhamento")
+
+
+def hash_fontes(f: Fontes, tipo: str) -> str:
+    """Hash do que o documento lê dos atos do profissional: a nota e, conforme o tipo, os pedidos **assinados** e os
+    encaminhamentos decididos. Pedido que volta a pendente (ou é assinado depois) muda o hash e derruba a aprovação."""
+    pacote: dict = {"nota": f.nota}
+    if tipo in USA_PEDIDOS:
+        pacote["pedidos"] = sorted(
+            (d.id, d.tipo, d.acao, d.item, d.dose, d.via, d.frequencia, d.duracao, d.preparo) for d in f.pedidos
+        )
+    if tipo in USA_ENCAMINHAMENTOS:
+        pacote["encaminhamentos"] = sorted(
+            (e.get("especialidade", ""), e.get("condicao", ""), (e.get("decisao") or {}).get("motivo", ""))
+            for e in f.encaminhamentos
+            if (e.get("decisao") or {}).get("escolha") == "encaminhar"
+        )
+    return hash_nota(pacote)
+
+
 def gerar(tipo: str, f: Fontes, opcoes: dict | None = None) -> dict:
     """Rascunho do documento: seções com itens (texto, refs, origem), descartados, avisos e a legibilidade (resumo)."""
     opcoes = dict(opcoes or {})
@@ -545,7 +582,7 @@ def gerar(tipo: str, f: Fontes, opcoes: dict | None = None) -> dict:
         "loinc": {"codigo": spec["loinc"][0], "display": spec["loinc"][1]},
         "idioma": "pt-BR",
         "gerado_em": f.quando.isoformat(),
-        "nota_hash": hash_nota(f.nota),
+        "nota_hash": hash_fontes(f, tipo),
         "opcoes": {k: v for k, v in opcoes.items() if k in ("dias", "incluir_cid", "autorizacao_cid")},
         "secoes": secoes,
         "descartados": m.descartados,
@@ -562,6 +599,54 @@ def gerar(tipo: str, f: Fontes, opcoes: dict | None = None) -> dict:
     if opcoes.get("incluir_cid") and opcoes.get("autorizacao_cid") is not True:
         doc["avisos"].append("CID omitido: o paciente não autorizou informá-lo.")
     return doc
+
+
+# ---------- conferência extra de segurança (alérgeno, parar x tomar, parte do dia) ----------
+def _alergeno(texto_: str) -> str:
+    """O alérgeno da linha de alergia ("Penicilinas (amoxicilina) — urticária" → "Penicilinas (amoxicilina)")."""
+    return re.split(r"\s[—–-]\s", texto_, maxsplit=1)[0].strip()
+
+
+def _prefixo(palavra: str) -> int:
+    """Prefixo comum que basta para dois cognatos: 3 letras nas palavras curtas, 4 nas longas."""
+    return 3 if len(palavra) <= 6 else 4
+
+
+def alergeno_presente(alergeno: str, texto_: str) -> bool:
+    """Todas as palavras do alérgeno aparecem no texto, iguais ou como cognato (iodo/iodine, penicilina/penicillin)."""
+    alvo = set(re.findall(r"[a-z0-9]+", norm(texto_)))
+    palavras = [w for w in re.findall(r"[a-z0-9]+", norm(alergeno)) if len(w) >= 4]
+    return all(any(t[: _prefixo(w)] == w[: _prefixo(w)] for t in alvo) for w in palavras)
+
+
+_PARAR = {
+    "pt": r"pare|parar|suspenda|suspender|interrompa|interromper|deixe de",
+    "es": r"pare|parar|suspenda|suspender|interrumpa|deje de",
+    "en": r"stop|discontinue|suspend|quit",
+}
+_PARTES_DO_DIA = {
+    "manha": r"manha|morning|manana",
+    "tarde": r"tarde|afternoon",
+    "noite": r"noite|noche|night|evening|bedtime",
+}
+
+
+def divergencias_extras(original: str, traducao: str, para: str, protegido: str = "") -> list[str]:
+    """O que `fidelidade.divergencias` deixa passar: parar virar tomar, manhã virar noite e o alérgeno trocado."""
+    out: list[str] = []
+    o, t = norm(original), norm(traducao)
+    rx = _PARAR.get(para.split("-")[0].lower())
+    if rx is not None:
+        parar_o, parar_t = re.search(rf"(?<!\w)(?:{_PARAR['pt']})(?!\w)", o), re.search(rf"(?<!\w)(?:{rx})(?!\w)", t)
+        if bool(parar_o) != bool(parar_t):
+            out.append("parar ou continuar o remédio: a tradução inverte a orientação")
+    dia_o = {k for k, v in _PARTES_DO_DIA.items() if re.search(rf"(?<!\w)(?:{v})(?!\w)", o)}
+    dia_t = {k for k, v in _PARTES_DO_DIA.items() if re.search(rf"(?<!\w)(?:{v})(?!\w)", t)}
+    if dia_o != dia_t:
+        out.append("parte do dia diferente (manhã, tarde, noite): " + ", ".join(sorted(dia_o ^ dia_t)))
+    if protegido and not alergeno_presente(protegido, traducao):
+        out.append("o alérgeno não aparece na tradução")
+    return out
 
 
 # ---------- idioma do paciente (versão adaptada, com a conferência por regra) ----------
@@ -585,7 +670,9 @@ def adaptar(doc: dict, idioma: str, traduzir) -> dict:
             novo = (novos.get(it["id"]) or "").strip()
             if not novo or idiomas.placeholder(novo):
                 continue
-            problemas = fidelidade.divergencias(it["texto"], novo, "pt-BR", base)
+            problemas = fidelidade.divergencias(it["texto"], novo, "pt-BR", base) + divergencias_extras(
+                it["texto"], novo, base, it.get("protegido", "")
+            )
             if problemas:
                 divergentes.append({"id": it["id"], "problemas": problemas})
                 continue
@@ -618,6 +705,8 @@ def editar(atual: dict, secoes: list[dict]) -> tuple[dict, list[str]]:
             if not texto_:
                 continue  # item removido (a checagem de obrigatório vem abaixo)
             vistos.add(velho["id"])
+            if velho.get("protegido") and not alergeno_presente(velho["protegido"], texto_):
+                erros.append(f"O alérgeno não pode sair da linha de alergia: {velho['protegido'][:60]}")
             mudou = texto_ != velho["texto"]
             itens.append(
                 velho | {"texto": texto_, "origem": "profissional" if mudou else velho["origem"]},

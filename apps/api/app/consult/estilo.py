@@ -122,6 +122,8 @@ def registrar(db: Session, user: User, consulta_id: int, rascunho: dict | None, 
     """Atualiza a contribuição desta consulta (salvar de novo substitui, não soma). Devolve o perfil resultante."""
     row = _row(db, user)
     dados = dict(row.dados_json) if row else {}
+    if dados.get("desligado"):  # memória desligada pelo profissional: não aprende nada enquanto estiver assim
+        return perfil(dados)
     contribs = dict(dados.get("notas") or {})
     c = contribuicao(rascunho, final)
     if c is None:
@@ -138,10 +140,10 @@ def registrar(db: Session, user: User, consulta_id: int, rascunho: dict | None, 
 
 
 def esquecer(db: Session, user: User) -> None:
-    """Zera o perfil do profissional."""
+    """Apaga o que foi aprendido; a escolha de manter a memória desligada continua valendo."""
     row = _row(db, user)
     if row is not None:
-        db.delete(row)
+        row.dados_json = {"desligado": True} if (row.dados_json or {}).get("desligado") else {}
 
 
 def esquecer_consultas(db: Session, consulta_ids: list[int]) -> None:

@@ -7,6 +7,8 @@ para a nota como estava: se a nota mudar depois, ele fica `desatualizado` e prec
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -19,7 +21,7 @@ from app.consult import consentimento, documentos, idiomas, service
 from app.consult.export import selo_profissional
 from app.db.models import Consultation, DischargeAssessment, User
 from app.discharge.service import assessment_out
-from app.fhir_client.client import FhirSource
+from app.fhir_client.client import FhirSource, location_refs
 from app.llm.client import LLMError, generate_structured
 from app.planos import service as planos
 
@@ -99,8 +101,8 @@ def _traducao(c: Consultation):
     return traduzir
 
 
-def _hash_atual(c: Consultation, fontes: documentos.Fontes | None = None) -> str:
-    return documentos.hash_nota(fontes.nota if fontes else service._nota(c) or {})
+def _hash_atual(fontes: documentos.Fontes, tipo: str) -> str:
+    return documentos.hash_fontes(fontes, tipo)
 
 
 def listar(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
@@ -110,9 +112,9 @@ def listar(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     try:
         fontes = _fontes(db, fhir, user, c)
         indisponivel = documentos.disponibilidade(fontes)
-        atual = _hash_atual(c, fontes)
+        atuais = {t: _hash_atual(fontes, t) for t in documentos.TIPOS}
     except HTTPException as exc:
-        fontes, indisponivel, atual = None, {}, ""
+        fontes, indisponivel, atuais = None, {}, {}
         motivo = exc.detail
     for tipo, spec in documentos.TIPOS.items():
         doc = estado.get(tipo)
@@ -123,7 +125,7 @@ def listar(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
                 "loinc": spec["loinc"][0],
                 "gerado": doc is not None,
                 "indisponivel": indisponivel.get(tipo) if fontes else motivo,
-                "desatualizado": bool(doc) and doc["nota_hash"] != atual,
+                "desatualizado": bool(doc) and doc["nota_hash"] != atuais.get(tipo),
                 "aprovado": bool(doc and doc.get("aprovado")),
                 "enviado": bool(doc and doc.get("fhir_ref")),
             }
@@ -148,7 +150,7 @@ def _tipo(tipo: str) -> str:
 def _com_estado(c: Consultation, doc: dict, fhir: FhirSource, db: Session, user: User) -> dict:
     fontes = _fontes(db, fhir, user, c)
     return {k: v for k, v in doc.items() if k != "nota_hash"} | {
-        "desatualizado": doc["nota_hash"] != _hash_atual(c, fontes),
+        "desatualizado": doc["nota_hash"] != _hash_atual(fontes, doc["tipo"]),
         "texto": documentos.texto_final(doc, fontes),
     }
 
@@ -225,10 +227,12 @@ def aprovar(db: Session, fhir: FhirSource, user: User, cid: int, tipo: str) -> d
     doc = estado.get(tipo)
     if doc is None:
         raise HTTPException(404, "Documento ainda não gerado.")
+    if tipo in documentos.APROVA_MEDICO and user.role != "medico":
+        raise HTTPException(403, "Só o médico aprova receita, atestado e solicitação de exames.")
     service._require_review(c)
     fontes = _fontes(db, fhir, user, c)
-    if doc["nota_hash"] != _hash_atual(c, fontes):
-        raise HTTPException(409, "A nota mudou depois de gerar o documento: gere de novo.")
+    if doc["nota_hash"] != _hash_atual(fontes, doc["tipo"]):
+        raise HTTPException(409, "A nota (ou os pedidos assinados) mudou depois de gerar o documento: gere de novo.")
     estado[tipo] = doc | {"aprovado": {"por": user.name, "em": clock.now().isoformat()}}
     _salvar(c, estado)
     log_action(
@@ -249,8 +253,10 @@ def _liberado(db: Session, fhir: FhirSource, user: User, c: Consultation, tipo: 
             409, {"codigo": "documento_nao_aprovado", "mensagem": "Aprove o documento antes de exportar ou enviar."}
         )
     fontes = _fontes(db, fhir, user, c)
-    if doc["nota_hash"] != _hash_atual(c, fontes):
-        raise HTTPException(409, "A nota mudou depois da aprovação do documento: gere e aprove de novo.")
+    if doc["nota_hash"] != _hash_atual(fontes, doc["tipo"]):
+        raise HTTPException(
+            409, "A nota (ou os pedidos assinados) mudou depois da aprovação do documento: gere e aprove de novo."
+        )
     return doc, fontes
 
 
@@ -289,8 +295,27 @@ def enviar(db: Session, fhir: FhirSource, user: User, cid: int, tipo: str) -> di
             db, user, "consulta.documento_exportado", "consultation", c.id, {"patient_id": c.patient_id, "tipo": tipo}
         )
         return {"enviado": False, "texto": texto_, "recurso": recurso}
-    criado = fhir.create(recurso)
-    ref = f"DocumentReference/{criado['id']}"
+    # criação condicional pelo identifier `{consulta}:{tipo}`: se o envio caiu depois de gravar no prontuário, o reenvio
+    # devolve o mesmo DocumentReference em vez de criar outro
+    bundle = {
+        "resourceType": "Bundle",
+        "type": "transaction",
+        "entry": [
+            {
+                "resource": recurso,
+                "request": {
+                    "method": "POST",
+                    "url": "DocumentReference",
+                    "ifNoneExist": "identifier="
+                    + quote(documentos.SYSTEM, safe="")
+                    + "%7C"
+                    + quote(recurso["identifier"][0]["value"], safe=""),
+                },
+            }
+        ],
+    }
+    ref = location_refs(fhir.transaction(bundle))[0]
+    criado = recurso | {"id": ref.split("/")[1]}
     estado = _estado(c)
     estado[tipo] = doc | {"fhir_ref": ref}
     _salvar(c, estado)

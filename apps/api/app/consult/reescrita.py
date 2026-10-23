@@ -2,8 +2,10 @@
 
 O modelo (ou o mock, em `LLM_MODE=mock`) devolve a seção como frases com refs. O servidor decide o que entra:
 - a frase igual a uma existente volta como estava (refs e origem);
-- frase com refs válidas é "ia"; sem refs, herda as da frase parecida; sem parecida só entra se for o que a instrução
-  pediu para escrever (origem "profissional"); fora disso é descartada como "sem fonte";
+- frase com refs válidas **da própria seção** é "ia"; sem refs, herda as da frase parecida; sem parecida só entra se for
+  o que a instrução pediu para escrever (origem "profissional"); fora disso é descartada como "sem fonte". Frase que
+  inverte a negação da parecida, ou que traz palavras de conteúdo que não estavam na seção nem na instrução, é
+  descartada mesmo com ref (fato novo qualitativo);
 - número ou medicamento que não estava na seção nem na instrução derruba a frase (fato novo sem fonte);
 - **itens de segurança** (alerta de medicamento crítico ou de atenção, alergia) precisam continuar literalmente na
   seção; se a reescrita os tira, ela é bloqueada, sem exceção. A seção de pendências não é reescrevível.
@@ -19,7 +21,7 @@ from pydantic import BaseModel
 
 from app.consult import fidelidade, notas
 from app.consult.edicao import SECTION_LABELS, _word_diff
-from app.consult.text import norm
+from app.consult.text import NEG_WORDS, norm
 
 REWRITABLE = notas.SECTION_KEYS  # as nove seções clássicas; as do modelo (`secoes`) entram pela key do modelo
 MAX_INSTRUCAO = 500
@@ -185,13 +187,23 @@ def _numeros(texto: str) -> set[str]:
     return {v for v, _ in fidelidade.numeros(texto)}
 
 
+def _nega(texto: str) -> bool:
+    return bool(NEG_WORDS & set(re.findall(r"\w+", norm(texto))))
+
+
 def montar(antigas: list[dict], novas: list[Frase], instrucao: str, valid: set[str]) -> tuple[list[dict], list[dict]]:
     """(frases da seção nova, descartadas). Ver a regra no cabeçalho do módulo."""
     contexto = " ".join(f["texto"] for f in antigas) + " " + instrucao
     nums_ok, meds_ok = _numeros(contexto), fidelidade.medicamentos(contexto)
+    vocabulario = set(re.findall(r"\w{5,}", norm(contexto)))
     chave_instrucao = _palavras_chave(instrucao)
+    refs_da_secao = {r for f in antigas for r in f.get("refs", [])}  # reescrever não traz fonte nova para a seção
     out: list[dict] = []
     descartadas: list[dict] = []
+
+    def descartar(texto: str, motivo: str) -> None:
+        descartadas.append({"texto": texto, "motivo": motivo})
+
     for nf in novas:
         texto = nf.texto.strip()
         if not texto:
@@ -201,25 +213,30 @@ def montar(antigas: list[dict], novas: list[Frase], instrucao: str, valid: set[s
             out.append(dict(igual))
             continue
         if _numeros(texto) - nums_ok or fidelidade.medicamentos(texto) - meds_ok:
-            descartadas.append(
-                {"texto": texto, "motivo": "número ou medicamento que não estava na seção nem na instrução"}
-            )
+            descartar(texto, "número ou medicamento que não estava na seção nem na instrução")
             continue
-        refs = [r for r in dict.fromkeys(nf.refs) if r in valid]
+        refs = [r for r in dict.fromkeys(nf.refs) if r in valid and r in refs_da_secao]
         literal = norm(texto).strip(" .") in norm(instrucao)  # o profissional mandou escrever exatamente isto
         parecida = notas._best_match(texto, antigas, threshold=0.5)
         palavras = set(re.findall(r"\w{5,}", norm(texto)))
         pedido = bool(palavras) and len(palavras & chave_instrucao) / len(palavras) >= 0.5
+        if literal:
+            out.append(notas.frase(texto, [], "profissional"))
+            continue
+        if parecida is not None and _nega(texto) != _nega(parecida["texto"]):
+            descartar(texto, "a frase nova inverte a negação da original")
+            continue
+        if refs and parecida is None and not pedido and palavras and len(palavras - vocabulario) / len(palavras) > 0.5:
+            descartar(texto, "afirmação sem fonte na seção nem na instrução (ref não basta)")  # fato novo com ref
+            continue
         if refs:
             out.append(notas.frase(texto, refs, "ia"))
-        elif literal:
-            out.append(notas.frase(texto, [], "profissional"))
         elif parecida is not None:
             out.append(notas.frase(texto, parecida["refs"], "ia"))
         elif pedido:
             out.append(notas.frase(texto, [], "profissional"))  # o que a instrução mandou escrever
         else:
-            descartadas.append({"texto": texto, "motivo": "sem fonte na conversa nem na instrução"})
+            descartar(texto, "sem fonte na conversa nem na instrução")
     return out, descartadas
 
 

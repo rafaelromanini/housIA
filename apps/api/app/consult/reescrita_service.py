@@ -94,7 +94,10 @@ def reescrever(db: Session, fhir: FhirSource, user: User, cid: int, key: str, in
     novas, descartadas = reescrita.montar(antigas, result.output.frases, variables["instrucao"], valid)
     antes = sec.get("texto", "")
     depois = reescrita.juntar(antes, novas)
-    candidata = _com_secao(c.note_json, key, sec, novas, depois)
+    if not antigas and not novas:
+        depois = antes  # seção sem registro que continua sem registro: o texto-padrão não vira vazio
+    base_nota = c.note_json if key in reescrita.REWRITABLE else nota  # seção do modelo: nota antiga é lida com o modelo
+    candidata = _com_secao(base_nota, key, sec, novas, depois)
     barrados = reescrita.bloqueios(antigas, novas, protegidas)
     novas_pendencias = _pendencias(c, candidata) - _pendencias(c, c.note_json)
     barrados += [{"codigo": "pendencia_critica", "texto": codigo} for codigo in sorted(novas_pendencias)]
