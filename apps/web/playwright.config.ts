@@ -20,5 +20,11 @@ export default defineConfig({
     timezoneId: "America/Sao_Paulo",
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {},
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // celular e tablet (#12): o CI só instala o Chromium, então emulamos os aparelhos (viewport, userAgent, toque,
+    // isMobile) no Chromium. WebKit real (Safari/iOS) segue pendente: ver STATUS.md.
+    { name: "iPhone 13", use: { ...devices["iPhone 13"], browserName: "chromium", defaultBrowserType: "chromium" }, testMatch: /mobile\.spec\.ts/ },
+    { name: "iPad", use: { ...devices["iPad (gen 7)"], browserName: "chromium", defaultBrowserType: "chromium" }, testMatch: /mobile\.spec\.ts/ },
+  ],
 });

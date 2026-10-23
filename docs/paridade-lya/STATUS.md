@@ -352,3 +352,26 @@ Ordem de merge: #11 → #12 → #38 → resto. Nenhuma migração nova nessas br
 > e o restante de P1 (#39–#42, #44–#54) e P2 (#55–#57); (4) vídeo pitch da Consulta com IA (brag-output/scripts,
 > capture-consult.mjs), share-copy.txt, login-form.tsx, description em app/layout.tsx e topo do README; (5) polir o
 > front. Ao chegar a 80% da cota: não inicie entrega nova; commit wip, push, atualizar este STATUS com novo prompt.
+## #12 captura em celular e tablet: PWA, tela acesa, microfone e fila offline (2026-10-21)
+
+Branch `claude/onda3-12-pwa-celular-tablet`. Sem migração (o `client_id` fica no JSON das falas) e sem dependência nova.
+- PWA: `manifest.webmanifest`, ícones PNG (192/512/maskable/apple-touch), `sw.js` e `offline.html`. O service worker
+  guarda só o shell estático e a página offline; não intercepta API nem páginas autenticadas. Só registra em produção.
+- Captura: Wake Lock durante a captura (readquirido em `visibilitychange`), seletor de microfone (`enumerateDevices`,
+  `deviceId` em localStorage com try/catch), medidor de nível e "Testar áudio" (só local, 10 s, nada gravado ou enviado).
+  A Web Speech do navegador não aceita escolher o microfone: a escolha vale para o modo Servidor e para o teste (dito na tela).
+  Sem Web Speech (iOS/Safari) e com STT de servidor ativo, a tela abre no modo Servidor (grava mp4 no Safari) em vez de pedir Chrome/Edge.
+- Fila offline: `SegmentIn.client_id` (opcional, validado) e `append_segments` ignora duplicatas; o front reenvia em
+  ordem ao voltar a rede (evento `online` e a cada 5 s) com o aviso "N falas aguardando rede".
+- Privacidade (decisão conservadora): a fila guarda só texto de fala, nunca áudio. Em disco (IndexedDB) vai cifrada com
+  AES-GCM, chave não extraível; sem IndexedDB/WebCrypto fica só na memória da aba. Validade de 12 h, apagada ao finalizar
+  a consulta e ao sair da conta. Não protege contra script na própria página nem contra quem usa o navegador aberto.
+  Erro de servidor (não de rede) no reenvio para o reenvio automático e mantém as falas até "tentar agora".
+- Testes: `tests/test_consult_fila_offline.py` (pytest) e `e2e/mobile.spec.ts` (manifest, Digitar, Simular, offline com
+  `setOffline`, Wake Lock mockado); projetos "iPhone 13" e "iPad" (iPad gen 7) no playwright.config rodam só esse
+  spec, em **Chromium com emulação de aparelho** (viewport, userAgent, toque, isMobile), porque o CI só instala o
+  Chromium. **WebKit real pendente** (Safari/iOS não validado). Os e2e não foram executados nesta verificação.
+- Verificação: validade agora por fala (antes a fila inteira renovava a cada gravação), checada na leitura; troca de
+  usuário no mesmo aparelho apaga a fila (`garantirDono`, guarda só o id do usuário); gravação em andamento não
+  ressuscita a fila após o logout (época). 401 não apaga a fila (a sessão pode voltar), mas outro usuário não a herda.
+- Não depende do hook de STT por streaming do #11.
