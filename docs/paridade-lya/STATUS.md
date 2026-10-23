@@ -311,12 +311,12 @@ Ordem de merge: #11 → #12 → #38 → resto. Nenhuma migração nova nessas br
 
 > Continue o HousIA (rafaelromanini/housIA) de forma AUTÔNOMA a partir da main, seguindo as mesmas regras da sessão
 > anterior (ver "Regras do projeto" e "Pausa 3" em docs/paridade-lya/STATUS.md): agentes Sonnet (verificação alta em
-> segurança clínica/privacidade), no máximo 2 ao mesmo tempo, uma verificação cética por entrega (verifyPrompt/common
+> segurança clínica/privacidade), UM agente por vez, em série (implementação, depois verificação; sem frente B nem
+> worktree paralelo), uma verificação cética por entrega (verifyPrompt/common
 > em .claude/workflows/housia-onda.js), um branch e um PR em português por entrega, merge (não rebase) da main antes do
 > PR, merge só com API/Web/Helm/E2E verdes, nunca push na main, LLM_MODE=mock, só dados sintéticos. Antes de cada push:
 > pytest -o addopts="" completo, ruff, typecheck/lint web e e2e no modo do CI. Migração nova encadeia na cabeça da main
-> (hoje e351) e atualiza o golden de tests/test_journey.py. Preparação: venv apps/api/.venv, npm ci em apps/web,
-> worktrees com symlinks. Ordem: (1) PR e merge de #11, #12; (2) terminar a verificação do #38 e fazer merge; (3) #43
+> (hoje e351) e atualiza o golden de tests/test_journey.py. Preparação: venv apps/api/.venv, npm ci em apps/web. Ordem: (1) PR e merge de #11, #12; (2) terminar a verificação do #38 e fazer merge; (3) #43
 > e o restante de P1 (#39–#42, #44–#54) e P2 (#55–#57); (4) vídeo pitch da Consulta com IA (brag-output/scripts,
 > capture-consult.mjs), share-copy.txt, login-form.tsx, description em app/layout.tsx e topo do README; (5) polir o
-> front. Perto de 85% da cota: commit wip, push, atualizar este STATUS com novo prompt.
+> front. Ao chegar a 80% da cota: não inicie entrega nova; commit wip, push, atualizar este STATUS com novo prompt.
