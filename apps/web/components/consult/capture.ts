@@ -312,10 +312,12 @@ export interface StreamFinal {
   insights: ConsultInsights | null;
 }
 
+/** `opts.url` troca o WebSocket (a passagem de plantão usa o dela) e `opts.onMessage` recebe cada mensagem do servidor. */
 export function useServerStream(
   consultationId: number,
   speaker: Speaker,
   onFinal: (res: StreamFinal) => void,
+  opts?: { url?: string; onMessage?: (m: Record<string, unknown>) => void },
 ) {
   const [streaming, setStreaming] = useState(false);
   const [partial, setPartial] = useState<string | null>(null);
@@ -326,6 +328,9 @@ export function useServerStream(
   const closing = useRef<(() => void)[]>([]);
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  const onMessageRef = useRef(opts?.onMessage);
+  onMessageRef.current = opts?.onMessage;
+  const customUrl = opts?.url;
 
   const release = useCallback(() => {
     media.current?.getTracks().forEach((t) => t.stop());
@@ -346,11 +351,14 @@ export function useServerStream(
       return;
     }
     media.current = stream;
-    const socket = new WebSocket(`${API_URL.replace(/^http/, "ws")}/ws/consultations/${consultationId}/audio?falante=${speaker}`);
+    const socket = new WebSocket(
+      `${API_URL.replace(/^http/, "ws")}${customUrl ?? `/ws/consultations/${consultationId}/audio?falante=${speaker}`}`,
+    );
     socket.binaryType = "arraybuffer";
     ws.current = socket;
     socket.onmessage = (e) => {
       const m = JSON.parse(String(e.data));
+      onMessageRef.current?.(m);
       if (m.tipo === "parcial") setPartial(m.texto);
       else if (m.tipo === "final") {
         setPartial(null);
@@ -382,7 +390,7 @@ export function useServerStream(
       socket.close();
       release();
     }
-  }, [consultationId, speaker, release]);
+  }, [consultationId, speaker, release, customUrl]);
 
   /** Para a captura; a Promise resolve quando o servidor fechou a última frase (ou após 4 s). */
   const stop = useCallback((): Promise<void> => {

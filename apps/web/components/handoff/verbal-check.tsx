@@ -1,27 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { CircleCheck, Loader2, MessageSquareText, ScanSearch, ShieldAlert, TriangleAlert, XCircle } from "lucide-react";
+import { Loader2, MessageSquareText, Mic, ScanSearch, ShieldAlert } from "lucide-react";
 
-import { FeedbackButtons } from "@/components/ai/feedback";
-import { AiBadge, reidentify } from "@/components/ai/ai-badge";
 import { usePatient } from "@/components/patient/patient-context";
-import { SeverityBadge } from "@/components/severity";
-import { SourceRefs } from "@/components/source-ref";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { api, type Audience, type HandoffCheck, type HandoffCheckItem } from "@/lib/api";
-import { cn } from "@/lib/utils";
-
-const GROUPS: { status: HandoffCheckItem["status"]; title: string; Icon: typeof XCircle; tone: string }[] = [
-  { status: "divergente", title: "Divergências com o prontuário", Icon: TriangleAlert, tone: "text-critico" },
-  { status: "omitido", title: "Não mencionado no relato", Icon: XCircle, tone: "text-atencao" },
-  { status: "mencionado", title: "Mencionado", Icon: CircleCheck, tone: "text-ok" },
-];
+import { ResultadoConferencia } from "@/components/handoff/resultado-conferencia";
+import { VerbalLive } from "@/components/handoff/verbal-live";
+import { api, type Audience, type HandoffCheck } from "@/lib/api";
 
 export function VerbalCheck({ audience, windowH }: { audience: Audience; windowH: number }) {
   const { patient } = usePatient();
@@ -29,6 +19,7 @@ export function VerbalCheck({ audience, windowH }: { audience: Audience; windowH
   const [result, setResult] = useState<HandoffCheck | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modo, setModo] = useState<"texto" | "voz">("texto");
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
@@ -64,6 +55,18 @@ export function VerbalCheck({ audience, windowH }: { audience: Audience; windowH
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="flex gap-2" role="group" aria-label="Como conferir a passagem">
+          <Button type="button" variant={modo === "texto" ? "default" : "outline"} aria-pressed={modo === "texto"} onClick={() => setModo("texto")}>
+            Digitar ou colar
+          </Button>
+          <Button type="button" variant={modo === "voz" ? "default" : "outline"} aria-pressed={modo === "voz"} onClick={() => setModo("voz")}>
+            <Mic aria-hidden /> Falar ao vivo
+          </Button>
+        </div>
+        {modo === "voz" ? (
+          <VerbalLive audience={audience} windowH={windowH} />
+        ) : (
+          <>
         <form onSubmit={run} className="space-y-2" noValidate>
           <Label htmlFor="relato">Relato de quem está saindo</Label>
           <Textarea
@@ -86,55 +89,15 @@ export function VerbalCheck({ audience, windowH }: { audience: Audience; windowH
             {busy ? "Conferindo…" : "Conferir com o prontuário"}
           </Button>
         </form>
-        {error && (
+          </>
+        )}
+        {modo === "texto" && error && (
           <Alert variant="critico">
             <ShieldAlert aria-hidden />
             {error}
           </Alert>
         )}
-        {result && (
-          <div className="space-y-3" aria-live="polite">
-            <div className="flex flex-wrap items-center gap-2">
-              <AiBadge />
-              {result.meta.modo === "mock" && <Badge variant="outline">Modo demonstração (sem LLM)</Badge>}
-              <Badge variant={result.contagem.divergente ? "critico" : result.contagem.omitido ? "atencao" : "ok"}>
-                Cobertura {result.cobertura != null ? `${Math.round(result.cobertura * 100)}%` : "—"}
-              </Badge>
-            </div>
-            <p className="font-bold">{reidentify(result.resumo, patient.nome)}</p>
-            {GROUPS.map(({ status, title, Icon, tone }) => {
-              const items = result.itens.filter((i) => i.status === status);
-              if (items.length === 0) return null;
-              return (
-                <section key={status} aria-label={title}>
-                  <h3 className={cn("mb-1.5 flex items-center gap-1.5 text-sm font-bold", tone)}>
-                    <Icon aria-hidden className="size-4" /> {title} ({items.length})
-                  </h3>
-                  <ul className="space-y-1.5">
-                    {items.map((it, i) => (
-                      <li
-                        key={i}
-                        className={cn(
-                          "rounded-md border p-2.5 text-sm",
-                          status === "divergente" && "border-critico-border bg-critico-bg/60",
-                          status === "omitido" && "border-atencao-border bg-atencao-bg/60",
-                        )}
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <SeverityBadge severity={it.severidade} />
-                          <span className="font-bold">{reidentify(it.fato, patient.nome)}</span>
-                        </div>
-                        <p className="mt-1">{reidentify(it.comentario, patient.nome)}</p>
-                        <SourceRefs patientId={patient.id} refs={it.refs} />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })}
-            <FeedbackButtons kind="handoff_check" patientId={patient.id} />
-          </div>
-        )}
+        {modo === "texto" && result && <ResultadoConferencia result={result} />}
       </CardContent>
     </Card>
   );

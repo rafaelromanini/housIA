@@ -540,15 +540,31 @@ export interface HandoffCheckItem {
   severidade: Severity;
   comentario: string;
   refs: string[];
+  /** passagem falada ao vivo: a fala que mencionou ou contradisse o fato */
+  fala?: number | null;
+  fala_ref?: string | null;
+}
+
+export interface SbarStep {
+  sigla: "S" | "B" | "A" | "R";
+  titulo: string;
+  guia: string;
+  coberto: boolean;
+  faltam: string[];
+  estado: "completo" | "falta_dizer" | "a_dizer";
 }
 
 export interface HandoffCheck {
   resumo: string;
   itens: HandoffCheckItem[];
+  ao_vivo?: boolean;
+  final?: boolean;
+  segmentos?: number;
+  roteiro?: SbarStep[];
   contagem: { mencionado: number; omitido: number; divergente: number };
   cobertura: number | null;
   descartados: number;
-  meta: { modo: "mock" | "real"; modelo: string; prompt_version: string; gerado_em: string; publico: Audience };
+  meta: { modo: "mock" | "real" | "regras"; modelo: string; prompt_version: string | null; gerado_em: string; publico: Audience };
 }
 
 export interface DocSection {

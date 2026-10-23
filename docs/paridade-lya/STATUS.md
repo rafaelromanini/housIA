@@ -666,3 +666,40 @@ Branch `claude/integracao-paridade-lya`. **Uma migração** (`c302`, sobre `c301
   resultado); o papel padrão é fixo por regra (médico, exceto ligação = enfermagem) e a edição corrige; "retorno" dito pelo
   paciente/acompanhante não conta; frases como "vamos pedir exames" sem nome de exame conhecido não geram tarefa (lista
   `_ORDERABLE`); sem e2e. Testes: `tests/test_consult_tarefas.py` (31).
+
+## #42 passagem de plantão falada com conferência ao vivo (2026-10-23)
+
+Branch `claude/integracao-paridade-lya`. Sem migração e sem dependência nova. A conferência verbal (`check.py`) deixou de depender de
+texto digitado ou colado.
+- **Endpoint incremental** `POST /patients/{pid}/handoff/verbal-check/segments` (`{audience, window_hours, segmentos:[{n, texto,
+  origem}], final, ciente}`): sem estado no servidor, o cliente reenvia as falas acumuladas e as **regras** rodam em milissegundos
+  (o texto não vai à IA). Cada item volta com a fonte do prontuário (`refs`) e a fala que o mencionou ou contradisse (`fala_ref`
+  "Fala/N"); "PA estável" com PA 184/102 vira `divergente` crítico na mesma chamada da fala. `final=true` roda o caminho completo
+  (IA em modo real, mock em `LLM_MODE=mock`), **audita** `handoff.conferencia` com contagens e `ao_vivo`, `segmentos`, `origens`
+  (nunca o texto; as chamadas parciais não auditam, para não inflar o indicador de omissões da gestão) e, se a IA cair, devolve
+  as regras com aviso.
+- **Correção no meio da fala** (`check.py`): a divergência de estabilidade vale pela última palavra; se depois dela o relato traz
+  valor ou tendência sem afirmar estabilidade ("corrigindo: subiu até 184/102"), o fato passa a `mencionado`; "mas agora está
+  estável" volta a divergir.
+- **Trava de segurança** (`ao_vivo.garantir_criticos`, vale também na conferência digitada): omissão ou divergência **crítica**
+  apontada pelas regras nunca é rebaixada pela IA (nem apagada se ela a esquece); o item sai com "(mantido pela regra de
+  segurança)" e `meta.regra_prevaleceu`. Tarefas abertas (#47) também são fatos da conferência.
+- **Roteiro SBAR** (`roteiro` na resposta, `GET /handoff/verbal-check/roteiro`): Situação, Histórico, Avaliação e Recomendação, com
+  a etapa coberta (palavras-chave), o que ainda falta dizer (fatos críticos/de atenção omitidos, por etapa) e o guia "Próximo: …".
+- **Áudio** `WS /ws/patients/{pid}/handoff/audio?audience=&janela_h=&ciente=true`: mesmo PCM 16 kHz da consulta
+  (`stt_stream.Sessao`, vocabulário do paciente do #38), conferência por regras a cada trecho, **parcial inclusive**; texto e áudio só
+  na memória da conexão; audita `handoff.audio_stream` (bytes e frases). Plano (módulo `passagem_plantao`, só clínica/hospital),
+  paciente avulso e perfil médico/enfermagem conferidos na conexão. O WebSocket mora num `ws_router` à parte (a dependência HTTP do
+  módulo não serve a WebSocket). **Ciência obrigatória** (`ciente`) nas duas portas, no lugar do consentimento da consulta (a
+  passagem é fala da equipe, não do paciente).
+- **Tela** (`verbal-check.tsx` ganhou "Digitar ou colar" × "Falar ao vivo"; `verbal-live.tsx`, `resultado-conferencia.tsx`):
+  captura por servidor (`useServerStream`, agora com `opts.url`/`onMessage`), navegador (aviso de demonstração), **roteiro de
+  demonstração** (`data/handoff/cen1_passagem_enfermagem.json`, `GET /handoff/demo-scripts`) ou fala digitada. Lista ao vivo de
+  divergências, "ainda não citado" (crítico em destaque) e mencionado, com a fala e "ver fonte".
+- **Testes**: `tests/test_handoff_ao_vivo.py` (19: critérios, SBAR, roteiro fala a fala, auditoria, trava contra a IA, ciência, limites,
+  plano, avulso de outra organização, WebSocket com o motor falso) e e2e `apps/web/e2e/passagem-falada.spec.ts` (rodado local no
+  Chromium: roteiro de demonstração e fala digitada; `pilares` e `melhorias` seguem verdes).
+- **Pendências/ressalvas**: o contexto do prontuário da conexão de áudio é lido uma vez no início (não acompanha novos registros
+  durante a passagem); a atribuição da fala usa as mesmas palavras-chave das regras (com IA no `final`, um fato que o modelo
+  achou por sinônimo fica `mencionado` sem `fala_ref`); a conferência parcial por regras é por palavra-chave, então sinônimos
+  coloquiais podem aparecer como "ainda não citado" até o `final` com IA; sem teste com motor de fala real (só o falso).

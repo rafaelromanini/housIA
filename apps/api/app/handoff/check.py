@@ -42,6 +42,8 @@ LAB_KEYWORDS = {
     "glicose": ["glicose", "glicem"],
 }
 STABILITY = ["estavel", "sem intercorr", "sem alterac", "tranquil", "normotens", "sem queixa", "bem", "ok"]
+# o relato que se corrige ("PA estável... na verdade subiu até 184/102"): valor ou tendência dita depois da estabilidade
+CORRECTION = re.compile(r"\d|subi|elev|aument|piorou|pioran|alta\b|alto\b|hipertens|pico|critic|descompens|queda de")
 
 
 class CheckItem(BaseModel):
@@ -79,6 +81,19 @@ def _sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"[.;\n!?]", normalize(text)) if s.strip()]
 
 
+def _says_stable(sentence: str) -> bool:
+    return any(w in f" {sentence} " for w in STABILITY)
+
+
+def _diverges(hits: list[str]) -> bool:
+    """O relato afirma estabilidade de um fato crítico. Vale a última palavra: se depois dela o relato traz o valor ou a
+    tendência sem afirmar estabilidade (correção), deixa de divergir. Outra frase depois mantém a divergência."""
+    stable = [i for i, s in enumerate(hits) if _says_stable(s)]
+    if not stable:
+        return False
+    return not any(CORRECTION.search(s) and not _says_stable(s) for s in hits[stable[-1] + 1 :])
+
+
 def mock_check(
     text: str, facts: list[Fact], audience: str, record: PatientRecord, events_by_ref: dict[str, ClinicalEvent]
 ) -> dict:
@@ -99,7 +114,7 @@ def mock_check(
                     "refs": f.refs,
                 }
             )
-        elif f.severidade == "critico" and any(any(w in s for w in STABILITY) for s in hits):
+        elif f.severidade == "critico" and _diverges(hits):
             items.append(
                 {
                     "fato": f.texto,
