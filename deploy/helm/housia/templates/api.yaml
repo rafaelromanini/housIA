@@ -68,6 +68,14 @@ spec:
               value: https://{{ include "housia.domain" . }}
             - name: EHR_WRITEBACK
               value: {{ .Values.ehrWriteback | quote }}
+            {{- if .Values.stt.url }}
+            - name: STT_URL
+              value: {{ .Values.stt.url | quote }}
+            - name: STT_MODEL
+              value: {{ .Values.stt.model | quote }}
+            - name: STT_PROBE
+              value: "true"
+            {{- end }}
           ports:
             - name: http
               containerPort: 8000

@@ -734,6 +734,33 @@ def transcribe_audio(
     )
 
 
+def stream_segment(
+    db: Session, fhir: FhirSource, user: User, cid: int, text: str, speaker: str, start: float | None = None
+) -> dict:
+    """Frase fechada da transmissão em fluxo (#11): mesmas travas do POST /audio e passa por append_segments."""
+    c = _get(db, cid)
+    _require_capture(c)
+    _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
+    return append_segments(
+        db,
+        fhir,
+        user,
+        cid,
+        [SegmentIn(falante=speaker, texto=text[:2000], t=start, origem="servidor")],  # type: ignore[arg-type]
+    )
+
+
+def stream_context(db: Session, user: User, cid: int, speaker: str) -> tuple[str, str]:
+    """(idioma, vocabulário) do STT para a transmissão; recusa quando a captura ou o consentimento não permitem."""
+    c = _get(db, cid)
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: não aceita novas falas.")
+    _require_capture(c)
+    _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
+    language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+    return language, glossario.prompt_stt(c.specialty) if language.startswith("pt") else ""
+
+
 CHECKLIST_LABEL = {"sign_in": "sign-in", "time_out": "time-out", "sign_out": "sign-out"}
 
 

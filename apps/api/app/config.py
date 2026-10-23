@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     stt_url: str = ""
     stt_api_key: str = ""
     stt_model: str = "whisper-1"
+    # Transmissão em fluxo (#11): "" usa o serviço de STT_URL; "fake" liga o motor determinístico (testes e demonstração
+    # sem baixar pesos). Janela deslizante, sobreposição e silêncio que fecha a frase, em segundos.
+    stt_engine: str = ""
+    # true: o /consult/config só anuncia o servidor de fala quando ele responde (compose com perfil `stt` opcional)
+    stt_probe: bool = False
+    stt_janela_s: float = 8.0
+    stt_sobreposicao_s: float = 1.0
+    stt_silencio_s: float = 0.7
     # Envio da nota aprovada ao prontuário (FHIR DocumentReference). Desligado por padrão; ligado no compose demo.
     ehr_writeback: bool = False
 

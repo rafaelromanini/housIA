@@ -219,6 +219,38 @@ idempotente (If-None-Exist). Verificação de esforço alto concluída: regress�
 critérios de aceite cobertos por testes e entradas adversariais conferidas. Segue o resultado da suíte completa no
 histórico de commits.
 
+## #11 transcrição no servidor em fluxo (2026-10-21)
+
+Branch `claude/onda3-11-whisper-servidor`. Sem migração. Decisões:
+- WebSocket `/ws/consultations/{cid}/audio` (autenticação por Bearer ou cookie de sessão com Origin permitido; o guard
+  global de paciente avulso passou a aceitar `HTTPConnection`, senão quebrava rotas WebSocket). Mensagens `pronto`,
+  `parcial`, `final` (com `novos` e `insights`, via `append_segments` com as mesmas travas de consentimento/pausa do
+  POST `/audio`), `erro`, `fim`. O POST `/audio` de 8 s segue como alternativa.
+- `app/consult/stt_stream.py`: `Sessao` com VAD por energia (silêncio fecha a frase), janela deslizante (8 s, 1 s de
+  sobreposição: só fecha palavra que termina antes da sobreposição, o resto é retranscrito) e deduplicação pelo ponto
+  médio das palavras. Motor plugável: `FakeMotor` (tons por palavra, determinístico; ligado por `STT_ENGINE=fake`, usado
+  nos testes) e `HttpMotor` (faster-whisper-server via `stt.transcribe_words`, que lê timestamps por palavra e
+  `avg_logprob`). Nenhum peso é baixado pelo repositório; o contêiner `stt` baixa o modelo na primeira subida.
+- O WAV de teste (`tests/fixtures/fala_sintetica_glibenclamida.wav`) é sintetizado por tons, não por TTS: não há TTS
+  offline disponível sem baixar modelo. Exercita janela, VAD e deduplicação, não a acurácia de um Whisper real.
+- Compose: serviço `stt` no perfil `stt` (imagem de tag fixa, modelo pt `small` em CPU; GPU/large-v3 por variáveis) e
+  `STT_PROBE=true`: o `/consult/config` só anuncia `stt_servidor` quando o serviço responde, então `--profile stt up`
+  liga o modo sem configurar mais nada. Helm: `stt.url` opcional (o chart não sobe o Whisper).
+- Front: hook `useServerStream` (AudioWorklet em Blob, 16 kHz, blocos de 500 ms), parcial no transcript, "Servidor" é o
+  modo padrão quando `stt_servidor`. Não validado em navegador real (sem playwright/microfone aqui).
+- Verificação independente (esforço alto, privacidade): corrigido o que segue, todos com teste em
+  `tests/test_consult_stt_stream.py`. (1) Consentimento revogado, pausa ou consulta finalizada só eram checados ao
+  fechar frase: com `HttpMotor` o áudio já seguiria ao serviço de fala; agora cada bloco revalida antes de transcrever
+  (`stream_context` também recusa consulta finalizada). (2) Token expirando no meio da transmissão encerra a conexão.
+  (3) Mensagem de controle JSON que não é objeto, ou com `falante` não-string (lista/objeto), levantava exceção;
+  agora é ignorada. (4) Tetos: texto de controle 4 KB, bloco 256 KB, 2 h de áudio por conexão. (5) Queda do serviço
+  de fala durante a transmissão vira mensagem `erro` e fechamento limpo. Cobertos sem mudança de código: consulta de
+  outra organização (resposta idêntica a id inexistente, nada gravado), token expirado/forjado/alg none/usuário
+  inexistente, cookie com Origin cruzada/`null`/prefixo, nada em disco, log ou auditoria (só bytes, frases, motor),
+  guard de paciente avulso nas rotas HTTP.
+- Pendente: validar a imagem do faster-whisper-server (tag e variáveis `WHISPER__*`) e a latência em hardware real;
+  VAD do serviço (`vad_filter`) não é pedido, o corte é feito pelo VAD de energia do HousIA; `avg_logprob` é lido mas
+  ainda não usado para marcar baixa confiança na tela.
 ## #18 codificação CID-10, CIAP-2 e SIGTAP (2026-10-21)
 
 Branch `claude/onda3-18-codificacao-cid-ciap-sigtap`, sem migração. Novo `app/consult/coding.py`. Decisões:

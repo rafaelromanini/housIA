@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DemoScript, Speaker } from "@/lib/api";
+import { API_URL } from "@/lib/api";
+import type { ConsultInsights, DemoScript, Segment, Speaker } from "@/lib/api";
 
 /* ---------- Reconhecimento de fala do navegador (Web Speech API) ---------- */
 interface RecognitionResult {
@@ -276,6 +277,140 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
     [stop],
   );
   return { recording, error, start, stop };
+}
+
+/* ---------- Transcrição em fluxo no servidor (#11): AudioWorklet → PCM 16 kHz → WebSocket ---------- */
+// O worklet reamostra para 16 kHz mono e entrega blocos de 500 ms (int16). O áudio nunca é gravado no navegador.
+const PCM_WORKLET = `
+class Pcm16 extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = []; this.pos = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    const ratio = sampleRate / 16000;
+    for (; this.pos < ch.length; this.pos += ratio) this.buf.push(ch[Math.floor(this.pos)]);
+    this.pos -= ch.length;
+    while (this.buf.length >= 8000) {
+      const out = new Int16Array(8000);
+      const part = this.buf.splice(0, 8000);
+      for (let i = 0; i < 8000; i++) out[i] = Math.max(-1, Math.min(1, part[i])) * 32767;
+      this.port.postMessage(out.buffer, [out.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor("pcm16", Pcm16);
+`;
+
+export interface StreamFinal {
+  novos: Segment[];
+  insights: ConsultInsights | null;
+}
+
+export function useServerStream(
+  consultationId: number,
+  speaker: Speaker,
+  onFinal: (res: StreamFinal) => void,
+) {
+  const [streaming, setStreaming] = useState(false);
+  const [partial, setPartial] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ws = useRef<WebSocket | null>(null);
+  const media = useRef<MediaStream | null>(null);
+  const ctx = useRef<AudioContext | null>(null);
+  const closing = useRef<(() => void)[]>([]);
+  const onFinalRef = useRef(onFinal);
+  onFinalRef.current = onFinal;
+
+  const release = useCallback(() => {
+    media.current?.getTracks().forEach((t) => t.stop());
+    media.current = null;
+    void ctx.current?.close();
+    ctx.current = null;
+    setStreaming(false);
+    setPartial(null);
+  }, []);
+
+  const start = useCallback(async () => {
+    setError(null);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true } });
+    } catch {
+      setError("Não foi possível acessar o microfone.");
+      return;
+    }
+    media.current = stream;
+    const socket = new WebSocket(`${API_URL.replace(/^http/, "ws")}/ws/consultations/${consultationId}/audio?falante=${speaker}`);
+    socket.binaryType = "arraybuffer";
+    ws.current = socket;
+    socket.onmessage = (e) => {
+      const m = JSON.parse(String(e.data));
+      if (m.tipo === "parcial") setPartial(m.texto);
+      else if (m.tipo === "final") {
+        setPartial(null);
+        onFinalRef.current({ novos: m.novos ?? [], insights: m.insights ?? null });
+      } else if (m.tipo === "erro") {
+        setError(m.mensagem);
+        release();
+      } else if (m.tipo === "fim") closing.current.splice(0).forEach((done) => done());
+    };
+    socket.onclose = () => {
+      closing.current.splice(0).forEach((done) => done());
+      release();
+    };
+    socket.onerror = () => setError("A conexão com a transcrição no servidor falhou.");
+    try {
+      const audio = new AudioContext();
+      ctx.current = audio;
+      const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: "text/javascript" }));
+      await audio.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      const node = new AudioWorkletNode(audio, "pcm16");
+      node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(e.data);
+      };
+      audio.createMediaStreamSource(stream).connect(node);
+      setStreaming(true);
+    } catch {
+      setError("Este navegador não consegue capturar áudio para o servidor. Use o modo Microfone ou Digitar.");
+      socket.close();
+      release();
+    }
+  }, [consultationId, speaker, release]);
+
+  /** Para a captura; a Promise resolve quando o servidor fechou a última frase (ou após 4 s). */
+  const stop = useCallback((): Promise<void> => {
+    media.current?.getTracks().forEach((t) => t.stop());
+    const socket = ws.current;
+    ws.current = null;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      release();
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      const t = window.setTimeout(resolve, 4000);
+      closing.current.push(() => {
+        window.clearTimeout(t);
+        resolve();
+      });
+      socket.send(JSON.stringify({ tipo: "fim" }));
+    }).finally(release);
+  }, [release]);
+
+  // troca de falante no meio da transmissão: o servidor fecha a frase de quem falava e muda o idioma
+  useEffect(() => {
+    const socket = ws.current;
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ tipo: "falante", falante: speaker }));
+  }, [speaker]);
+
+  useEffect(
+    () => () => {
+      void stop();
+    },
+    [stop],
+  );
+  return { streaming, partial, error, start, stop };
 }
 
 /* ---------- Simulação com roteiro sintético (demo sem microfone) ---------- */

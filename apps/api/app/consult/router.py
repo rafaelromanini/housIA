@@ -1,11 +1,16 @@
+import asyncio
+import json
+import time
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
+from app.audit.service import log_action
 from app.auth.deps import get_current_user, require_roles
+from app.auth.security import decode_access_token
 from app.config import get_settings
 from app.consult import (
     antiglosa,
@@ -21,12 +26,15 @@ from app.consult import (
     scales,
     service,
     stt,
+    stt_stream,
 )
 from app.consult import ask as copilot
 from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
+from app.db import session as db_session
 from app.db.models import User
 from app.db.session import get_db
+from app.db.tenancy import set_org
 from app.fhir_client.client import FhirSource, get_fhir
 from app.prontidao import ambiente
 
@@ -42,6 +50,7 @@ def config(_: User = Depends(get_current_user)) -> dict:
     return {
         "llm_mode": s.llm_mode,
         "stt_servidor": stt.enabled(),
+        "stt_streaming": stt_stream.disponivel(),
         "stt_navegador": s.allow_browser_stt,
         "privacidade": privacidade.panel(),
         "ambiente": ambiente(s),
@@ -724,3 +733,188 @@ def include_segment(
 ) -> dict:
     """Painel "Fora da nota": acrescenta a fala clínica não citada à seção escolhida, com a ref Fala/N."""
     return service.include_segment(db, user, cid, body.n, body.destino)
+
+
+# ---------- transcrição em fluxo (#11) ----------
+MAX_FRAME_BYTES = 256 * 1024  # 500 ms de PCM 16 kHz são 16 KB: folga larga, mas limitada
+SPEAKERS = set(Speaker.__args__)  # type: ignore[attr-defined]
+
+
+MAX_TEXTO_BYTES = 4096  # comandos de controle são minúsculos
+MAX_SESSAO_BYTES = 16000 * 2 * 7200  # 2 h de áudio por conexão: teto de memória/CPU de uma transmissão
+
+
+def _ws_autenticar(ws: WebSocket) -> tuple[int, int, float]:
+    """(user_id, organization_id, exp). Bearer no cabeçalho (clientes de API) ou cookie de sessão + Origin permitido."""
+    import jwt
+
+    scheme, _, bearer = ws.headers.get("authorization", "").partition(" ")
+    if scheme.lower() == "bearer" and bearer:
+        token = bearer
+    else:
+        token = ws.cookies.get("housia_session", "")
+        origin = ws.headers.get("origin")
+        allowed = [o.strip() for o in get_settings().cors_origins.split(",") if o.strip()]
+        if origin is not None and origin not in allowed:  # cookie é credencial ambiente: sem CSRF no WebSocket
+            raise PermissionError("Origem não permitida.")
+    if not token:
+        raise PermissionError("Não autenticado.")
+    try:
+        claims = decode_access_token(token)
+        sub, exp = int(claims["sub"]), float(claims["exp"])
+    except (jwt.PyJWTError, KeyError, ValueError, TypeError) as exc:
+        raise PermissionError("Token inválido ou expirado.") from exc
+    with db_session.SessionLocal() as db:
+        user = db.get(User, sub)
+        if user is None or user.organization_id is None:
+            raise PermissionError("Usuário não encontrado.")
+        if user.role not in ("medico", "enfermagem"):
+            raise PermissionError("Ação restrita ao(s) perfil(is): medico, enfermagem")
+        return user.id, user.organization_id, exp
+
+
+def _ws_contexto(user_id: int, org_id: int, cid: int, speaker: str) -> tuple[str, str]:
+    with db_session.SessionLocal() as db:
+        set_org(db, org_id)
+        return service.stream_context(db, db.get(User, user_id), cid, speaker)  # type: ignore[arg-type]
+
+
+def _ws_persistir(user_id: int, org_id: int, cid: int, texto: str, speaker: str, t: float) -> dict:
+    with db_session.SessionLocal() as db:
+        set_org(db, org_id)
+        user = db.get(User, user_id)
+        return service.stream_segment(db, get_fhir(), user, cid, texto, speaker, t)  # type: ignore[arg-type]
+
+
+def _ws_auditar(user_id: int, org_id: int, cid: int, payload: dict) -> None:
+    with db_session.SessionLocal() as db:
+        set_org(db, org_id)
+        log_action(db, db.get(User, user_id), "consulta.audio_stream", "consultation", cid, payload)
+
+
+@router.websocket("/ws/consultations/{cid}/audio")
+async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -> None:
+    """Áudio PCM 16 kHz mono int16 em blocos (~500 ms, binário) → {tipo:'parcial'} e {tipo:'final', novos, insights}.
+
+    Texto do cliente: {"tipo":"falante","falante":"paciente"} troca quem fala; {"tipo":"fim"} fecha a última frase.
+    O áudio fica só em memória e é descartado a cada frase fechada."""
+    await ws.accept()
+
+    async def erro(msg: str, code: int = 1008) -> None:
+        await ws.send_json({"tipo": "erro", "mensagem": msg})
+        await ws.close(code=code)
+
+    try:
+        uid, org, exp = await asyncio.to_thread(_ws_autenticar, ws)
+    except PermissionError as exc:
+        return await erro(str(exc))
+    speaker = falante if falante in SPEAKERS else "desconhecido"
+    engine = stt_stream.motor()
+    if engine is None:
+        return await erro("Transcrição no servidor não configurada (STT_URL).", 1011)
+    try:
+        language, vocab = await asyncio.to_thread(_ws_contexto, uid, org, cid, speaker)
+    except HTTPException as exc:
+        return await erro(str(exc.detail))
+    sessao = stt_stream.Sessao(engine, language, vocab)
+    finais = 0
+
+    async def entregar(eventos: list[stt_stream.Evento], enviar: bool = True) -> bool:
+        nonlocal finais
+        for ev in eventos:
+            try:
+                if ev.tipo == "parcial":
+                    if enviar:
+                        await ws.send_json({"tipo": "parcial", "texto": ev.texto, "falante": speaker})
+                    continue
+                res = await asyncio.to_thread(_ws_persistir, uid, org, cid, ev.texto, speaker, ev.inicio)
+            except HTTPException as exc:
+                if enviar:
+                    await erro(str(exc.detail))
+                return False
+            except stt.STTUnavailable as exc:
+                if enviar:
+                    await erro(str(exc), 1011)
+                return False
+            finais += 1
+            if enviar:
+                await ws.send_json({"tipo": "final", "texto": ev.texto, "falante": speaker, **res})
+        return True
+
+    await ws.send_json({"tipo": "pronto", "formato": "pcm16", "taxa": stt_stream.TAXA, "bloco_ms": 500})
+    ok = True
+    try:
+        while True:
+            msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
+            if time.time() >= exp:  # a sessão expirou: o POST /audio daria 401
+                ok = False
+                await erro("Sessão expirada.")
+                break
+            if msg.get("bytes") is not None:
+                if len(msg["bytes"]) > MAX_FRAME_BYTES:
+                    ok = False
+                    await erro("Bloco de áudio grande demais.", 1009)
+                    break
+                if sessao.bytes_total + len(msg["bytes"]) > MAX_SESSAO_BYTES:
+                    ok = False
+                    await erro("Limite de duração da transmissão atingido.", 1009)
+                    break
+                try:  # consentimento revogado, pausa ou consulta finalizada valem já no próximo bloco
+                    await asyncio.to_thread(_ws_contexto, uid, org, cid, speaker)
+                    eventos = await asyncio.to_thread(sessao.adicionar, msg["bytes"])
+                except HTTPException as exc:
+                    ok = False
+                    await erro(str(exc.detail))
+                    break
+                except stt.STTUnavailable as exc:
+                    ok = False
+                    await erro(str(exc), 1011)
+                    break
+                if not await entregar(eventos):
+                    ok = False
+                    break
+            elif msg.get("text"):
+                if len(msg["text"]) > MAX_TEXTO_BYTES:
+                    ok = False
+                    await erro("Mensagem de controle grande demais.", 1009)
+                    break
+                try:
+                    cmd = json.loads(msg["text"])
+                except ValueError:
+                    continue
+                if not isinstance(cmd, dict):
+                    continue
+                falante_novo = cmd.get("falante")
+                if cmd.get("tipo") == "falante" and isinstance(falante_novo, str) and falante_novo in SPEAKERS:
+                    if not await entregar(await asyncio.to_thread(sessao.encerrar)):  # fecha a frase de quem falava
+                        ok = False
+                        break
+                    speaker = falante_novo
+                    idioma, sessao.vocabulario = await asyncio.to_thread(_ws_contexto, uid, org, cid, speaker)
+                    sessao.idioma = idioma.split("-")[0]
+                elif cmd.get("tipo") == "fim":
+                    if await entregar(await asyncio.to_thread(sessao.encerrar)):
+                        await ws.send_json({"tipo": "fim"})
+                    ok = False
+                    await ws.close()
+                    break
+    except WebSocketDisconnect:
+        pass
+    except (stt.STTUnavailable, HTTPException) as exc:  # motor caiu ao fechar a frase / consulta mudou de estado
+        ok = False
+        try:
+            await erro(str(getattr(exc, "detail", exc)), 1011)
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        if ok:  # cliente caiu: o que já estava dito não se perde
+            try:
+                await entregar(await asyncio.to_thread(sessao.encerrar), enviar=False)
+            except Exception:  # noqa: BLE001
+                pass
+        sessao.buf.clear()
+        await asyncio.to_thread(
+            _ws_auditar, uid, org, cid, {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
+        )
