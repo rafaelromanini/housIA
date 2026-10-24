@@ -60,6 +60,7 @@ class Organization(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nome: Mapped[str] = mapped_column(String(160))
     tipo: Mapped[str] = mapped_column(String(20), default="hospital")  # consultorio | hospital
+    cnes: Mapped[str | None] = mapped_column(String(7), nullable=True)  # CNES do estabelecimento (#52), 7 dígitos
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
@@ -111,6 +112,8 @@ class User(Base):
     uf: Mapped[str | None] = mapped_column(String(2), nullable=True)
     email_verificado: Mapped[bool] = mapped_column(Boolean, default=False)
     conselho_verificado: Mapped[bool] = mapped_column(Boolean, default=False)  # conferido manualmente pelo admin
+    cns: Mapped[str | None] = mapped_column(String(15), nullable=True)  # CNS do profissional (#52)
+    cbo: Mapped[str | None] = mapped_column(String(6), nullable=True)  # CBO-2002 do profissional (#52)
 
 
 class AuthToken(Base):

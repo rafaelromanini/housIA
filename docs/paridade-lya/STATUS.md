@@ -798,3 +798,32 @@ nova: `pdfplumber` (núcleo); extra `ocr` (pytesseract + pillow) e tesseract-ocr
 - Front: `components/consult/laudos-panel.tsx` na revisão; `SourceRefs` mostra "laudo N, p. X". Testes:
   `tests/test_consult_laudos.py` (31). Pendências: OCR real (tesseract) não testado aqui; PDF escaneado (sem texto) pede
   foto; PDF com fontes subconjunto/CMap próprio depende do pdfplumber; sem e2e nem upload em duas páginas por foto.
+
+## #52 perfis brasileiros: BR Core/RNDS, CNS/CNES/CBO e exportação e-SUS (LEDI) (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c303 sobre c302 (cabeça única; golden de `test_journey.py` e do teste de
+reescrita atualizados): `organizations.cnes`, `users.cns`, `users.cbo`. Decisões:
+- `app/br/identificadores.py`: CPF (aceita máscara), CNS (definitivo 1/2 e provisório 7/8/9, com dígito verificador),
+  CNES (7 dígitos) e CBO (6 dígitos), mensagens em português. NamingSystems da RNDS para CNS e CNES (mesmo prefixo do CPF).
+- Cadastro só pelo gestor: `PUT /orgs/{id}/cadastro` (CNES) e `PUT /orgs/{id}/membros/{uid}/cadastro` (CNS, CBO);
+  vazio apaga; auditoria `org.cadastro_br`.
+- `app/br/perfis.py`: o Bundle estruturado (/export e /send) declara `meta.profile` em Composition, DocumentReference
+  e Practitioner; com cadastro, junta CNS no Practitioner, Organization (CNES, `Composition.custodian`) e
+  PractitionerRole (CBO). Sem cadastro nada é inventado.
+- `GET /consultations/{cid}/export/ledi[?baixar=true]` (`app/br/ledi.py`, `app/consult/ledi_service.py`): ficha de
+  atendimento individual JSON, só de consulta ambulatorial finalizada, revisada e atestada (mesmas travas do /export),
+  papéis médico e enfermagem, auditoria `consulta.ledi_exportado` só com contagens. Exige CNES, CBO, CNS do
+  profissional e CNS ou CPF válido do paciente (senão 422 com a lista `faltas`). Só CID/CIAP confirmados (hipótese fica
+  fora); procedimento só se for SIGTAP oficial de 10 dígitos (os DEMO-* vão para `pendencias`). Botão "Exportar e-SUS
+  (LEDI)" na revisão da nota.
+- Pendências de conferência humana: (1) URLs dos perfis em `app/br/perfis.py` (BRIndividuo, BRProfissional,
+  BREstabelecimentoSaude, BRLotacaoProfissional, BRRegistroAtendimentoClinico-2.0, BRDocumentoReferencia) e dos
+  NamingSystems/CodeSystem BRCBO foram escritas sem validar contra os pacotes de IG; rodar o validador FHIR antes de
+  produção. (2) Nomes e enumerações do LEDI (versão 7.3.x, `app/br/ledi.py`) sem o dicionário oficial: conferir turno,
+  sexo, limite de 2 problemas e `uuidFicha`; a serialização Thrift que o PEC importa não foi feita. (3) CBO só valida
+  formato, sem a tabela CBO-2002. (4) Sumário de Alta e RAC completos nos perfis oficiais (seções obrigatórias) não
+  foram gerados: só a declaração no Composition atual. (5) INE, local e tipo de atendimento e IBGE do município ficam
+  para o PEC (listados em `pendencias`). (6) Tabela SIGTAP real: seguem os DEMO-*. (7) CNS do paciente é lido do
+  Patient FHIR; o seed sintético não traz CNS (a exportação cai no CPF).
+- Testes: `tests/test_br_perfis.py` (29: validadores, cadastro, LEDI feliz/CPF/sem cadastro/não finalizada/sem atestação/
+  papel/sem login/inexistente, procedimento DEMO e hipótese, Bundle com e sem cadastro).

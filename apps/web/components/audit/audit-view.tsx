@@ -77,6 +77,8 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.modelo_nota": "Modelo da nota trocado na revisão",
   "consulta.exportada": "Nota exportada (envio automático desligado)",
   "consulta.exportada_pdf": "Nota baixada em PDF",
+  "consulta.ledi_exportado": "Atendimento exportado para o e-SUS APS (LEDI)",
+  "org.cadastro_br": "Cadastro brasileiro atualizado (CNES, CNS ou CBO)",
   "paciente.avulso_criado": "Paciente avulso cadastrado",
   "consulta.envio_com_pendencia": "Nota enviada com pendência crítica justificada",
   "consulta.enviada": "Nota enviada ao prontuário",

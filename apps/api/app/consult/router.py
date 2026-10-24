@@ -24,6 +24,7 @@ from app.consult import (
     knowledge,
     laudos,
     laudos_service,
+    ledi_service,
     note_templates,
     opme,
     perfis,
@@ -821,6 +822,28 @@ def export(
 ) -> dict:
     """Texto pronto para o prontuário e o recurso FHIR (DocumentReference), sem enviar."""
     return service.export(db, fhir, user, cid)
+
+
+@router.get("/consultations/{cid}/export/ledi")
+def export_ledi(
+    cid: int,
+    baixar: bool = False,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+):
+    """Ficha de atendimento individual no formato LEDI do e-SUS APS (#52), da consulta finalizada, revisada e atestada.
+    `baixar=true` devolve só o arquivo (anexo); sem ele, o arquivo com as pendências e avisos de conferência."""
+    out = ledi_service.exportar(db, fhir, user, cid)
+    if not baixar:
+        return out
+    import json
+
+    return Response(
+        json.dumps(out["arquivo"], ensure_ascii=False, indent=2).encode("utf-8"),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="ledi-consulta-{cid}.json"'},
+    )
 
 
 @router.get("/consultations/{cid}/export.pdf")

@@ -281,7 +281,7 @@ export function NoteReview({
   const r = (t: string) => reidentify(t, patient.nome);
   const surgical = c.tipo === "cirurgia";
   const [draft, setDraft] = useState(() => structuredClone(c.nota) as Record<string, unknown>);
-  const [busy, setBusy] = useState<"save" | "send" | "copy" | "download" | "pdf" | "recompute" | "diff" | null>(null);
+  const [busy, setBusy] = useState<"save" | "send" | "copy" | "download" | "pdf" | "ledi" | "recompute" | "diff" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sent = c.status === "enviada";
@@ -530,6 +530,20 @@ export function NoteReview({
       const block = blockedBy(e);
       if (block) setBlocked(block);
       else setError(e instanceof Error ? e.message : "Não foi possível gerar o PDF");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadLedi() {
+    setBusy("ledi");
+    setError(null);
+    try {
+      await downloadFile(`/consultations/${c.id}/export/ledi?baixar=true`, `ledi-consulta-${c.id}.json`);
+    } catch (e) {
+      const block = blockedBy(e);
+      if (block) setBlocked(block);
+      else setError(apiMessage(e, "Não foi possível gerar o arquivo e-SUS (LEDI)"));
     } finally {
       setBusy(null);
     }
@@ -1033,6 +1047,11 @@ export function NoteReview({
           <Button variant="outline" onClick={() => void downloadPdf()} disabled={busy !== null || !approved || dirty}>
             {busy === "pdf" ? <Loader2 aria-hidden className="animate-spin" /> : <FileText aria-hidden />} Baixar PDF
           </Button>
+          {c.tipo !== "cirurgia" && (
+            <Button variant="outline" onClick={() => void downloadLedi()} disabled={busy !== null || !approved || dirty}>
+              {busy === "ledi" ? <Loader2 aria-hidden className="animate-spin" /> : <Download aria-hidden />} Exportar e-SUS (LEDI)
+            </Button>
+          )}
           {!sent && (
             <Button onClick={() => void send()} disabled={busy !== null || !attested}>
               {busy === "send" ? <Loader2 aria-hidden className="animate-spin" /> : <Send aria-hidden />}

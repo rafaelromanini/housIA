@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session, object_session
 from app import clock
 from app.alerts.service import COMM_SOURCE, upsert_alert
 from app.audit.service import log_action
+from app.br import cadastro as br_cadastro
+from app.br import perfis as br_perfis
 from app.config import get_settings
 from app.consult import (
     acoes,
@@ -2501,7 +2503,7 @@ def _structured_bundle(c: Consultation, user: User, record: PatientRecord, text:
         for n in propostas._fala_n(p["refs"])
         if n in segs
     }
-    return bundle_transaction(
+    bundle = bundle_transaction(
         consultation_id=c.id,
         kind=c.kind,
         patient_id=c.patient_id,
@@ -2520,6 +2522,10 @@ def _structured_bundle(c: Consultation, user: User, record: PatientRecord, text:
         orders=orders,
         fala_evidence=evidence,
     )
+    # perfis BR Core/RNDS e identificadores brasileiros do cadastro (#52); sem cadastro só declara os perfis
+    db = object_session(c)
+    cns, cbo, cnes, org_nome = br_cadastro.do_profissional(db, user) if db else (None, None, None, None)
+    return br_perfis.aplicar_ao_bundle(bundle, cns=cns, cbo=cbo, cnes=cnes, org_nome=org_nome)
 
 
 def _send_structured(
