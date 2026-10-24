@@ -731,7 +731,7 @@ Implementado mas com verificação interrompida: **#47 e #42** (bugs corrigidos,
 
 Falta, na ordem:
 1. (feito) bugs de #47/#42 corrigidos e verificados.
-2. (#41 feito, ver "#41 ditado e adendo") #48 (laudos em PDF ou foto).
+2. (#41 e #48 feitos, ver "#41 ditado e adendo" e "#48 laudos em PDF ou foto").
 3. **Suíte completa + e2e + PR único** da branch de integração (CI: API, Web, Helm, E2E), merge na main. Não deixe para o fim
    da fila: faça logo após o item 2.
 4. Validar com LLM real (`ANTHROPIC_API_KEY`, `LLM_MODE=real`): saída estruturada dos itens novos só foi testada em mock.
@@ -776,3 +776,25 @@ Branch `claude/integracao-paridade-lya`, sem migração (o desfazer fica em `ext
   em cada seção da nota, no override da alta, no descarte de alerta e na justificativa do envio. Usa só o
   reconhecimento do navegador; o streaming de servidor (#11) não foi ligado ao ditado. Não validado em navegador real.
 - Pendente: ditado nas justificativas da reconciliação (sem campo de texto livre hoje); e2e com microfone.
+
+## #48 laudos em PDF ou foto (2026-10-24)
+
+Branch `claude/integracao-paridade-lya`, sem migração (laudos em `extra_json["laudos"]`, contador `laudos_seq`). Dependência
+nova: `pdfplumber` (núcleo); extra `ocr` (pytesseract + pillow) e tesseract-ocr-por no Dockerfile.
+- `POST /patients/{pid}/documents?consulta=&ciente=true&guardar=` (corpo bruto, até 8 MB), `GET` e `DELETE /{n}`. Leitura
+  **só por regras** (nada vai à IA): PDF por pdfplumber (sem ele, leitor mínimo de fluxos Flate); foto por tesseract `por`
+  (em `LLM_MODE=mock` o texto vem do metadado sintético `housia-ocr` do PNG/JPEG, determinístico).
+- Só linha que **começa** pelo nome de exame conhecido, com unidade compatível (conversões `/mm3`, mEq/L, µUI/mL), vira valor;
+  `<`/`>`, sem unidade, unidade errada, valor impossível e valores conflitantes são ignorados com o motivo. Cada valor leva
+  `Documento/N p. X` e o trecho. Texto do laudo é dado: injeção de prompt não vira ação.
+- Valores entram no Smart App Exames e na nota (`exames_complementares`), com a comparação com a série FHIR ("subiu de 7,1 %
+  (data)"); valor crítico vira alerta crítico; Observation `preliminary` (LOINC de `codes.LABS`) em `propostas` (tipo `exame`),
+  aceita item a item. `Documento/` é fonte válida (não é recurso FHIR; fora de `_fhir_refs`).
+- Segurança: magic bytes (Content-Type e extensão não valem), 413 acima de 8 MB (leitura em fluxo), imagem > 40 MP, PDF
+  criptografado ou com script/ação/anexo recusado, bomba de descompressão barrada, nome no laudo diferente do paciente (422),
+  `ciente` obrigatório, consentimento revogado (403) ou pausa (409) barram, outra organização 404, consulta enviada 409.
+  Arquivo descartado por padrão; `guardar=true` (só médico, fora do sandbox, com `EHR_WRITEBACK`) cria DocumentReference.
+  Audit só com contagens. LGPD: excluir os dados do paciente apaga os laudos e informa `laudos_fhir_mantidos`.
+- Front: `components/consult/laudos-panel.tsx` na revisão; `SourceRefs` mostra "laudo N, p. X". Testes:
+  `tests/test_consult_laudos.py` (31). Pendências: OCR real (tesseract) não testado aqui; PDF escaneado (sem texto) pede
+  foto; PDF com fontes subconjunto/CMap próprio depende do pdfplumber; sem e2e nem upload em duas páginas por foto.

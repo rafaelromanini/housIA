@@ -18,6 +18,7 @@ from app.consult import (
     extract,
     idiomas,
     knowledge,
+    laudos,
     orders,
     reminders,
     semiology,
@@ -1412,7 +1413,8 @@ class Engine:
         allergies = self.allergies(planned)
         meds_safety = self.med_safety(allergies, present, planned)
         reported = self.reported_meds()
-        exams = self.chart.exams() + self.extraction().exames
+        laudo_list = list(self.extra.get("laudos") or [])
+        exams = self.chart.exams() + self.extraction().exames + laudos.exam_infos(laudo_list, self.chart)
         history = self.history()
         egfr = self.chart.egfr
         order_ctx = orders.OrderContext(
@@ -1426,7 +1428,12 @@ class Engine:
         referrals = [] if self.kind == "cirurgia" else encaminhamento.build(self.chart, self.segments, hyps, self.extra)
         alerts = self.alerts(meds_safety)
         alerts = sorted(
-            [*self.translation_alerts(), *self.protocol_alerts(protocols), *alerts],
+            [
+                *self.translation_alerts(),
+                *self.protocol_alerts(protocols),
+                *laudos.alertas(laudo_list, self.chart),
+                *alerts,
+            ],
             key=lambda h: SEVERITY[h.severidade],
         )
         alerts += coding.compat_alerts(  # diagnóstico do prontuário que não combina com o sexo ou a idade do paciente

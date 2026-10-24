@@ -66,7 +66,7 @@ def reescrever(db: Session, fhir: FhirSource, user: User, cid: int, key: str, in
     if sec is None:
         raise HTTPException(404, "Seção não encontrada.")
     record, events, ctx = service._chart(fhir, c.patient_id)
-    valid = service._valid_refs(record, events, ctx, service._segments(c))
+    valid = service._valid_refs(record, events, ctx, service._segments(c), c.extra_json)
     ins = Insights.model_validate(c.insights_json) if c.insights_json else None
     antigas = reescrita.frases_de(sec)
     alertas = [m.texto for m in (ins.sugestoes_medicamentos if ins else []) if m.severidade in ("critico", "atencao")]

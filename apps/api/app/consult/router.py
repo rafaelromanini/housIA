@@ -22,6 +22,8 @@ from app.consult import (
     estilo,
     idiomas,
     knowledge,
+    laudos,
+    laudos_service,
     note_templates,
     opme,
     perfis,
@@ -575,6 +577,48 @@ async def add_audio(
     """Trecho de áudio (corpo bruto, ex.: audio/webm) → transcrição no servidor (STT_URL) → falas."""
     audio = await request.body()
     return service.transcribe_audio(db, fhir, user, cid, audio, request.headers.get("content-type", ""), falante)
+
+
+@router.post("/patients/{patient_id}/documents")
+async def laudo_enviar(
+    patient_id: str,
+    request: Request,
+    consulta: int = Query(..., description="Consulta em que o laudo entra"),
+    ciente: bool = Query(False, description="O profissional confirma que o laudo é deste paciente"),
+    guardar: bool = Query(False, description="Só o médico: guardar o arquivo no prontuário (DocumentReference)"),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Laudo em PDF ou foto (corpo bruto) → valores propostos com a fonte `Documento/N p. X`. O arquivo é descartado."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > laudos.MAX_BYTES:
+        raise HTTPException(413, f"Arquivo maior que {laudos.MAX_BYTES // (1024 * 1024)} MB.")
+    body = bytearray()
+    async for chunk in request.stream():  # lê no máximo o limite + 1: arquivo gigante não ocupa a memória
+        body += chunk
+        if len(body) > laudos.MAX_BYTES:
+            raise HTTPException(413, f"Arquivo maior que {laudos.MAX_BYTES // (1024 * 1024)} MB.")
+    return laudos_service.enviar(db, fhir, user, patient_id, consulta, bytes(body), ciente, guardar)
+
+
+@router.get("/patients/{patient_id}/documents")
+def laudo_listar(
+    patient_id: str, consulta: int = Query(...), db: Session = Depends(get_db), _: User = Depends(clinician)
+) -> dict:
+    return laudos_service.listar(db, patient_id, consulta)
+
+
+@router.delete("/patients/{patient_id}/documents/{n}")
+def laudo_remover(
+    patient_id: str,
+    n: int,
+    consulta: int = Query(...),
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return laudos_service.remover(db, fhir, user, patient_id, consulta, n)
 
 
 @router.post("/consultations/{cid}/insights")

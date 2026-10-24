@@ -222,6 +222,7 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
     """Exclusão a pedido do titular (LGPD art. 18): remove as consultas do paciente e registra na auditoria."""
     rows = list(db.scalars(select(Consultation).where(Consultation.patient_id == patient_id)))
     ids = [c.id for c in rows]
+    docs_fhir = sum(1 for c in rows for x in (c.extra_json or {}).get("laudos") or [] if x.get("guardado_ref"))
     for c in rows:
         db.delete(c)
     tarefas = list(db.scalars(select(JourneyTask).where(JourneyTask.consultation_id.in_(ids)))) if ids else []
@@ -235,7 +236,13 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
         "consulta.dados_excluidos",
         "patient",
         patient_id,
-        {"consultas": len(ids), "ids": ids, "tarefas": len(tarefas), "tasks_fhir_mantidos": tasks_fhir},
+        {
+            "consultas": len(ids),
+            "ids": ids,
+            "tarefas": len(tarefas),
+            "tasks_fhir_mantidos": tasks_fhir,
+            "laudos_fhir_mantidos": docs_fhir,
+        },
         commit=False,
     )
     db.commit()
@@ -243,6 +250,7 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
         "patient_id": patient_id,
         "consultas_excluidas": len(ids),
         "tasks_fhir_mantidos": tasks_fhir,
+        "laudos_fhir_mantidos": docs_fhir,
         "aviso": (
             f"{tasks_fhir} Task(s) FHIR de pedidos no prontuário foram mantidos (registro do prontuário); "
             "exclua-os no sistema de prontuário se necessário."

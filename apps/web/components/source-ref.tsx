@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { FileSearch, MessageSquareQuote } from "lucide-react";
+import { FileSearch, FileText, MessageSquareQuote } from "lucide-react";
 
 import { KIND_META } from "@/components/timeline";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,8 @@ export function focusFala(n: number) {
 export function SourceRefs({ patientId, refs: allRefs, label = "ver fonte" }: { patientId: string; refs: string[]; label?: string }) {
   const [events, setEvents] = useState<ClinicalEvent[] | null>(null);
   const falas = allRefs.filter((r) => r.startsWith("Fala/")).map((r) => Number(r.split("/")[1]));
-  const refs = allRefs.filter((r) => !r.startsWith("Fala/"));
+  const docs = allRefs.filter((r) => r.startsWith("Documento/"));
+  const refs = allRefs.filter((r) => !r.startsWith("Fala/") && !r.startsWith("Documento/"));
 
   async function onOpen(open: boolean) {
     if (open && !events) {
@@ -40,7 +41,7 @@ export function SourceRefs({ patientId, refs: allRefs, label = "ver fonte" }: { 
     }
   }
 
-  if (refs.length === 0 && falas.length === 0) return null;
+  if (refs.length === 0 && falas.length === 0 && docs.length === 0) return null;
   return (
     <span className="inline-flex flex-wrap items-center gap-x-1">
       {falas.map((n) => (
@@ -55,6 +56,12 @@ export function SourceRefs({ patientId, refs: allRefs, label = "ver fonte" }: { 
           <MessageSquareQuote aria-hidden />
           fala {n}
         </Button>
+      ))}
+      {docs.map((d) => (
+        <span key={d} className="inline-flex items-center gap-1 px-1 text-xs text-primary" title="Laudo enviado nesta consulta">
+          <FileText aria-hidden className="size-3.5" />
+          {d.replace("Documento/", "laudo ").replace(" p. ", ", p. ")}
+        </span>
       ))}
       {refs.length > 0 && <FhirRefs patientId={patientId} refs={refs} label={label} events={events} onOpen={onOpen} />}
     </span>

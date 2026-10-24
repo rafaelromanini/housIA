@@ -1418,12 +1418,25 @@ export interface CopilotState {
 }
 export interface Proposal {
   id: string;
-  tipo: "alergia" | "medicamento" | "condicao" | "observacao";
+  tipo: "alergia" | "medicamento" | "condicao" | "observacao" | "exame";
   tipo_rotulo: string;
   rotulo: string;
   detalhe: string;
   refs: string[];
   aceita: boolean;
+}
+export interface Laudo {
+  n: number;
+  ref: string;
+  tipo: "pdf" | "imagem";
+  paginas: number;
+  data_laudo: string | null;
+  identidade: "confere" | "nao_encontrada" | null;
+  avisos: string[];
+  valores: { chave: string; exame: string; valor: number; unidade: string; pagina: number; trecho: string; ref: string; comparacao: string }[];
+  ignorados: { pagina: number; exame: string; motivo: string }[];
+  guardado: string | null;
+  em: string | null;
 }
 export interface SendStatus {
   status: "pendente" | "enviando" | "erro" | "enviado";
@@ -1447,6 +1460,8 @@ export interface Consultation {
   consentimento?: ConsentInfo | null;
   /** propostas para o prontuário (alergia/medicamento relatados, CID, PA e peso ditos); aceite item a item */
   propostas?: Proposal[];
+  /** laudos em PDF ou foto lidos nesta consulta (#48): valores com a página de origem */
+  laudos?: Laudo[];
   /** fila de envio ao prontuário (null: nunca enviada) */
   envio?: SendStatus | null;
   insights: ConsultInsights | null;

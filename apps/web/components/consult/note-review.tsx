@@ -26,6 +26,7 @@ import { DocumentsPanel } from "@/components/consult/documents-panel";
 import { TasksPanel } from "@/components/consult/tasks-panel";
 import { SectionRewrite } from "@/components/consult/section-rewrite";
 import { DictateSection, DictateText } from "@/components/dictate-button";
+import { LaudosPanel } from "@/components/consult/laudos-panel";
 import { ProposalsPanel } from "@/components/consult/proposals-panel";
 import { api, downloadFile, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { focusFala } from "@/components/source-ref";
@@ -945,6 +946,8 @@ export function NoteReview({
             )}
           </div>
         )}
+
+        {!surgical && <LaudosPanel consult={c} editable={!sent} onChange={onChange} />}
 
         {!surgical && (c.propostas?.length ?? 0) > 0 && (
           <ProposalsPanel

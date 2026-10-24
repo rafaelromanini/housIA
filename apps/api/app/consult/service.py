@@ -32,6 +32,7 @@ from app.consult import (
     hipoteses,
     idiomas,
     knowledge,
+    laudos,
     notas,
     note_templates,
     opme,
@@ -137,8 +138,10 @@ def _engine(c: Consultation, record, events, ctx, segments: list[Segment]) -> En
     return Engine(record, events, ctx, segments, c.specialty, c.kind, clock.now(), extra)
 
 
-def _valid_refs(record: PatientRecord, events: list[ClinicalEvent], ctx: PatientContext, segments) -> set[str]:
-    refs = {e.source_ref for e in events} | ctx.refs() | {fala_ref(s.n) for s in segments}
+def _valid_refs(
+    record: PatientRecord, events: list[ClinicalEvent], ctx: PatientContext, segments, extra: dict | None = None
+) -> set[str]:
+    refs = {e.source_ref for e in events} | ctx.refs() | {fala_ref(s.n) for s in segments} | laudos.refs_validas(extra)
     for rtype, items in record.resources.items():
         refs |= {f"{rtype}/{r['id']}" for r in items}
     return refs
@@ -179,7 +182,7 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
     base = engine.run()
     meta = c.ai_meta_json or {}
     if meta.get("saida") and meta.get("modo") == "real" and c.kind != "cirurgia":
-        valid = _valid_refs(record, events, ctx, segments)
+        valid = _valid_refs(record, events, ctx, segments, c.extra_json)
         merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
         ai.reconcile_ai_allergies(engine, merged)
         base = merged
@@ -189,7 +192,7 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
 def _smart_apps(c: Consultation, ins: Insights, engine: Engine) -> list:
     """Smart Apps do registro (app/consult/apps) sobre o que o engine e a IA já produziram; fontes conferidas aqui."""
     chart = engine.chart
-    valid = _valid_refs(chart.r, chart.events, chart.ctx, engine.all_segments) | {f"Patient/{chart.r.id}"}
+    valid = _valid_refs(chart.r, chart.events, chart.ctx, engine.all_segments, engine.extra) | {f"Patient/{chart.r.id}"}
     ctx = apps.AppContext(
         ins=ins,
         chart=chart,
@@ -222,7 +225,7 @@ def _consent_filter(c: Consultation, ins: Insights) -> Insights:
 
 
 def _fhir_refs(refs: list[str]) -> list[str]:
-    return [r for r in refs if not r.startswith("Fala/")]
+    return [r for r in refs if not r.startswith(("Fala/", "Documento/"))]
 
 
 def _sync_alerts(c: Consultation, ins: Insights) -> None:
@@ -342,6 +345,7 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "justificativa_pendencias": (c.extra_json or {}).get("justificativa_pendencias"),
         "pedidos_fhir": (c.extra_json or {}).get("pedidos_fhir"),
         "propostas": propostas.public(_propostas(c)),
+        "laudos": [laudos.publico(item) for item in (c.extra_json or {}).get("laudos") or []],
         "envio": envio_state(c),
         "criado_por": (user_names or {}).get(c.created_by or 0),
         "created_at": c.created_at.isoformat(),
@@ -1485,7 +1489,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         return out(c)
     engine = _engine(c, record, events, ctx, segments)
     base = engine.run()
-    valid = _valid_refs(record, events, ctx, segments)
+    valid = _valid_refs(record, events, ctx, segments, c.extra_json)
     pseudo = _pseudo(record)
     started = time.monotonic()
     analyzed = len(segments)
@@ -1512,7 +1516,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         # relevância: a IA reclassifica, mas fala com medicamento, dose, alergia ou sinal de alarme nunca vira social
         if relevancia.apply_ai(segments, {r.n: r.relevancia for r in result.output.relevancia}):
             c.segments_json = [s.model_dump() for s in segments]
-        valid = _valid_refs(record, events, ctx, segments)
+        valid = _valid_refs(record, events, ctx, segments, c.extra_json)
         engine = _engine(c, record, events, ctx, segments)
         base = engine.run()
         merged = ai.merge_live(base, result.output, valid, segments, engine.r.sex)
@@ -1658,7 +1662,7 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
         raise HTTPException(422, "A consulta não tem falas transcritas.")
     rules_only = not consentimento.flags(c.extra_json).ia
     engine = _engine(c, record, events, ctx, segments)
-    valid = _valid_refs(record, events, ctx, segments)
+    valid = _valid_refs(record, events, ctx, segments, c.extra_json)
     pseudo = _pseudo(record)
     fallback = False
     try:
@@ -2438,6 +2442,7 @@ def _propostas(c: Consultation, when: datetime | None = None) -> list[dict]:
         note=note,
         segments=_segments(c),
         accepted=set((c.extra_json or {}).get("propostas_aceitas") or []),
+        laudos=(c.extra_json or {}).get("laudos") or [],
     )
 
 
@@ -2814,7 +2819,7 @@ def ask(db: Session, fhir: FhirSource, user: User, cid: int, question: str, via:
         raise HTTPException(409, "O copiloto não está disponível no centro cirúrgico.")
     ins = Insights.model_validate(c.insights_json) if c.insights_json else _insights(c, record, events, ctx, segments)
     actx = copilot.Ctx(engine=engine, ins=ins, q=question, n=copilot.norm(question))
-    valid = _valid_refs(record, events, ctx, segments)
+    valid = _valid_refs(record, events, ctx, segments, c.extra_json)
     data = _copilot(c)
     msg_id = len(data["mensagens"]) + 1
     pseudo = _pseudo(record)
@@ -2915,7 +2920,7 @@ def insert_into_note(
     if not chosen:
         raise HTTPException(422, "Nada para inserir na nota.")
     record, events, ctx = _chart(fhir, c.patient_id)
-    valid = _valid_refs(record, events, ctx, _segments(c))
+    valid = _valid_refs(record, events, ctx, _segments(c), c.extra_json)
     refs = [r for f in chosen for r in f["refs"] if r in valid]
     texto = " ".join(f["texto"] for f in chosen)
     ins, created = _new_insertion(data, msg_id, _note_target(destino), texto, refs, user.name)
