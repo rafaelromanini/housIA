@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import re
 import time
 from contextlib import nullcontext
@@ -28,6 +29,7 @@ from app.consult import (
     coding,
     consentimento,
     consultorio,
+    diarizacao,
     encaminhamento,
     estilo,
     fidelidade,
@@ -569,6 +571,8 @@ def _add_segments(
         if item.origem == "servidor":  # confiança e correções vêm do motor de fala, não do cliente da API
             seg.confianca, seg.palavras_baixas = item.confianca, item.palavras_baixas
             seg.corrigidos, seg.confirmar = item.corrigidos, item.confirmar
+            seg.falante_origem = item.falante_origem or ("heuristica" if auto else "botao")
+            seg.falante_incerto, seg.falante_confianca = item.falante_incerto, item.falante_confianca
         segments.append(seg)
         new.append(seg)
     c.segments_json = [s.model_dump() for s in segments]
@@ -676,9 +680,14 @@ def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, bo
             seg.confirmar, seg.palavras_baixas = [], []  # quem corrigiu o texto já conferiu o que foi ouvido
             seg.traducao_divergente = []
             changed.append("texto")
+    if body.falante is not None and body.falante == seg.falante and seg.falante_incerto:
+        # o profissional confirmou o falante que a diarização marcou como incerto (#40): a trilha vira "correcao"
+        seg.falante_incerto, seg.falante_origem = False, "correcao"
+        changed.append("falante_confirmado")
     if body.falante is not None and body.falante != seg.falante:
         seg.falante_original = seg.falante_original or seg.falante
         seg.falante, seg.falante_auto = body.falante, False
+        seg.falante_incerto, seg.falante_origem = False, "correcao"
         if body.idioma is None:
             seg.idioma = c.patient_language if body.falante in PATIENT_SIDE else "pt-BR"
             seg.traducao, seg.traducao_divergente = None, []
@@ -775,12 +784,61 @@ def add_marker(db: Session, fhir: FhirSource, user: User, cid: int, kind: str) -
     return out(c)
 
 
+def _ja_recebido(c: Consultation, client_id: str) -> bool:
+    prefixo = client_id + ":"
+    return any(
+        x.get("client_id") == client_id or str(x.get("client_id") or "").startswith(prefixo)
+        for x in (c.segments_json or [])
+    )
+
+
+def _itens_diarizados(
+    db: Session,
+    user: User,
+    record,
+    speaker: str,
+    palavras_t: list[diarizacao.PalavraT],
+    trechos: list[diarizacao.Trecho],
+    avg_logprob: float | None,
+    client_id: str | None,
+    patient_language: str,
+    org_id: int | None,
+) -> tuple[list[SegmentIn], dict]:
+    """Divide um trecho de áudio em falas por falante (#40). Lista vazia: nada a dividir (comportamento antigo)."""
+    if not trechos or not palavras_t:
+        return [], {}
+    try:
+        perfil = diarizacao.carregar_perfil(db, user.id)
+        falas, info = diarizacao.atribuir(palavras_t, trechos, perfil, speaker)
+    except Exception as exc:  # noqa: BLE001 - a diarização nunca pode custar uma fala
+        logging.getLogger("housia.diarizacao").warning("atribuição falhou (%s)", type(exc).__name__)
+        return [], {"erro": True}
+    itens: list[SegmentIn] = []
+    for k, f in enumerate(falas):
+        lang = patient_language if f.falante in PATIENT_SIDE else "pt-BR"
+        item = _item_servidor(record, f.falante, f.texto, f.inicio, f.palavras, avg_logprob, lang, org_id)
+        item.falante_origem, item.falante_confianca, item.falante_incerto = "diarizacao", f.confianca, f.incerto
+        if client_id:
+            item.client_id = f"{client_id}:{k}"
+        itens.append(item)
+    return itens, info
+
+
 def transcribe_audio(
-    db: Session, fhir: FhirSource, user: User, cid: int, audio: bytes, content_type: str, speaker: str
+    db: Session,
+    fhir: FhirSource,
+    user: User,
+    cid: int,
+    audio: bytes,
+    content_type: str,
+    speaker: str,
+    client_id: str | None = None,
 ) -> dict:
     c = _get(db, cid)
     _require_capture(c)
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
+    if client_id and _ja_recebido(c, client_id):  # reenvio da fila: não transcreve de novo (#12)
+        return {"novos": [], "insights": c.insights_json, "total": len(c.segments_json or []), "duplicada": True}
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
     record, _, _ = _chart(fhir, c.patient_id)
     try:
@@ -792,13 +850,34 @@ def transcribe_audio(
         )
     except stt.STTUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
-    log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(res.texto)})
+    payload: dict = {"bytes": len(audio), "caracteres": len(res.texto)}
+    itens: list[SegmentIn] = []
+    if res.texto and diarizacao.ativo():
+        trechos, estado = diarizacao.segmentar(audio, content_type)
+        palavras_t = [diarizacao.PalavraT(p.texto, p.prob, p.inicio, p.fim) for p in res.palavras]
+        itens, info = _itens_diarizados(
+            db, user, record, speaker, palavras_t, trechos, res.avg_logprob, client_id, c.patient_language, _org(db)
+        )
+        payload["diarizacao"] = {"backend": diarizacao.backend(), "estado": estado} | {
+            k: v for k, v in info.items() if k in ("clusters", "falas", "incertas", "perfil", "erro")
+        }
+    log_action(db, user, "consulta.audio", "consultation", c.id, payload)
     if not res.texto:
         return {"novos": [], "insights": c.insights_json, "total": len(c.segments_json or [])}
-    item = _item_servidor(
-        record, speaker, res.texto, None, [(p.texto, p.prob) for p in res.palavras], res.avg_logprob, language, _org(db)
-    )
-    return append_segments(db, fhir, user, cid, [item])
+    if not itens:
+        item = _item_servidor(
+            record,
+            speaker,
+            res.texto,
+            None,
+            [(p.texto, p.prob) for p in res.palavras],
+            res.avg_logprob,
+            language,
+            _org(db),
+        )
+        item.client_id = client_id
+        itens = [item]
+    return append_segments(db, fhir, user, cid, itens)
 
 
 def _item_servidor(
@@ -881,13 +960,22 @@ def stream_segment(
     start: float | None = None,
     palavras: list[tuple[str, float | None]] | None = None,
     avg_logprob: float | None = None,
+    palavras_t: list[diarizacao.PalavraT] | None = None,
+    trechos: list[diarizacao.Trecho] | None = None,
 ) -> dict:
-    """Frase fechada da transmissão em fluxo (#11): mesmas travas do POST /audio e passa por append_segments."""
+    """Frase fechada da transmissão em fluxo (#11): mesmas travas do POST /audio e passa por append_segments.
+    Com `trechos` (#40) a frase pode virar várias falas, uma por falante."""
     c = _get(db, cid)
     _require_capture(c)
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     record, _, _ = _chart(fhir, c.patient_id)
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+    if trechos and palavras_t:
+        itens, _info = _itens_diarizados(
+            db, user, record, speaker, palavras_t, trechos, avg_logprob, None, c.patient_language, _org(db)
+        )
+        if itens:
+            return append_segments(db, fhir, user, cid, itens)
     item = _item_servidor(record, speaker, text, start, palavras or [], avg_logprob, language, _org(db))
     return append_segments(db, fhir, user, cid, [item])
 

@@ -910,3 +910,47 @@ Provedor local (`LLM_ON_PREMISE`) pula a saída externa mas mantém o recibo.
   ("127.1", decimal, hex, dígitos largos), rótulo único e `.svc` passavam na checagem estática; conexão do openai_compat agora fixa
   no IP validado (DNS rebinding) com Host/SNI do nome. Pendente: rebinding no caminho Anthropic com `LLM_BASE_URL` (SDK resolve sozinho),
   ditado por extenso só cobre sequência de 7+ dígitos, tokens aceitam caixa/separador alterados pelo provedor.
+
+## #40 diarização acústica on-premise com a voz do profissional cadastrada (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c305 (sobre c304): tabela `perfis_voz` (um por usuário, `ON DELETE CASCADE`). Cabeça única c305.
+- Código: `app/consult/diarizacao.py`. `DIARIZATION_BACKEND=off|heuristico|externo` (padrão `off` = comportamento antigo). `externo` chama
+  `DIARIZATION_URL` (POST multipart `file`, resposta `{"segmentos":[{inicio,fim,falante_id,embedding}]}`, validada: tempos, dimensão única,
+  número finito, teto de 500 segmentos e 2 MB) com a mesma checagem anti-SSRF do #54 (`providers.checar_destino`/`fixar_destino`, sem redirect,
+  `DIARIZATION_ON_PREMISE=true` por padrão: o áudio da consulta não sai da rede). `heuristico` não é modelo: turnos por pausa
+  (`DIARIZATION_PAUSA_S`) e vetor de 32 bandas espectrais, só lê WAV/PCM 16 kHz; existe para teste e degradação.
+- Perfil de voz (`GET/PUT/DELETE /consult/perfil-voz`, só medico/enfermagem, só o próprio): o PUT exige o cabeçalho `X-Consentimento-Voz`
+  com a versão do termo (senão 428 e nada gravado), guarda **só o vetor** em `EncryptedJson` (cifrado com `DATA_ENCRYPTION_KEY`; sem a chave
+  fica JSON puro e a tela avisa), rejeita amostra vazia, >5 MB, curta, sem fala ou com mais de uma voz. Audit `consulta.voz_cadastrada`
+  (backend, dim, duração, versão do termo) e `consulta.voz_apagada`, sem vetor. A GET nunca devolve o vetor. `apagar_do_usuario` existe, mas
+  **não há fluxo de exclusão de conta no código para chamá-lo**: hoje vale o `ON DELETE CASCADE` do banco. Dossiê: OP-08, risco no RIPD e linha
+  na matriz (art. 5º, II/11, I), todos `revisao_juridica`.
+- Atribuição (`atribuir`): cosseno entre o vetor do falante (média por duração dos turnos) e o perfil. `>= DIARIZATION_LIMIAR` (0,75): médico.
+  Abaixo de `limiar - DIARIZATION_MARGEM` (0,10): paciente (o 2º falante não profissional vira acompanhante, incerto). Entre os dois:
+  **incerto** (`falante_incerto`, confiança 0,5). Sem perfil utilizável (ou de outro motor/dimensão) e mais de um falante: os turnos se separam,
+  mas tudo é incerto (palpite a partir do botão). Um falante só e sem perfil: nada muda. Papéis de cirurgia (anestesista etc.) não passam pela
+  diarização.
+- Segmento ganha `falante_origem` (`botao|heuristica|diarizacao|correcao`), `falante_confianca`, `falante_incerto` (só valem com origem
+  `servidor`). POST `/audio` (e `X-Client-Id` opcional, até 56 caracteres: o reenvio com o mesmo id não transcreve de novo, e as falas levam
+  `id:0`, `id:1`...) e o WebSocket do #11 (a frase fechada pode virar várias falas, em ordem, uma mensagem `final` com todas em `novos`) usam a
+  atribuição; qualquer falha (serviço fora, lento, lixo, WAV ruim, exceção) volta ao falante do botão com o texto inteiro. O audit
+  (`consulta.audio`, `consulta.audio_stream`) leva só contagens e estado.
+- Correção: `PATCH /segments/{n}` com o mesmo falante confirma o incerto (`falante_confirmado`), com outro falante corrige (`falante_original`
+  guardado, origem `correcao`); as regras rodam de novo como já faziam. Falas incertas ficam **fora** das métricas de comunicação
+  (`CommMetrics.falas_incertas` conta quantas), das emoções por falante e das dúvidas sem resposta (#43) até a confirmação.
+- Front: `/perfil-voz` ("Minha voz": termo, aceite, gravação de 10 a 20 s em PCM 16 kHz -> WAV, apagar) e selo "falante incerto" + "confirmar"
+  no `Transcript`. Não validado em navegador real.
+- Testes: `tests/test_diarizacao.py` (sem consentimento, só vetor/cifrado/auditoria, perfil de outro usuário, apagar remove, amostra
+  vazia/gigante/inválida/silêncio/duas vozes, embedding de dimensão errada/NaN/inf/nulo, serviço externo caindo/lento/500/lixo/NaN/redirect, SSRF,
+  limiar no limite, voz parecida incerta + confirmação + correção, 2 vozes sintéticas com >=90% corretas, sem perfil, perfil incompatível, dedupe,
+  WebSocket com divisão e com diarização quebrada, migração). Pytest direcionado; suíte completa e e2e não rodados.
+- **Limites (leia antes de confiar no rótulo):** não há validação com voz real. O backend heurístico mede timbre sintético (vogais harmônicas); com
+  voz humana ele separa mal e erra com ruído, eco, telefone, duas vozes de mesmo timbre. A taxa de erro de um ECAPA (speechbrain) em fala clínica
+  PT-BR (EER típico de poucos % em áudio limpo, bem pior com ruído de consultório, máscara, sobreposição de fala) **não foi medida aqui** e deve
+  ser medida com áudio real anonimizado da instituição antes de ajustar `DIARIZATION_LIMIAR`. Viés por sotaque, idade, voz rouca e idioma
+  (o paciente pode falar outro idioma) é esperado e não foi avaliado; por isso a faixa incerta e a confirmação pelo profissional. Fala
+  sobreposta não é separada. O vetor de paciente/acompanhante é calculado e descartado (nunca gravado), mas é processamento de biometria de
+  terceiros: base legal a confirmar pelo jurídico. O critério "áudio sintético com 2 vozes >= 90%" vale para o gerador de teste, não para vozes.
+- Pendente: o serviço `externo` real (speechbrain ECAPA + agrupamento) como contêiner no perfil `stt` do compose e do chart (hoje só o
+  contrato), recadastro guiado ao trocar de backend, mudar o falante de uma fala reroda a IA mas não há ainda botão de "reprocessar métricas",
+  exclusão de conta que chame `apagar_do_usuario`, tela do gestor com quem tem perfil (propositalmente não existe), teste e2e.

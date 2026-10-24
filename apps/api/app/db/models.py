@@ -404,3 +404,19 @@ class EstiloNota(Tenant, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     dados_json: Mapped[dict] = mapped_column(JsonType, default=dict)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class PerfilVoz(Tenant, Base):
+    """Voz do profissional para a diarização (#40). DADO BIOMÉTRICO (LGPD art. 5º, II): só o vetor (embedding), cifrado,
+    nunca o áudio. Um por usuário; apagável a qualquer momento e junto do usuário (ON DELETE CASCADE)."""
+
+    __tablename__ = "perfis_voz"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_perfis_voz_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    embedding_json: Mapped[dict] = mapped_column(EncryptedJson())  # {"v": [...], "backend": "...", "dim": N}
+    termo_versao: Mapped[str] = mapped_column(String(20))
+    consentimento_em: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)

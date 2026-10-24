@@ -85,6 +85,16 @@ ropa:
     operadores: [HousIA]
     codigo: [apps/api/app/consult/pre_consulta_service.py, apps/api/app/consult/laudos_service.py]
     revisao_juridica: true
+  - id: OP-08
+    operacao: Perfil de voz do profissional para a diarização (quem fala na consulta)
+    dados: "Vetor numérico (embedding) da voz do profissional: DADO BIOMÉTRICO (LGPD art. 5º, II). O áudio da amostra não é guardado. Os vetores de pacientes e acompanhantes existem só na memória da requisição, nunca são gravados."
+    titulares: Profissionais de saúde (o perfil); pacientes e acompanhantes têm a voz processada de forma transitória para separar os turnos
+    finalidade: Rotular quem falou cada trecho da consulta e dar confiança às métricas de comunicação.
+    base_legal: "LGPD art. 11, I (consentimento específico e destacado do profissional, versão do termo registrada); para a voz transitória de terceiros, art. 11, II, f no mesmo fluxo da transcrição. A confirmar."
+    retencao: Até o profissional apagar (a qualquer momento, pela tela ou pela API) ou a conta ser excluída; vetor cifrado em repouso com DATA_ENCRYPTION_KEY.
+    operadores: [Serviço de diarização on-premise (opcional, DIARIZATION_BACKEND=externo; o áudio da consulta não sai da rede da instituição), HousIA]
+    codigo: [apps/api/app/consult/diarizacao.py, apps/api/app/db/models.py, apps/api/app/db/migrations/versions/c305_perfil_de_voz.py]
+    revisao_juridica: true
 
 ripd:
   escopo: >-
@@ -104,6 +114,9 @@ ripd:
     - risco: Envio de dado de saúde a provedor externo de IA
       medida: Consentimento por finalidade, modo regras quando o paciente recusa, política de sem retenção no provedor a ser confirmada em contrato. Provedor substituível (Anthropic, servidor compatível com OpenAI ou local on-premise), política de regiões (LLM_ALLOWED_REGIONS) e pseudonimização em camadas antes do envio externo, com recibo por chamada no audit_log (provedor, modelo, região, contagem por camada, sem texto).
       residual: Contrato e transferência internacional dependem da instituição e do jurídico. A camada de nomes e endereços é por regras e dicionário, não modelo de linguagem; deixa passar nome comum em minúsculas sem título, nome raro, apelido e local que identifica por contexto. Texto pseudonimizado ainda é dado pessoal (LGPD art. 12) e pode reidentificar por contexto clínico.
+    - risco: Dado biométrico (voz do profissional) e voz de terceiros no processamento da diarização
+      medida: Consentimento explícito e versionado antes do cadastro (sem ele, 428 e nada é gravado), só o vetor cifrado (nunca o áudio), acesso apenas do próprio profissional, apagamento imediato e na exclusão da conta, serviço externo só on-premise com checagem anti-SSRF, falha do serviço cai no comportamento antigo, trilha de auditoria sem vetor nem texto. O vetor de paciente/acompanhante não é gravado.
+      residual: A qualidade do reconhecimento não foi validada com voz real (viés por sotaque, ruído e voz parecida possíveis; o rótulo incerto pede confirmação). Vetor em JSON puro se DATA_ENCRYPTION_KEY estiver vazia. O áudio da consulta vai ao serviço externo de diarização quando configurado, sob a mesma base da transcrição.
     - risco: Vazamento por banco ou backup
       medida: Criptografia de campo nas colunas clínicas (chave própria), isolamento por organização, texto de fala fora do audit_log.
       residual: Cifra de campo só vale com DATA_ENCRYPTION_KEY configurada (ver parte calculada).
@@ -111,6 +124,7 @@ ripd:
       medida: Toda afirmação exige fonte; regras de segurança nunca removidas pela IA; revisão e atestação obrigatórias.
       residual: Viés e erro do modelo não são eliminados; monitorar pelo feedback e pela auditoria.
   pendencias:
+    - Validar a diarização (taxa de erro, viés por sotaque e ruído) com áudio real anonimizado antes de confiar no rótulo como prova.
     - Medir a cobertura da pseudonimização de nomes e endereços com corpus real anonimizado pela instituição (o corpus do CI é sintético).
     - Parecer do encarregado e do jurídico sobre bases legais e transferência internacional.
     - Relatório de acessos para o paciente (LGPD art. 18) em PDF não implementado.
@@ -240,4 +254,16 @@ matriz:
     status: parcial
     codigo: [apps/api/app/audit/service.py]
     testes: ["apps/api/tests/test_audit_integridade.py::test_leituras_repetidas_viram_um_registro_so"]
+    revisao_juridica: true
+  - norma: LGPD
+    artigo: "art. 5º, II e art. 11, I (dado biométrico, consentimento)"
+    exigencia: Tratar voz do profissional (biometria) só com consentimento específico, minimização e direito de apagar
+    controle: 'Cadastro exige o aceite da versão vigente do termo (registrado no audit_log), guarda só o embedding cifrado (nunca o áudio), perfil visível e apagável só pelo próprio profissional e removido com a conta. Limites: sem DATA_ENCRYPTION_KEY o vetor fica em JSON puro; a acurácia do reconhecimento não foi validada com voz real; o texto do termo precisa de revisão jurídica.'
+    status: parcial
+    codigo: [apps/api/app/consult/diarizacao.py, apps/api/app/db/migrations/versions/c305_perfil_de_voz.py]
+    testes:
+      - "apps/api/tests/test_diarizacao.py::test_sem_consentimento_nada_e_guardado"
+      - "apps/api/tests/test_diarizacao.py::test_guarda_so_o_vetor_cifrado_e_audita_sem_vetor"
+      - "apps/api/tests/test_diarizacao.py::test_perfil_e_so_do_proprio_profissional"
+      - "apps/api/tests/test_diarizacao.py::test_apagar_remove_o_vetor_e_a_exclusao_do_usuario_tambem"
     revisao_juridica: true

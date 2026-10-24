@@ -66,6 +66,12 @@ class Segment(BaseModel):
     )
     confirmado_por: str | None = None
     confirmado_em: str | None = None
+    # diarização acústica (#40): como o rótulo do falante nasceu (trilha) e quão seguro ele é. Sem texto de áudio.
+    falante_origem: Literal["botao", "heuristica", "diarizacao", "correcao"] | None = None
+    falante_confianca: float | None = None  # 0 a 1; None: sem perfil de voz para comparar
+    falante_incerto: bool = (
+        False  # a tela pede confirmação; fora das métricas de comunicação até o profissional conferir
+    )
 
 
 class SegmentEdit(BaseModel):
@@ -89,6 +95,9 @@ class SegmentIn(BaseModel):
     palavras_baixas: list[str] = Field(default_factory=list, max_length=50)
     corrigidos: list[Correcao] = Field(default_factory=list, max_length=20)
     confirmar: list[str] = Field(default_factory=list, max_length=50)
+    falante_origem: Literal["botao", "heuristica", "diarizacao", "correcao"] | None = None
+    falante_confianca: float | None = None
+    falante_incerto: bool = False
 
 
 class SegmentsIn(BaseModel):
@@ -201,6 +210,7 @@ class CommMetrics(BaseModel):
     palavras_profissional_pct: int
     perguntas_abertas: int
     perguntas_fechadas: int
+    falas_incertas: int = 0  # falas com falante incerto (#40): ficam fora destas contagens até a confirmação
 
 
 class Question(ItemAcionavel):

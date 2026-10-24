@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import time
 from datetime import date
 from typing import Literal
@@ -19,6 +20,7 @@ from app.consult import (
     cid,
     consentimento,
     consultorio,
+    diarizacao,
     documentos_service,
     estilo,
     idiomas,
@@ -80,6 +82,7 @@ def config(_: User = Depends(get_current_user)) -> dict:
     return {
         "llm_mode": s.llm_mode,
         "stt_servidor": stt.enabled(),
+        "diarizacao": diarizacao.backend(),
         "stt_streaming": stt_stream.disponivel(),
         "stt_navegador": s.allow_browser_stt,
         "privacidade": privacidade.panel(),
@@ -611,8 +614,41 @@ async def add_audio(
     user: User = Depends(clinician),
 ) -> dict:
     """Trecho de áudio (corpo bruto, ex.: audio/webm) → transcrição no servidor (STT_URL) → falas."""
+    cabeca = request.headers.get("x-client-id")
+    if cabeca is not None and not _CLIENT_ID.fullmatch(cabeca):
+        raise HTTPException(422, "X-Client-Id inválido (até 56 caracteres: letras, números e _ . : -).")
     audio = await request.body()
-    return service.transcribe_audio(db, fhir, user, cid, audio, request.headers.get("content-type", ""), falante)
+    return service.transcribe_audio(
+        db, fhir, user, cid, audio, request.headers.get("content-type", ""), falante, cabeca
+    )
+
+
+_CLIENT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,56}$")
+
+
+# ---------- voz do profissional para a diarização (#40) ----------
+@router.get("/consult/perfil-voz")
+def perfil_voz(db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    """Estado do perfil de voz do PRÓPRIO profissional (nunca o vetor) e o termo de consentimento vigente."""
+    return diarizacao.estado_perfil(db, user)
+
+
+@router.put("/consult/perfil-voz")
+async def perfil_voz_cadastrar(
+    request: Request, db: Session = Depends(get_db), user: User = Depends(clinician)
+) -> dict:
+    """Amostra de voz (corpo bruto, WAV mono 16 kHz com o backend local) -> só o vetor cifrado é guardado, nunca o
+    áudio. Exige o cabeçalho X-Consentimento-Voz com a versão do termo (GET /consult/perfil-voz)."""
+    audio = await request.body()
+    return diarizacao.cadastrar_voz(
+        db, user, audio, request.headers.get("content-type", ""), request.headers.get("x-consentimento-voz")
+    )
+
+
+@router.delete("/consult/perfil-voz")
+def perfil_voz_apagar(db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    diarizacao.apagar_voz(db, user)
+    return diarizacao.estado_perfil(db, user)
 
 
 @router.post("/patients/{patient_id}/documents")
@@ -1114,11 +1150,25 @@ def _ws_persistir(
     t: float,
     palavras: list[tuple[str, float | None]] | None = None,
     avg_logprob: float | None = None,
+    palavras_t: list | None = None,
+    trechos: list | None = None,
 ) -> dict:
     with db_session.SessionLocal() as db:
         set_org(db, org_id)
         user = db.get(User, user_id)
-        return service.stream_segment(db, get_fhir(), user, cid, texto, speaker, t, palavras, avg_logprob)  # type: ignore[arg-type]
+        return service.stream_segment(
+            db,
+            get_fhir(),
+            user,
+            cid,
+            texto,
+            speaker,
+            t,
+            palavras,
+            avg_logprob,
+            palavras_t,
+            trechos,  # type: ignore[arg-type]
+        )
 
 
 def _ws_auditar(user_id: int, org_id: int, cid: int, payload: dict) -> None:
@@ -1151,19 +1201,32 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
         language, vocab = await asyncio.to_thread(_ws_contexto, uid, org, cid, speaker)
     except HTTPException as exc:
         return await erro(str(exc.detail))
-    sessao = stt_stream.Sessao(engine, language, vocab)
-    finais = 0
+    sessao = stt_stream.Sessao(
+        engine, language, vocab, (lambda pcm: diarizacao.segmentar_pcm(pcm)[0]) if diarizacao.ativo() else None
+    )
+    finais = incertas = 0
 
     async def entregar(eventos: list[stt_stream.Evento], enviar: bool = True) -> bool:
-        nonlocal finais
+        nonlocal finais, incertas
         for ev in eventos:
             try:
                 if ev.tipo == "parcial":
                     if enviar:
                         await ws.send_json({"tipo": "parcial", "texto": ev.texto, "falante": speaker})
                     continue
+                palavras_t = [diarizacao.PalavraT(*p) for p in ev.tempos] if ev.trechos else None
                 res = await asyncio.to_thread(
-                    _ws_persistir, uid, org, cid, ev.texto, speaker, ev.inicio, list(ev.palavras), ev.avg_logprob
+                    _ws_persistir,
+                    uid,
+                    org,
+                    cid,
+                    ev.texto,
+                    speaker,
+                    ev.inicio,
+                    list(ev.palavras),
+                    ev.avg_logprob,
+                    palavras_t,
+                    list(ev.trechos) if ev.trechos else None,
                 )
             except HTTPException as exc:
                 if enviar:
@@ -1174,11 +1237,13 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                     await erro(str(exc), 1011)
                 return False
             finais += 1
+            incertas += sum(1 for n in res.get("novos") or [] if n.get("falante_incerto"))
             if enviar:
-                texto = (
-                    res["novos"][0]["texto"] if res.get("novos") else ev.texto
-                )  # com a correção por similaridade (#38)
-                await ws.send_json({"tipo": "final", "texto": texto, "falante": speaker, **res})
+                novos = res.get("novos") or []
+                # com a correção por similaridade (#38) e, com a diarização (#40), uma frase pode virar várias falas
+                texto = " ".join(n["texto"] for n in novos) if novos else ev.texto
+                quem = novos[0]["falante"] if novos else speaker
+                await ws.send_json({"tipo": "final", "texto": texto, "falante": quem, **res})
         return True
 
     await ws.send_json({"tipo": "pronto", "formato": "pcm16", "taxa": stt_stream.TAXA, "bloco_ms": 500})
@@ -1256,7 +1321,12 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                 pass
         sessao.buf.clear()
         await asyncio.to_thread(
-            _ws_auditar, uid, org, cid, {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
+            _ws_auditar,
+            uid,
+            org,
+            cid,
+            {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
+            | ({"diarizacao": diarizacao.backend(), "falas_incertas": incertas} if diarizacao.ativo() else {}),
         )
 
 

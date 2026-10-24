@@ -53,6 +53,8 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.audio": "Áudio transcrito (o áudio não é guardado)",
   "consulta.fala_confirmada": "Fala de baixa confiança conferida pelo profissional (o texto não vai para o registro)",
   "consulta.vocabulario": "Vocabulário institucional da transcrição atualizado",
+  "consulta.voz_cadastrada": "Perfil de voz do profissional cadastrado (só o vetor, cifrado; o áudio não é guardado)",
+  "consulta.voz_apagada": "Perfil de voz do profissional apagado",
   "consulta.audio_stream": "Áudio em fluxo transcrito no servidor (o áudio não é guardado)",
   "consulta.analise_ia": "Análise da consulta pela IA",
   "consulta.traducao": "Falas traduzidas",

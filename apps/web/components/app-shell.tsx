@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Scale,
   LogOut,
+  Mic,
   Route,
   Server,
   ShieldCheck,
@@ -46,6 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const nav = [
     { href: "/leitos", label: "Leitos", Icon: BedDouble, show: temModuloHospitalar },
     { href: "/consultas", label: "Consultas", Icon: CalendarClock, show: user.role !== "gestor" },
+    { href: "/perfil-voz", label: "Minha voz", Icon: Mic, show: user.role !== "gestor" },
     { href: "/jornada", label: "Jornada", Icon: Route, show: user.role !== "medico" },
     { href: "/gestao", label: "Gestão", Icon: ClipboardList, show: user.role === "gestor" },
     { href: "/impacto", label: "Impacto", Icon: ChartNoAxesCombined, show: user.role === "gestor" },

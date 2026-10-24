@@ -91,6 +91,16 @@ class Settings(BaseSettings):
     # medicamento, dose ou alergia nessa situação pedem "confirmar o que foi ouvido". WER máximo aceito no CI.
     stt_confianca_minima: float = 0.6
     stt_wer_max: float = 0.15
+    # Diarização acústica (#40): "off" (padrão, comportamento antigo), "heuristico" (local, determinístico) ou "externo"
+    # (serviço on-premise em DIARIZATION_URL que devolve segmentos {inicio,fim,falante_id,embedding}).
+    diarization_backend: str = "off"
+    diarization_url: str = ""
+    diarization_api_key: str = ""
+    diarization_on_premise: bool = True  # a voz não sai da rede da instituição: padrão exige destino interno
+    diarization_timeout_s: float = 10.0
+    diarization_limiar: float = 0.75  # similaridade cosseno mínima com o perfil para ser o profissional
+    diarization_margem: float = 0.10  # faixa abaixo do limiar em que a fala fica "incerta"
+    diarization_pausa_s: float = 0.4  # pausa que separa turnos no backend heurístico
     # Vocabulário institucional do STT (CSV termo,tipo,observacao); vazio: data/reference/vocab_institucional.csv
     vocab_institucional_path: Path | None = None
     # Envio da nota aprovada ao prontuário (FHIR DocumentReference). Desligado por padrão; ligado no compose demo.

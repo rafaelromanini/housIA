@@ -365,6 +365,8 @@ class Engine:
         timeline: list[EmotionPoint] = []
         defs = [] if self.extra.get("sem_emocoes") else knowledge.emotions()  # emocoes=false no consentimento (#13)
         for s in self.patient_segments if defs else []:
+            if s.falante_incerto:
+                continue  # falante não confirmado (#40): a emoção não é atribuída a ninguém até conferir
             # negação vale para emoção ("não estou preocupada") e uma pista anula outra ("não entendi" ≠ confiança)
             found = [
                 d
@@ -397,7 +399,11 @@ class Engine:
 
         words = {"pro": 0, "pac": 0}
         open_q = closed_q = 0
+        incertas = 0
         for s in self.segments:
+            if s.falante_incerto:
+                incertas += 1
+                continue  # só falas com falante de confiança entram nas métricas de comunicação (#40)
             n_words = len(s.texto.split())
             if s.falante in TEAM_SIDE:
                 words["pro"] += n_words
@@ -415,6 +421,7 @@ class Engine:
             palavras_profissional_pct=round(100 * words["pro"] / total),
             perguntas_abertas=open_q,
             perguntas_fechadas=closed_q,
+            falas_incertas=incertas,
         )
         return out, timeline, metrics
 
