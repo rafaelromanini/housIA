@@ -526,8 +526,12 @@ def _require_ai(c: Consultation, what: str, purpose: str = "ia") -> None:
         raise HTTPException(403, f"O paciente não autorizou {what}: só as regras do HousIA analisam esta consulta.")
 
 
-def _add_segments(c: Consultation, segments: list[Segment], items: list[SegmentIn]) -> list[Segment]:
+def _add_segments(
+    c: Consultation, segments: list[Segment], items: list[SegmentIn], permitir_adendo: bool = False
+) -> list[Segment]:
     """Acrescenta as falas (numeração, falante automático, relevância) sem confirmar a transação."""
+    if not permitir_adendo and any(i.origem == "adendo" for i in items):
+        raise HTTPException(422, 'A origem "adendo" só nasce no ditado de uma seção da nota.')
     elapsed = max(0.0, (clock.now() - c.created_at).total_seconds())
     new: list[Segment] = []
     seen = {s.client_id for s in segments if s.client_id}

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+
 import { CidEditor } from "@/components/consult/cid-editor";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
@@ -24,6 +25,7 @@ import { OrdersCard } from "@/components/consult/orders-card";
 import { DocumentsPanel } from "@/components/consult/documents-panel";
 import { TasksPanel } from "@/components/consult/tasks-panel";
 import { SectionRewrite } from "@/components/consult/section-rewrite";
+import { DictateSection, DictateText } from "@/components/dictate-button";
 import { ProposalsPanel } from "@/components/consult/proposals-panel";
 import { api, downloadFile, ApiError, type ChronoItem, type ConsultNote, type Consultation, type NoteCoverage, type NoteDiff, type NoteSection, type NoteSectionDef, type NoteTemplateInfo, type OpmeLine, type SurgicalReport } from "@/lib/api";
 import { focusFala } from "@/components/source-ref";
@@ -322,6 +324,19 @@ export function NoteReview({
       else list.push({ key, texto, refs: [] });
       return { ...d, secoes: list };
     });
+  }
+
+  /** O ditado grava falas novas (Fala/N) e a seção: recarrega a consulta para a nota e a transcrição concordarem. */
+  async function reloadAfterDictation(rotulo: string) {
+    try {
+      const fresh = await api<Consultation>(`/consultations/${c.id}`);
+      onChange(fresh);
+      setDraft(structuredClone(fresh.nota) as unknown as Record<string, unknown>);
+      setAttested(false);
+      setMessage(`Adendo ditado em ${rotulo}. Revise e atestar de novo ao salvar.`);
+    } catch (e) {
+      setError(apiMessage(e, "O ditado foi gravado, mas não foi possível recarregar a consulta"));
+    }
   }
 
   /** Troca o modelo na revisão: o servidor completa as seções novas; o que já foi escrito aqui continua valendo. */
@@ -790,6 +805,19 @@ export function NoteReview({
                   )}
                   <SourceRefs patientId={patient.id} refs={section.refs} />
                   <SentenceSources section={section} patientId={patient.id} onPick={pickSource} />
+                  {!sent && (
+                    <DictateSection
+                      consultId={c.id}
+                      sectionKey={key}
+                      label={rotulo}
+                      disabled={dirty}
+                      onApplied={() => void reloadAfterDictation(rotulo)}
+                      onNext={() => {
+                        const i = sections.findIndex((x) => x.key === key);
+                        document.getElementById(`sec-${sections[i + 1]?.key ?? key}`)?.focus();
+                      }}
+                    />
+                  )}
                   {!sent && FIXED_KEYS.includes(key) && (
                     <SectionRewrite
                       consultId={c.id}
@@ -960,6 +988,7 @@ export function NoteReview({
             </ul>
             <Label htmlFor="justificativa-envio">Justificativa do envio com pendência crítica (fica no registro de auditoria)</Label>
             <Textarea id="justificativa-envio" value={justification} onChange={(e) => setJustification(e.target.value)} className="min-h-16 bg-card text-foreground" />
+            <DictateText label="justificativa do envio" value={justification} onChange={setJustification} />
             <Button onClick={() => void send(true)} disabled={busy !== null || justification.trim().length < minJustification} className="self-start">
               <Send aria-hidden /> Enviar com justificativa
             </Button>

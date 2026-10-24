@@ -731,7 +731,7 @@ Implementado mas com verificação interrompida: **#47 e #42** (bugs corrigidos,
 
 Falta, na ordem:
 1. (feito) bugs de #47/#42 corrigidos e verificados.
-2. #41 (ditado), #48 (laudos em PDF ou foto).
+2. (#41 feito, ver "#41 ditado e adendo") #48 (laudos em PDF ou foto).
 3. **Suíte completa + e2e + PR único** da branch de integração (CI: API, Web, Helm, E2E), merge na main. Não deixe para o fim
    da fila: faça logo após o item 2.
 4. Validar com LLM real (`ANTHROPIC_API_KEY`, `LLM_MODE=real`): saída estruturada dos itens novos só foi testada em mock.
@@ -759,3 +759,20 @@ pediátricas, avisos de consentimento em 9 idiomas.
 > chegar a 80% da cota: não inicie entrega nova; commit wip, push e atualize este STATUS com novo prompt. Se eu
 > informar a cota, use-a; senão, pare depois de abrir o PR do item (3).
 
+## #41 ditado e adendo (2026-10-24)
+
+Branch `claude/integracao-paridade-lya`, sem migração (o desfazer fica em `extra_json["adendos"]`). Decisões:
+- `POST /consultations/{cid}/addendum {secao, segmentos[], via}` (`adendo.py`, `adendo_service.py`): grava falas de origem
+  `adendo` (falante sempre médico, decidido no servidor) e acrescenta frases só à seção alvo, cada uma citando `Fala/N`
+  do adendo (origem "profissional"; sem IA, texto literal). Funciona com a consulta finalizada, até o envio; consulta de
+  sandbox também. Cirurgia fica fora (409). Origem `adendo` no POST `/segments` e no `/finish` é 422.
+- Comandos de voz só como fala inteira: `próximo campo`, `apagar última frase`, `desfazer`, `nova linha` (não viram fala).
+  Apagar frase de alergia ou com texto de alerta de medicamento é bloqueado (422, nada gravado); o ditado que criaria
+  pendência crítica também. Desfazer é recusado se a seção foi editada à mão depois. Aplicar tira a atestação.
+- Travas: consentimento revogado 403; `via: servidor` exige a finalidade de transcrição; texto limpo de controle e
+  invisíveis; até 20 trechos de 2000 caracteres por chamada e 8000 por seção; `client_id` torna o reenvio idempotente;
+  o audit (`consulta.adendo_ditado`/`adendo_bloqueado`) guarda só contagens.
+- Front: `components/dictate-button.tsx` (`DictateButton`, `DictateText`, `DictateSection`) e `lib/voice-commands.ts`
+  em cada seção da nota, no override da alta, no descarte de alerta e na justificativa do envio. Usa só o
+  reconhecimento do navegador; o streaming de servidor (#11) não foi ligado ao ditado. Não validado em navegador real.
+- Pendente: ditado nas justificativas da reconciliação (sem campo de texto livre hoje); e2e com microfone.

@@ -18,7 +18,7 @@ Origin = Literal["regra", "ia"]
 Confidence = Literal["baixa", "media", "alta"]
 Priority = Literal["alta", "media", "baixa"]
 ConsultKind = Literal["consulta", "visita", "cirurgia"]
-CaptureSource = Literal["microfone", "servidor", "digitado", "demo", "marco"]  # marco: pausa/retomada/revogação
+CaptureSource = Literal["microfone", "servidor", "digitado", "demo", "marco", "adendo"]  # marco: privacidade
 Marker = Literal["pausa", "retomada", "revogado"]
 # qualquer código de data/reference/languages.csv (≥ 95 idiomas, BCP-47); "pt", "es-MX"… são normalizados
 Language = Annotated[str, AfterValidator(idiomas.validar)]
@@ -93,6 +93,21 @@ class SegmentIn(BaseModel):
 
 class SegmentsIn(BaseModel):
     segmentos: list[SegmentIn] = Field(..., min_length=1, max_length=50)
+
+
+class AdendoSeg(BaseModel):
+    """Trecho ditado ou digitado. Falante (profissional) e origem ("adendo") são decididos pelo servidor."""
+
+    texto: str = Field(..., min_length=1, max_length=2000)
+    client_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+
+class AdendoIn(BaseModel):
+    """Ditado numa seção da nota (#41), antes ou depois de finalizar a consulta."""
+
+    secao: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_]+$")
+    segmentos: list[AdendoSeg] = Field(..., min_length=1, max_length=20)
+    via: Literal["navegador", "servidor", "digitado"] = "navegador"
 
 
 class FinishIn(BaseModel):

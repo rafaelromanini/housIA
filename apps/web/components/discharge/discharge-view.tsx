@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { DictateText } from "@/components/dictate-button";
 import { api, type DischargeAssessment, type DischargePrefill, type SocialChecklist } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime } from "@/lib/format";
@@ -402,6 +403,14 @@ export function DischargeView() {
                           <p id="just-count" className="text-xs text-muted-foreground tabular-nums">
                             {justification.trim().length}/20 caracteres
                           </p>
+                          <DictateText
+                            label="justificativa do override"
+                            value={justification}
+                            onChange={(t) => {
+                              setJustification(t);
+                              setOverrideError(null);
+                            }}
+                          />
                           <Button variant="destructive" size="sm" onClick={() => void override()} disabled={busy}>
                             Registrar override
                           </Button>

@@ -33,6 +33,7 @@ def _outbox():
 # corpos que o OpenAPI mínimo não satisfaz (validadores de tamanho/combinação): sem eles a rota daria 422, não 404
 CORPOS = {
     ("POST", "/consultations/{cid}/segments"): {"segmentos": [{"texto": "dor de cabeça"}]},
+    ("POST", "/consultations/{cid}/addendum"): {"secao": "plano", "segmentos": [{"texto": "retorno em 7 dias"}]},
     ("PUT", "/consultations/{cid}/hipoteses"): {"cid": "I10", "decisao": "confirmada"},
     ("PUT", "/consultations/{cid}/opme-autorizado"): {"itens": []},
     ("PUT", "/consultations/{cid}/escalas/{escala}"): {"respostas": {"1": 0}},

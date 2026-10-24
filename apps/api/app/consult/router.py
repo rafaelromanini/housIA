@@ -13,6 +13,7 @@ from app.auth.deps import get_current_user, require_roles
 from app.auth.security import decode_access_token
 from app.config import get_settings
 from app.consult import (
+    adendo_service,
     antiglosa,
     cid,
     consentimento,
@@ -36,7 +37,7 @@ from app.consult import (
     tarefas_service,
 )
 from app.consult import ask as copilot
-from app.consult.schemas import ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
+from app.consult.schemas import AdendoIn, ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
 from app.db import session as db_session
 from app.db.models import User
@@ -625,6 +626,20 @@ def update_note(
     """Revisão/edição da nota pelo profissional (obrigatória antes do envio). Com `"atestacao": true` no corpo, o
     profissional declara "Revisei e assumo a responsabilidade"; sem isso a nota não sai (409 em /send e /export)."""
     return service.update_note(db, user, cid, note, fhir)
+
+
+@router.post("/consultations/{cid}/addendum")
+def addendum(
+    cid: int,
+    body: AdendoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Ditado numa seção da nota, mesmo depois de finalizar: grava falas de origem "adendo" (Fala/N) e acrescenta as
+    frases só àquela seção, com comandos de voz (apagar última frase, desfazer, nova linha, próximo campo). Não apaga
+    item de segurança, não cria pendência crítica e tira a atestação."""
+    return adendo_service.ditar(db, fhir, user, cid, body)
 
 
 @router.get("/consultations/{cid}/note/diff")

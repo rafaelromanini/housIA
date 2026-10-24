@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DictateText } from "@/components/dictate-button";
 import { api, type AlertItem } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
@@ -105,6 +106,14 @@ function DiscardDialog({ alert, onDone }: { alert: AlertItem; onDone: (a: AlertI
             }}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `desc-err-${alert.id}` : undefined}
+          />
+          <DictateText
+            label="justificativa do descarte"
+            value={text}
+            onChange={(t) => {
+              setText(t);
+              setError(null);
+            }}
           />
           {error && (
             <p id={`desc-err-${alert.id}`} className="text-xs font-bold text-destructive">

@@ -624,7 +624,7 @@ export interface Segment {
   traducao: string | null;
   /** diferenças de números, doses e medicamentos entre a fala e a tradução (checagem determinística) */
   traducao_divergente?: string[];
-  origem: "microfone" | "servidor" | "digitado" | "demo" | "marco";
+  origem: "microfone" | "servidor" | "digitado" | "demo" | "marco" | "adendo";
   /** edição pelo profissional (#2): o original fica guardado; editado_em acende o selo "editada" */
   texto_original?: string | null;
   falante_original?: Speaker | null;
