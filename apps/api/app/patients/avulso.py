@@ -10,14 +10,15 @@ import re
 import uuid
 from datetime import date
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
+from starlette.requests import HTTPConnection
 
 from app import clock
 from app.audit.service import log_action
-from app.auth.deps import _bearer, get_current_user
+from app.auth.deps import get_current_user
 from app.db.models import User
 from app.db.session import get_db
 from app.db.tenancy import current_org
@@ -102,17 +103,19 @@ def ensure_visible(db: Session, patient_id: str) -> None:
         raise HTTPException(404, "Paciente não encontrado")
 
 
-def guard_path_patient(
-    request: Request,
-    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    db: Session = Depends(get_db),
-) -> None:
-    """Dependência global: rota com `{patient_id}` de paciente avulso só abre para a organização dona dele."""
+def guard_path_patient(request: HTTPConnection, db: Session = Depends(get_db)) -> None:
+    """Dependência global: rota com `{patient_id}` de paciente avulso só abre para a organização dona dele.
+
+    Recebe HTTPConnection (e não Request) para valer também nas rotas WebSocket."""
     pid = request.path_params.get("patient_id")
     org = owner_org(pid) if isinstance(pid, str) else None
     if org is None:
         return
-    user = get_current_user(request, creds, db)
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    creds = (
+        HTTPAuthorizationCredentials(scheme=scheme, credentials=token) if scheme.lower() == "bearer" and token else None
+    )
+    user = get_current_user(request, creds, db)  # type: ignore[arg-type]
     if user.organization_id != org:
         raise HTTPException(404, "Paciente não encontrado")
 

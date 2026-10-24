@@ -14,9 +14,9 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.audit.service import log_action
 from app.config import get_settings
-from app.consult import stt
+from app.consult import estilo, stt
 from app.db import crypto
-from app.db.models import Consultation, User
+from app.db.models import Consultation, JourneyTask, User
 
 logger = logging.getLogger("housia")
 KINDS = ("consulta", "visita", "cirurgia")
@@ -89,7 +89,16 @@ def _scrub_quotes(node, texts: list[str]):
     if isinstance(node, str):
         return _redact(node, texts)
     if isinstance(node, dict):
-        return {k: ("" if k == "trecho" and isinstance(v, str) else _scrub_quotes(v, texts)) for k, v in node.items()}
+        return {
+            k: (
+                ""
+                if k == "trecho" and isinstance(v, str)
+                else []
+                if k == "termos" and isinstance(v, list)
+                else _scrub_quotes(v, texts)  # assunto da dúvida (#43)
+            )
+            for k, v in node.items()
+        }
     if isinstance(node, list):
         return [_scrub_quotes(v, texts) for v in node]
     return node
@@ -145,6 +154,10 @@ def purge_consultation(db: Session, c: Consultation, days: int) -> None:
                 "traducao": None,
                 "traducao_divergente": [],
                 "texto_original": None,
+                # confiança (#38): palavras de baixa confiança, termos corrigidos e a conferir são pedaços da fala
+                "palavras_baixas": [],
+                "corrigidos": [],
+                "confirmar": [],
                 "expurgada": True,
             }
         )
@@ -209,19 +222,42 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
     """Exclusão a pedido do titular (LGPD art. 18): remove as consultas do paciente e registra na auditoria."""
     rows = list(db.scalars(select(Consultation).where(Consultation.patient_id == patient_id)))
     ids = [c.id for c in rows]
+    docs_fhir = sum(1 for c in rows for x in (c.extra_json or {}).get("laudos") or [] if x.get("guardado_ref"))
     for c in rows:
         db.delete(c)
+    tarefas = list(db.scalars(select(JourneyTask).where(JourneyTask.consultation_id.in_(ids)))) if ids else []
+    tasks_fhir = sum(1 for t in tarefas if t.fhir_ref)  # o FHIR Task é registro de pedido no prontuário: fica
+    for t in tarefas:  # o título da tarefa nasceu da conversa (#47): vai embora com a consulta
+        db.delete(t)
+    estilo.esquecer_consultas(db, ids)  # a memória de estilo (#46) guarda só números, mas por consulta
     log_action(
         db,
         user,
         "consulta.dados_excluidos",
         "patient",
         patient_id,
-        {"consultas": len(ids), "ids": ids},
+        {
+            "consultas": len(ids),
+            "ids": ids,
+            "tarefas": len(tarefas),
+            "tasks_fhir_mantidos": tasks_fhir,
+            "laudos_fhir_mantidos": docs_fhir,
+        },
         commit=False,
     )
     db.commit()
-    return {"patient_id": patient_id, "consultas_excluidas": len(ids)}
+    return {
+        "patient_id": patient_id,
+        "consultas_excluidas": len(ids),
+        "tasks_fhir_mantidos": tasks_fhir,
+        "laudos_fhir_mantidos": docs_fhir,
+        "aviso": (
+            f"{tasks_fhir} Task(s) FHIR de pedidos no prontuário foram mantidos (registro do prontuário); "
+            "exclua-os no sistema de prontuário se necessário."
+            if tasks_fhir
+            else None
+        ),
+    }
 
 
 def panel(kind: str | None = None) -> dict:

@@ -10,7 +10,10 @@ WORKDIR /app
 
 COPY apps/api/pyproject.toml ./
 COPY apps/api/app ./app
-RUN pip install .
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-por \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install ".[ocr]"
 
 COPY apps/api/alembic.ini ./
 COPY data /data

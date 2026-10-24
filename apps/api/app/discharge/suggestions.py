@@ -26,6 +26,8 @@ def mock_suggestions(
     meds: list[MedInfo],
     new_meds: list[MedInfo],
     pending_exams: list[PendingExam] | tuple = (),
+    concerns: list[dict] | tuple = (),
+    tasks: list[dict] | tuple = (),
 ) -> dict:
     flagged = {i["campo"] for i in social_items}
     out: list[dict] = []
@@ -113,6 +115,26 @@ def mock_suggestions(
             "alta",
             "medico",
             [e.ref],
+        )
+    for c in concerns:  # dúvida ou preocupação sem resposta na consulta (#43): teach-back recomendado
+        add(
+            f"Responder à dúvida ou preocupação do paciente/família ({c['texto']}) e confirmar a compreensão por "
+            "teach-back antes da alta.",
+            "Ficou sem resposta na consulta (sinal de comunicação, não diagnóstico).",
+            "media",
+            "medico",
+            c["refs"],
+        )
+    for t in tasks:  # pendência da consulta ainda aberta (#47): a crítica trava a alta até ser resolvida ou justificada
+        add(
+            f"Resolver a pendência aberta ({t['titulo']}), responsável {t['papel']}, prazo {t['prazo']}, ou registrar "
+            "o motivo de deixá-la para depois da alta.",
+            "Tarefa crítica aberta: a alta fica travada até resolver ou justificar."
+            if t["critica"]
+            else "Pendência da consulta ainda sem conclusão.",
+            "alta" if t["critica"] else "media",
+            t["responsavel"],
+            t["refs"],
         )
     insulin = [m for m in new_meds if m.drug_class.startswith("insulina") and not m.prn]
     if insulin:

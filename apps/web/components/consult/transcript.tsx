@@ -61,6 +61,7 @@ export function Transcript({
   proLabel,
   patientLanguage,
   onEdit,
+  onConfirm,
   speakers,
   maxHeight = "max-h-[62vh]",
 }: {
@@ -69,6 +70,7 @@ export function Transcript({
   proLabel: string;
   patientLanguage: string;
   onEdit?: (n: number, patch: SegmentPatch) => Promise<void>;
+  onConfirm?: (n: number) => Promise<void>;
   speakers?: Speaker[];
   maxHeight?: string;
 }) {
@@ -263,7 +265,30 @@ export function Transcript({
                 {editError && <p className="text-sm text-critico">{editError}</p>}
               </div>
             ) : (
-              <p className="leading-snug">{s.texto}</p>
+              <p className="leading-snug">
+                <TextoMarcado segmento={s} />
+              </p>
+            )}
+            {s.corrigidos && s.corrigidos.length > 0 && (
+              <p className="mt-0.5 text-xs text-muted-foreground" data-testid={`corrigido-${s.n}`}>
+                <span className="rounded border border-info-border bg-info-bg px-1.5 text-info">corrigido</span>{" "}
+                {s.corrigidos.map((c) => `“${c.de}” → ${c.para}`).join("; ")}
+              </p>
+            )}
+            {s.confirmar && s.confirmar.length > 0 && !s.confirmado_em && (
+              <p
+                className="mt-1 flex flex-wrap items-center gap-2 rounded border border-atencao-border bg-atencao-bg p-1.5 text-sm text-atencao"
+                role="alert"
+                data-testid={`confirmar-ouvido-${s.n}`}
+              >
+                <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                <span>Confirme o que foi ouvido: {s.confirmar.map((w) => `“${w}”`).join(", ")} (baixa confiança). O alerta continua visível com a gravidade da regra e a marca de conferência.</span>
+                {onConfirm && (
+                  <Button size="sm" variant="outline" className="min-h-8" onClick={() => void onConfirm(s.n)} aria-label={`Confirmar o que foi ouvido na fala ${s.n}`}>
+                    Confirmar
+                  </Button>
+                )}
+              </p>
             )}
             {s.traducao_divergente && s.traducao_divergente.length > 0 && (
               <p className="mt-1 flex items-start gap-1.5 rounded border border-atencao-border bg-atencao-bg p-1.5 text-sm text-atencao" role="alert" data-testid={`traducao-divergente-${s.n}`}>
@@ -317,6 +342,36 @@ function LanguageField({ id, value, onChange }: { id: string; value: string; onC
           </option>
         ))}
       </NativeSelect>
+    </>
+  );
+}
+
+/** Texto da fala com as palavras de baixa confiança sublinhadas e os termos corrigidos destacados (#38). */
+function TextoMarcado({ segmento: s }: { segmento: Segment }) {
+  const baixas = new Set((s.palavras_baixas ?? []).map((w) => w.toLowerCase()));
+  const corrigidos = new Set((s.corrigidos ?? []).map((c) => c.para.toLowerCase()));
+  if (baixas.size === 0 && corrigidos.size === 0) return <>{s.texto}</>;
+  const partes = s.texto.split(/(\s+)/);
+  return (
+    <>
+      {partes.map((parte, i) => {
+        const limpa = parte.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "").toLowerCase();
+        if (limpa && baixas.has(limpa)) {
+          return (
+            <span key={i} className="underline decoration-atencao decoration-wavy underline-offset-4" title={`Baixa confiança${s.confianca != null ? ` (trecho ${Math.round(s.confianca * 100)}%)` : ""}`}>
+              {parte}
+            </span>
+          );
+        }
+        if (limpa && corrigidos.has(limpa)) {
+          return (
+            <span key={i} className="rounded bg-info-bg px-0.5 text-info" title="Corrigido por similaridade com o catálogo de medicamentos">
+              {parte}
+            </span>
+          );
+        }
+        return parte;
+      })}
     </>
   );
 }

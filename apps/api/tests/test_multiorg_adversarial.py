@@ -33,6 +33,7 @@ def _outbox():
 # corpos que o OpenAPI mínimo não satisfaz (validadores de tamanho/combinação): sem eles a rota daria 422, não 404
 CORPOS = {
     ("POST", "/consultations/{cid}/segments"): {"segmentos": [{"texto": "dor de cabeça"}]},
+    ("POST", "/consultations/{cid}/addendum"): {"secao": "plano", "segmentos": [{"texto": "retorno em 7 dias"}]},
     ("PUT", "/consultations/{cid}/hipoteses"): {"cid": "I10", "decisao": "confirmada"},
     ("PUT", "/consultations/{cid}/opme-autorizado"): {"itens": []},
     ("PUT", "/consultations/{cid}/escalas/{escala}"): {"respostas": {"1": 0}},
@@ -90,7 +91,12 @@ def test_toda_rota_de_consulta_responde_404_para_outra_organizacao(client, auth)
     sem_404 = []
     for metodo, path, corpo in rotas:
         url = path.replace("{cid}", str(cid)).replace("{n}", "1").replace("{draft_id}", "x").replace("{item_id}", "1")
-        url = url.replace("{escala}", "phq9").replace("{enc_id}", "uro_hpb")
+        url = (
+            url.replace("{escala}", "phq9")
+            .replace("{enc_id}", "uro_hpb")
+            .replace("{tipo}", "resumo_paciente")
+            .replace("{key}", "plano")
+        )
         res = client.request(metodo, url, json=corpo, headers=hb)
         if res.status_code != 404:
             sem_404.append((metodo, path, res.status_code))

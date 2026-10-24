@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { History, Loader2, Mic, PlusCircle, ShieldCheck, ShieldOff, Volume2 } from "lucide-react";
 
 import { LiveConsult } from "@/components/consult/live-consult";
+import { PreConsultaCard } from "@/components/consult/pre-consulta-card";
 import { NoteReview } from "@/components/consult/note-review";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
@@ -162,6 +163,14 @@ export function ConsultPage() {
     [current],
   );
 
+  const confirmSegment = useCallback(
+    async (n: number) => {
+      if (!current) return;
+      setCurrent(await api<Consultation>(`/consultations/${current.id}/segments/${n}/confirm`, { method: "POST" }));
+    },
+    [current],
+  );
+
   if (!allowed) {
     return (
       <Alert variant="atencao">
@@ -234,6 +243,7 @@ export function ConsultPage() {
                   proLabel={proLabel}
                   patientLanguage={current.idioma_paciente}
                   onEdit={current.status === "enviada" ? undefined : editSegment}
+                  onConfirm={current.status === "enviada" ? undefined : confirmSegment}
                   speakers={current.tipo === "cirurgia" ? ["medico", "paciente", "acompanhante", "anestesista", "circulante", "instrumentador"] : undefined}
                   maxHeight="max-h-[70vh]"
                 />
@@ -257,6 +267,7 @@ export function ConsultPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      {allowed && (<div className="lg:col-span-2"><PreConsultaCard patientId={patient.id} /></div>)}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

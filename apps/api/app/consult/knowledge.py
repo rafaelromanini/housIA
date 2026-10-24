@@ -849,3 +849,9 @@ SPECIALTY_FOCUS: dict[str, str] = {k: p.foco for k, p in especialidades.pacotes(
 def specialty_pack(specialty: str) -> especialidades.Pacote:
     """Pacote da especialidade (KeyError se não existir: quem chama já validou contra SPECIALTIES)."""
     return especialidades.pacotes()[specialty]
+
+
+@lru_cache
+def intensity_lexicon() -> dict[str, tuple[str, ...]]:
+    """Intensificadores e atenuadores da fala (consult_intensity.csv): nível → termos, sem acento e em minúsculas."""
+    return {r["nivel"]: _words(r["palavras"]) for r in _read_csv("consult_intensity.csv")}

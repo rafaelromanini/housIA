@@ -39,6 +39,8 @@ FHIR R4. **Todos os horários são relativos à âncora** (o "agora" da carga): 
     "sala": "Centro Cirúrgico — Sala 3",           // opcional: gera o Appointment da sala
     "consentimento": {"t": "-1d", "texto": "..."}  // opcional: gera o Consent (termo assinado)
   }],
+  "pedidos": [{"id": "rac", "t": "-91d", "categoria": "laboratorio|imagem", "texto": "...", "status": "active", "profissional": "..."}],
+                                      // ServiceRequest sem resultado: vira pendência do cartão "Antes de entrar" (#44)
   "agendamentos": [{"id": "ret", "t": "+10d", "status": "booked|noshow|fulfilled|cancelled", "motivo": "...",
                     "servico", "profissional", "duracao"}],              // Appointment ambulatorial (retorno, falta)
   "evolucoes": [{"t": "-4h", "tipo": "medica|enfermagem", "autor": "...", "texto": "..."}]

@@ -21,10 +21,13 @@ TIPO_ROTULO = {
     "medicamento": "Medicamento em uso (relatado)",
     "condicao": "Diagnóstico (CID-10)",
     "observacao": "Medida referida pelo paciente",
+    "exame": "Resultado de exame (laudo)",
 }
 TAG_SYSTEM = "urn:housia:consultation"
 FALA = re.compile(r"^Fala/(\d+)$")
 OBS_CATEGORY_VITALS = {"coding": [{"system": codes.OBS_CATEGORY, "code": "vital-signs", "display": "Vital Signs"}]}
+
+OBS_CATEGORY_LAB = {"coding": [{"system": codes.OBS_CATEGORY, "code": "laboratory", "display": "Laboratory"}]}
 
 PA_RE = re.compile(r"\b(\d{2,3})\s*(?:por|x|/|\bde\b)\s*(\d{2,3})\b")
 PESO_RE = re.compile(r"\b(\d{2,3}(?:[.,]\d)?)\s*(?:quilos?|kilos?|kg)\b")
@@ -194,6 +197,7 @@ def build(
     note: dict | None,
     segments: list[Segment],
     accepted: set[str] | None = None,
+    laudos: list[dict] | None = None,
 ) -> list[dict]:
     """Propostas da consulta: {id, tipo, rotulo, detalhe, refs, aceita, recurso}. `aceita` vem das decisões salvas."""
     out: list[dict] = []
@@ -302,6 +306,45 @@ def build(
                 valueQuantity={"value": value, "unit": "kg", "system": "http://unitsofmeasure.org", "code": "kg"},
             )
             add("observacao", "peso", "Peso", f"{value:g} kg (referido).".replace(".", ","), [ref], obs)
+    for laudo in laudos or []:
+        for v in laudo.get("valores") or []:
+            fonte = f"Documento/{laudo['n']} p. {v['pagina']}"
+            comp = v.get("comparacao") or ""
+            obs = _base(cid, f"laudo-{laudo['n']}-{v['chave']}", "Observation", patient_id, encounter_id)
+            obs |= {
+                "status": "preliminary",
+                "category": [OBS_CATEGORY_LAB],
+                "code": {
+                    "coding": [{"system": codes.LOINC, "code": v["loinc"], "display": v["exame"]}],
+                    "text": v["exame"],
+                },
+                "valueQuantity": {
+                    "value": v["valor"],
+                    "unit": v["unidade"],
+                    "system": "http://unitsofmeasure.org",
+                },
+                "note": [{"text": f"Extraído de laudo enviado ao HousIA, a conferir. {fonte}: «{v['trecho']}»"}],
+            }
+            if laudo.get("data_laudo"):
+                obs["effectiveDateTime"] = laudo["data_laudo"]
+            else:
+                obs["effectiveDateTime"] = when.isoformat()
+                obs["note"][0]["text"] += " Data do laudo não informada: data da consulta usada."
+            add(
+                "exame",
+                f"laudo-{laudo['n']}-{v['chave']}",
+                f"{v['exame']} (laudo)",
+                f"{v['valor']:g} {v['unidade']}".replace(".", ",").strip()
+                + (
+                    f" em {laudo['data_laudo'][8:10]}/{laudo['data_laudo'][5:7]}/{laudo['data_laudo'][:4]}"
+                    if laudo.get("data_laudo")
+                    else ""
+                )
+                + f". Fonte: {fonte}."
+                + (f" Comparação: {comp}." if comp else ""),
+                [fonte],
+                obs,
+            )
     return out
 
 

@@ -1,34 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
-import { login } from "./helpers";
-
-/** Abre a aba da consulta e deixa a tela no formulário de início (encerra uma consulta que tenha ficado aberta). */
-async function openFresh(page: Page, patientId: string) {
-  await page.goto(`/pacientes/${patientId}/consulta`);
-  const start = page.getByRole("button", { name: "Iniciar", exact: true });
-  const finish = page.getByRole("button", { name: /Finalizar (e gerar nota|relatório)/ });
-  await expect(start.or(finish).first()).toBeVisible();
-  if (await finish.isVisible()) {
-    if (await finish.isEnabled()) {
-      await finish.click();
-    } else {
-      await page.getByRole("tab", { name: "Digitar" }).click();
-      await page.getByLabel("Fala").fill("Encerrando atendimento anterior.");
-      await page.getByRole("button", { name: "Enviar" }).click();
-      await finish.click();
-    }
-    await page.getByRole("button", { name: "Nova consulta" }).click();
-  }
-  await expect(start).toBeVisible();
-}
-
-/** Etapa de consentimento (obrigatória antes de Iniciar): confirma o aviso lido ao paciente e inicia. */
-async function startWithConsent(page: Page) {
-  const start = page.getByRole("button", { name: "Iniciar", exact: true });
-  await expect(start).toBeDisabled();
-  await page.getByLabel("Li o aviso ao paciente e registrei a decisão dele").check();
-  await start.click();
-}
+import { login, openFresh, startWithConsent } from "./helpers";
 
 /** Atesta a revisão e aprova; se o servidor pedir justificativa por pendência crítica aberta, justifica e envia. */
 async function approveAndSend(page: Page) {
@@ -93,7 +65,7 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
   await expect(page.getByText("Nota da consulta para revisão")).toBeVisible();
   // painel "Fora da nota": cobertura calculada e botão para incluir a fala
   await expect(page.getByTestId("cobertura-nota")).toContainText(/\d+ de \d+ falas clínicas citadas/);
-  await page.getByLabel("Plano").fill("Suspender ibuprofeno e glibenclamida; reduzir metformina; retorno em 2 semanas.");
+  await page.getByRole("textbox", { name: /Plano/ }).fill("Suspender ibuprofeno e glibenclamida; reduzir metformina; retorno em 2 semanas.");
   await approveAndSend(page);
 });
 

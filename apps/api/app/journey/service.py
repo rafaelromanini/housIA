@@ -90,6 +90,9 @@ def task_out(t: JourneyTask) -> dict:
         "criada_em": t.created_at.isoformat(),
         "encerrada_em": t.closed_at.isoformat() if t.closed_at else None,
         "observacao_encerramento": t.closing_note,
+        "critica": bool(t.critical),
+        "consulta_id": t.consultation_id,
+        "origem": "consulta" if t.consultation_id else "jornada",
     }
 
 
@@ -169,23 +172,35 @@ def worklist(
 
 
 # ---------- tarefas ----------
-def _task_resource(task: JourneyTask, item: Item, user: User) -> dict:
+def task_resource(
+    task: JourneyTask,
+    refs: list[str],
+    user_name: str,
+    *,
+    focus: str | None = None,
+    reason: str | None = None,
+    urgent: bool | None = None,
+) -> dict:
+    """FHIR Task da tarefa: responsável por papel, prazo, prioridade, `focus` e, quando há, o motivo (#47)."""
     inputs = [
         {"type": {"text": "Fonte"}, "valueReference": {"reference": ref}}
-        for ref in item.refs
+        for ref in refs
         if ref.split("/")[0] in FHIR_TYPES
     ]
+    inputs += [
+        {"type": {"text": "Fala"}, "valueString": ref} for ref in refs if ref.split("/")[0] == "Fala"
+    ]  # a fala da consulta que motivou a tarefa
     resource = {
         "resourceType": "Task",
         "identifier": [{"system": TASK_ID_SYSTEM, "value": str(task.id)}],
         "status": "requested",
         "intent": "order",
-        "priority": "urgent" if item.severity == "critico" else "routine",
+        "priority": "urgent" if (task.critical if urgent is None else urgent) else "routine",
         "code": {"text": task.title},
         "description": task.detail,
         "for": {"reference": f"Patient/{task.patient_id}"},
         "authoredOn": task.created_at.isoformat(),
-        "requester": {"display": user.name},
+        "requester": {"display": user_name},
         "performerType": [
             {
                 "coding": [{"system": PAPEL_SYSTEM, "code": task.role, "display": reference.PAPEL_LABEL[task.role]}],
@@ -194,9 +209,17 @@ def _task_resource(task: JourneyTask, item: Item, user: User) -> dict:
         ],
         "restriction": {"period": {"end": task.due_at.isoformat()}},
     }
+    if focus:
+        resource["focus"] = {"reference": focus}
+    if reason:
+        resource["reasonCode"] = {"text": reason}
     if inputs:
         resource["input"] = inputs
     return resource
+
+
+def _task_resource(task: JourneyTask, item: Item, user: User) -> dict:
+    return task_resource(task, item.refs, user.name, urgent=item.severity == "critico")
 
 
 def create_task(
@@ -260,29 +283,115 @@ def _close(db: Session, fhir: FhirSource, task: JourneyTask, user: User | None, 
             fhir.update(resource | {"status": CLOSING[status]})
 
 
+MIN_JUSTIFICATIVA = 10
+
+
 def update_task(db: Session, fhir: FhirSource, user: User, task_id: int, status: str, note: str | None) -> dict:
     task = db.get(JourneyTask, task_id)
     if task is None:
         raise HTTPException(404, "Tarefa não encontrada")
     if task.status != "aberta":
         raise HTTPException(409, "A tarefa já está encerrada.")
-    if status == "cancelada" and len((note or "").strip()) < 10:
+    text = (note or "").strip()
+    if status == "cancelada" and len(text) < MIN_JUSTIFICATIVA:
         raise HTTPException(422, "Para cancelar a tarefa, registre o motivo (mín. 10 caracteres).")
-    _close(db, fhir, task, user, status, (note or "").strip() or None)
+    if task.critical and len(text) < MIN_JUSTIFICATIVA:  # pendência crítica não some nem se conclui sem dizer o porquê
+        raise HTTPException(
+            422, "Tarefa crítica: para concluir, registre o que foi feito ou o motivo (mín. 10 caracteres)."
+        )
+    _close(db, fhir, task, user, status, text or None)
     log_action(
         db, user, "jornada.tarefa_" + status, "journey_task", task.id,
-        {"patient_id": task.patient_id, "regra": task.rule}, commit=False,
+        {"patient_id": task.patient_id, "regra": task.rule, "critica": bool(task.critical),
+         "consulta": task.consultation_id, "com_justificativa": bool(text), "fhir": task.fhir_ref},
+        commit=False,
     )  # fmt: skip
     db.commit()
     return task_out(task)
 
 
-def list_tasks(db: Session, fhir: FhirSource, status: str | None, role: str | None) -> list[dict]:
+def edit_task(db: Session, fhir: FhirSource, user: User, task_id: int, body) -> dict:
+    """Edita título, detalhe, responsável (papel), prazo e criticidade de uma tarefa aberta (revisão das pendências).
+    Tirar a marca de crítica exige justificativa; a edição vai para a auditoria (só os campos) e para o Task."""
+    task = db.get(JourneyTask, task_id)
+    if task is None:
+        raise HTTPException(404, "Tarefa não encontrada")
+    if task.status != "aberta":
+        raise HTTPException(409, "A tarefa já está encerrada.")
+    changed: list[str] = []
+    if body.titulo is not None and body.titulo.strip() != task.title:
+        task.title = body.titulo.strip()[:300]
+        changed.append("titulo")
+    if body.detalhe is not None and body.detalhe.strip() != task.detail:
+        task.detail = body.detalhe.strip()
+        changed.append("detalhe")
+    if body.papel is not None and body.papel != task.role:
+        task.role = body.papel
+        changed.append("papel")
+    if body.prazo is not None:
+        due = body.prazo if body.prazo.tzinfo else body.prazo.replace(tzinfo=clock.now().tzinfo)
+        if due != task.due_at:
+            task.due_at = due
+            changed.append("prazo")
+    if body.critica is not None and body.critica != bool(task.critical):
+        if not body.critica and len((body.justificativa or "").strip()) < MIN_JUSTIFICATIVA:
+            raise HTTPException(
+                422, "Para tirar a marca de crítica, registre o motivo (mín. 10 caracteres) em 'justificativa'."
+            )
+        task.critical = body.critica
+        changed.append("critica")
+    if not changed:
+        return task_out(task)
+    if task.fhir_ref:
+        resource = fhir.get("Task", task.fhir_ref.split("/", 1)[1])
+        if resource is not None:
+            keep = {k: resource[k] for k in ("id", "meta", "status", "requester", "authoredOn", "focus", "reasonCode")
+                    if k in resource}  # fmt: skip
+            # a prioridade só muda quando a criticidade foi editada: a tarefa da jornada (coluna `critical` falsa) pode
+            # ter nascido urgente pela severidade do item, e editar o prazo não a rebaixa
+            urgent = task.critical if "critica" in changed else resource.get("priority") == "urgent" or None
+            fhir.update(resource | task_resource(task, list(task.source_refs or []), user.name, urgent=urgent) | keep)
+    log_action(
+        db, user, "jornada.tarefa_editada", "journey_task", task.id,
+        {"patient_id": task.patient_id, "regra": task.rule, "campos": changed, "critica": bool(task.critical),
+         "consulta": task.consultation_id,
+         "justificativa": (body.justificativa or "").strip() or None if "critica" in changed else None},
+        commit=False,
+    )  # fmt: skip
+    db.commit()
+    return task_out(task)
+
+
+def open_tasks(db: Session, patient_id: str) -> list[JourneyTask]:
+    """Tarefas abertas do paciente (as da jornada e as das consultas): passagem de plantão e alta leem daqui."""
+    return list(
+        db.scalars(
+            select(JourneyTask)
+            .where(JourneyTask.patient_id == patient_id, JourneyTask.status == "aberta")
+            .order_by(JourneyTask.critical.desc(), JourneyTask.due_at)
+        )
+    )
+
+
+def list_tasks(
+    db: Session,
+    fhir: FhirSource,
+    status: str | None,
+    role: str | None,
+    patient_id: str | None = None,
+    consultation_id: int | None = None,
+) -> list[dict]:
     query = select(JourneyTask).order_by(JourneyTask.due_at)
+    if patient_id:
+        avulso.ensure_visible(db, patient_id)
     if status:
         query = query.where(JourneyTask.status == status)
     if role:
         query = query.where(JourneyTask.role == role)
+    if patient_id:
+        query = query.where(JourneyTask.patient_id == patient_id)
+    if consultation_id is not None:
+        query = query.where(JourneyTask.consultation_id == consultation_id)
     out = []
     names: dict[str, str] = {}
     for t in db.scalars(query):

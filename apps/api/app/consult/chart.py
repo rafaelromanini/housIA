@@ -183,6 +183,18 @@ class ChartView:
                         refs=[f"Encounter/{e['id']}"],
                     )
                 )
+            elif cls == "IMP" and not e.get("partOf") and e.get("status") == "finished" and start:
+                end = parse_dt(e.get("period", {}).get("end"))
+                span = f"{fmt_date(start)} a {fmt_date(end)}" if end else fmt_date(start)
+                days = f", {max(1, (end - start).days)} dia(s)" if end else ""
+                items.append(
+                    HistoryItem(
+                        texto=f"Internação: {reason or 'sem motivo'} — {span}{days} ({ago(start, self.now)})",
+                        quando=fmt_date(start),
+                        tipo="internacao",
+                        refs=[f"Encounter/{e['id']}"],
+                    )
+                )
             elif cls == "AMB" and e.get("status") == "finished" and start:
                 items.append(
                     HistoryItem(

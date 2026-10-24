@@ -9,21 +9,24 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.alerts.service import consult_alert_facts, upsert_alert
+from app.alerts.service import communication_facts, consult_alert_facts, tarefa_facts, upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
 from app.db.models import HandoffReport, User
 from app.fhir_client.client import FhirSource
+from app.handoff.ao_vivo import MAX_TEXTO, MAX_TEXTO_REGRAS, atribuir_falas, contagem, garantir_criticos
+from app.handoff.ao_vivo import roteiro as roteiro_sbar
 from app.handoff.check import HandoffCheckOutput, mock_check
 from app.handoff.facts import compute_facts
 from app.handoff.mock import mock_handoff
 from app.handoff.schemas import Fact, HandoffCheckRequest, HandoffOutput, HandoffRequest
 from app.handoff.validation import validate_refs
-from app.llm.client import generate_structured, load_prompt
+from app.llm.client import LLMError, generate_structured, load_prompt
 from app.llm.pseudonymize import Pseudonymizer
 from app.patients.service import load_record
 from app.timeline.context import build_context
@@ -90,7 +93,12 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
     events = build_timeline(record)
     in_window = window(events, now, req.window_hours)
     ctx = build_context(record)
-    facts: list[Fact] = compute_facts(record, events, now, req.window_hours) + consult_alert_facts(db, patient_id)
+    facts: list[Fact] = (
+        compute_facts(record, events, now, req.window_hours)
+        + consult_alert_facts(db, patient_id)
+        + communication_facts(db, patient_id)
+        + tarefa_facts(db, patient_id)
+    )
     sector = record.current_sector
 
     model_id = "mock-deterministico" if settings.llm_mode == "mock" else settings.llm_model
@@ -210,7 +218,9 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
     content = output.model_dump()
     claimed: set[int] = set()
     for risk in content["riscos_proximas_horas"]:
-        if risk["severidade"] in ("critico", "atencao") and not risk["texto"].startswith("Alerta da consulta"):
+        if risk["severidade"] in ("critico", "atencao") and not risk["texto"].startswith(
+            ("Alerta da consulta", "Preocupação sem resposta", "Tarefa aberta")
+        ):
             alert = upsert_alert(  # o alerta da consulta já existe no módulo de alertas (source='consulta')
                 db,
                 patient_id=patient_id,
@@ -276,42 +286,170 @@ def generate_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str,
     return report_out(report, cached=False)
 
 
-def check_verbal_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str, req: HandoffCheckRequest) -> dict:
-    """Confere o relato verbal contra os fatos duros e a timeline da janela."""
-    now = clock.now()
-    record = load_record(fhir, patient_id)
-    events = build_timeline(record)
-    in_window = window(events, now, req.window_hours)
-    facts = compute_facts(record, events, now, req.window_hours)
-    relevant = [f for f in facts if req.audience in f.publico and f.severidade in ("critico", "atencao") and f.refs]
-    events_by_ref = {e.source_ref: e for e in events}
+class Conferidor:
+    """Contexto da conferência verbal de um paciente: prontuário, fatos relevantes e fontes. Construído uma vez por
+    passagem (a conexão de áudio reaproveita) e usado a cada fala; as regras são determinísticas e rápidas."""
 
-    pseudo = Pseudonymizer(**record.identifiers_for_pseudonymization())
-    variables = pseudo.apply(
-        {
-            "relato": req.texto,
-            "fatos": [{"texto": f.texto, "tipo": f.tipo, "severidade": f.severidade, "refs": f.refs} for f in relevant],
-            "eventos": [
-                {"ref": e.source_ref, "horario": _local(e.timestamp), "tipo": e.kind, "resumo": e.summary}
-                for e in in_window
-                if e.kind != "med_admin"
-            ],
-        }
-    ) | {"publico": req.audience}
-    result = generate_structured(
-        "handoff_check",
-        variables,
-        HandoffCheckOutput,
-        mock=lambda _v: mock_check(req.texto, facts, req.audience, record, events_by_ref),
-    )
-    valid = {e.source_ref for e in events} | {r for f in facts for r in f.refs}
-    items, dropped = [], []
-    for it in result.output.itens:
-        bad = [r for r in it.refs if r not in valid]
-        (dropped if not it.refs or bad else items).append(it.model_dump())
+    def __init__(self, db: Session, fhir: FhirSource, patient_id: str, audience: str, window_hours: int) -> None:
+        self.now = clock.now()
+        self.audience, self.window_hours = audience, window_hours
+        self.record = load_record(fhir, patient_id)
+        self.events = build_timeline(self.record)
+        self.in_window = window(self.events, self.now, window_hours)
+        self.facts = compute_facts(self.record, self.events, self.now, window_hours) + tarefa_facts(db, patient_id)
+        self.relevant = [
+            f for f in self.facts if audience in f.publico and f.severidade in ("critico", "atencao") and f.refs
+        ]
+        self.events_by_ref = {e.source_ref: e for e in self.events}
+        self.valid = {e.source_ref for e in self.events} | {r for f in self.facts for r in f.refs}
+
+    def regras(self, texto: str) -> dict:
+        return mock_check(texto, self.facts, self.audience, self.record, self.events_by_ref)
+
+    def modelo(self, texto: str):
+        pseudo = Pseudonymizer(**self.record.identifiers_for_pseudonymization())
+        variables = pseudo.apply(
+            {
+                "relato": texto,
+                "fatos": [
+                    {"texto": f.texto, "tipo": f.tipo, "severidade": f.severidade, "refs": f.refs}
+                    for f in self.relevant
+                ],
+                "eventos": [
+                    {"ref": e.source_ref, "horario": _local(e.timestamp), "tipo": e.kind, "resumo": e.summary}
+                    for e in self.in_window
+                    if e.kind != "med_admin"
+                ],
+            }
+        ) | {"publico": self.audience}
+        return generate_structured("handoff_check", variables, HandoffCheckOutput, mock=lambda _v: self.regras(texto))
+
+    def validar(self, itens: list[dict]) -> tuple[list[dict], list[dict]]:
+        ok, descartados = [], []
+        for it in itens:
+            bad = [r for r in it["refs"] if r not in self.valid]
+            (descartados if not it["refs"] or bad else ok).append(it)
+        return ok, descartados
+
+
+def _ordenar(items: list[dict]) -> list[dict]:
     order = {"critico": 0, "atencao": 1, "info": 2}
-    items.sort(key=lambda i: (order[i["severidade"]], i["status"]))
-    counts = {s: sum(i["status"] == s for i in items) for s in ("mencionado", "omitido", "divergente")}
+    return sorted(items, key=lambda i: (order[i["severidade"]], i["status"]))
+
+
+def conferir_ao_vivo(c: Conferidor, segs: list[tuple[int, str]], final: bool) -> dict:
+    """Resultado da conferência para o relato acumulado (`segs` = (n, texto) de cada fala). Parcial: só as regras
+    (milissegundos, o texto não sai do servidor). Final: o mesmo caminho da conferência digitada (IA em modo real), com
+    as regras de segurança por cima. Cada item leva a fonte do prontuário e a fala (`Fala/N`) que o mencionou ou
+    contradisse."""
+    texto = "\n".join(t for _, t in segs)
+    regras = c.regras(texto)["itens"]
+    forcados = 0
+    descartados: list[dict] = []
+    resumo, modo, modelo_id, versao, reparado = None, "regras", "regras-deterministicas", None, False
+    itens = regras
+    if final:
+        result = c.modelo(texto)
+        itens, descartados = c.validar([it.model_dump() for it in result.output.itens])
+        itens, forcados = garantir_criticos(itens, regras)
+        resumo, modo, modelo_id, versao, reparado = (
+            result.output.resumo,
+            result.mode,
+            result.model,
+            result.prompt_version,
+            result.repaired,
+        )
+    itens = atribuir_falas(_ordenar(itens), c.relevant, c.record, c.events_by_ref, segs)
+    counts = contagem(itens)
+    total = len(itens)
+    return {
+        "resumo": resumo
+        or (
+            f"{counts['mencionado']} de {total} fatos relevantes citados até agora; {counts['omitido']} ainda não "
+            f"citado(s) e {counts['divergente']} divergência(s)."
+        ),
+        "itens": itens,
+        "contagem": counts,
+        "cobertura": round(counts["mencionado"] / total, 2) if total else None,
+        "descartados": len(descartados),
+        "roteiro": roteiro_sbar(texto, itens, c.relevant, final),
+        "ao_vivo": True,
+        "final": final,
+        "segmentos": len(segs),
+        "meta": {
+            "modo": modo,
+            "modelo": modelo_id,
+            "prompt_version": versao,
+            "reparado": reparado,
+            "regra_prevaleceu": forcados,
+            "gerado_em": c.now.isoformat(),
+            "janela_h": c.window_hours,
+            "publico": c.audience,
+        },
+    }
+
+
+def verbal_check_ao_vivo(db: Session, fhir: FhirSource, user: User, patient_id: str, body) -> dict:
+    """POST /patients/{id}/handoff/verbal-check/segments: reroda a conferência com as falas acumuladas. Só a chamada
+    `final` audita (contagens, nunca o texto); o relato nunca fica gravado."""
+    if not body.ciente:
+        raise HTTPException(422, "Confirme que a fala será transcrita e conferida (nada fica gravado).")
+    segs = sorted(((s.n, s.texto.strip()) for s in body.segmentos if s.texto.strip()), key=lambda x: x[0])
+    if not segs:
+        raise HTTPException(422, "Nenhuma fala com texto.")
+    total = sum(len(t) for _, t in segs)
+    if total > MAX_TEXTO_REGRAS:
+        raise HTTPException(413, f"O relato passou de {MAX_TEXTO_REGRAS} caracteres: encerre a passagem.")
+    conferidor = Conferidor(db, fhir, patient_id, body.audience, body.window_hours)
+    so_regras = body.final and total > MAX_TEXTO  # passagem longa: fecha e audita, mas sem mandar o texto todo à IA
+    try:
+        if so_regras:
+            raise LLMError("relato maior que o limite da IA")
+        out = conferir_ao_vivo(conferidor, segs, body.final)
+    except LLMError:
+        if not body.final:
+            raise
+        out = conferir_ao_vivo(conferidor, segs, False) | {"final": True}
+        out["meta"]["aviso"] = (
+            f"O relato passou de {MAX_TEXTO} caracteres: este resultado vem só das regras determinísticas."
+            if so_regras
+            else "A IA não respondeu: este resultado vem só das regras determinísticas."
+        )
+    if body.final:
+        auditar_conferencia(db, user, patient_id, body.audience, out, segmentos=segs, origens=body.segmentos)
+    return out
+
+
+def auditar_conferencia(db, user, patient_id, audience, out, *, segmentos=None, origens=None) -> None:
+    """Auditoria da conferência: contagens, nunca o relato (texto clínico livre)."""
+    counts = out["contagem"]
+    payload = {
+        "patient_id": patient_id,
+        "audience": audience,
+        **counts,
+        "omitidos_criticos": sum(i["status"] == "omitido" and i["severidade"] == "critico" for i in out["itens"]),
+        "divergentes_criticos": sum(i["status"] == "divergente" and i["severidade"] == "critico" for i in out["itens"]),
+        "modelo": out["meta"]["modelo"],
+    }
+    if segmentos is not None:
+        payload |= {
+            "ao_vivo": True,
+            "ciente": True,  # quem falou confirmou que a fala é transcrita e conferida (sem consentimento da consulta)
+            "segmentos": len(segmentos),
+            "origens": sorted({o.origem for o in origens or []}),
+            "regra_prevaleceu": out["meta"].get("regra_prevaleceu", 0),
+        }
+    log_action(db, user, "handoff.conferencia", "patient", patient_id, payload)
+
+
+def check_verbal_handoff(db: Session, fhir: FhirSource, user: User, patient_id: str, req: HandoffCheckRequest) -> dict:
+    """Confere o relato verbal (digitado ou colado) contra os fatos duros e a timeline da janela."""
+    c = Conferidor(db, fhir, patient_id, req.audience, req.window_hours)
+    result = c.modelo(req.texto)
+    items, dropped = c.validar([it.model_dump() for it in result.output.itens])
+    items, forced = garantir_criticos(items, c.regras(req.texto)["itens"])  # a IA não rebaixa a regra de segurança
+    items = _ordenar(items)
+    counts = contagem(items)
     out = {
         "resumo": result.output.resumo,
         "itens": items,
@@ -322,24 +460,11 @@ def check_verbal_handoff(db: Session, fhir: FhirSource, user: User, patient_id: 
             "modo": result.mode,
             "modelo": result.model,
             "prompt_version": result.prompt_version,
-            "gerado_em": now.isoformat(),
+            "gerado_em": c.now.isoformat(),
             "janela_h": req.window_hours,
             "publico": req.audience,
+            "regra_prevaleceu": forced,
         },
     }
-    # o relato em si não vai para a auditoria (texto clínico livre); só as contagens
-    log_action(
-        db,
-        user,
-        "handoff.conferencia",
-        "patient",
-        patient_id,
-        {
-            "patient_id": patient_id,
-            "audience": req.audience,
-            **counts,
-            "omitidos_criticos": sum(i["status"] == "omitido" and i["severidade"] == "critico" for i in items),
-            "modelo": result.model,
-        },
-    )
+    auditar_conferencia(db, user, patient_id, req.audience, out)
     return out

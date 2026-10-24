@@ -380,7 +380,8 @@ export interface DischargeAssessment {
   sugestoes: DischargeSuggestion[];
   descartados: DischargeSuggestion[];
   meta: { modo: "mock" | "real"; modelo: string; prompt_version: string };
-  trava: { ativa: boolean; motivo: string | null };
+  trava: { ativa: boolean; motivo: string | null; por_tarefas?: boolean };
+  tarefas?: { abertas: { id: number; titulo: string; papel: string; prazo: string; critica: boolean }[]; criticas: number[] };
   overrides: { id: number; usuario: string; papel: string; justificativa: string; created_at: string }[];
   confirmada: { em: string; por: string | null } | null;
 }
@@ -539,15 +540,31 @@ export interface HandoffCheckItem {
   severidade: Severity;
   comentario: string;
   refs: string[];
+  /** passagem falada ao vivo: a fala que mencionou ou contradisse o fato */
+  fala?: number | null;
+  fala_ref?: string | null;
+}
+
+export interface SbarStep {
+  sigla: "S" | "B" | "A" | "R";
+  titulo: string;
+  guia: string;
+  coberto: boolean;
+  faltam: string[];
+  estado: "completo" | "falta_dizer" | "a_dizer";
 }
 
 export interface HandoffCheck {
   resumo: string;
   itens: HandoffCheckItem[];
+  ao_vivo?: boolean;
+  final?: boolean;
+  segmentos?: number;
+  roteiro?: SbarStep[];
   contagem: { mencionado: number; omitido: number; divergente: number };
   cobertura: number | null;
   descartados: number;
-  meta: { modo: "mock" | "real"; modelo: string; prompt_version: string; gerado_em: string; publico: Audience };
+  meta: { modo: "mock" | "real" | "regras"; modelo: string; prompt_version: string | null; gerado_em: string; publico: Audience };
 }
 
 export interface DocSection {
@@ -607,7 +624,7 @@ export interface Segment {
   traducao: string | null;
   /** diferenças de números, doses e medicamentos entre a fala e a tradução (checagem determinística) */
   traducao_divergente?: string[];
-  origem: "microfone" | "servidor" | "digitado" | "demo" | "marco";
+  origem: "microfone" | "servidor" | "digitado" | "demo" | "marco" | "adendo";
   /** edição pelo profissional (#2): o original fica guardado; editado_em acende o selo "editada" */
   texto_original?: string | null;
   falante_original?: Speaker | null;
@@ -618,6 +635,13 @@ export interface Segment {
   /** clínica, social ou administrativa (regra; a IA só reclassifica fala sem medicamento, dose, alergia ou alarme) */
   relevancia?: Relevance | null;
   relevancia_origem?: "regra" | "ia";
+  /** transcrição que conhece o paciente (#38): confiança 0–1, palavras duvidosas, termos corrigidos e o que pede confirmação */
+  confianca?: number | null;
+  palavras_baixas?: string[];
+  corrigidos?: { de: string; para: string; razao: number }[];
+  confirmar?: string[];
+  confirmado_por?: string | null;
+  confirmado_em?: string | null;
 }
 export type Relevance = "clinica" | "social" | "administrativa";
 
@@ -657,6 +681,22 @@ export interface ConsultEmotion extends InsightItem {
   abordagem: string;
   refs: string[];
   origem: Origin;
+  /** intensificadores da fala que definiram a intensidade ("muito medo", "pavor") */
+  pistas?: string[];
+  aviso?: string;
+}
+/** Dúvida ou preocupação do paciente/família e se o profissional já respondeu: sinal de comunicação, não diagnóstico. */
+export interface ConsultConcern extends InsightItem {
+  tipo: "duvida" | "preocupacao";
+  quem: Speaker;
+  trecho: string;
+  termos: string[];
+  refs: string[];
+  respondida: boolean;
+  resposta_refs: string[];
+  teach_back: boolean;
+  origem: Origin;
+  aviso: string;
 }
 export interface ConsultQuestion extends InsightItem {
   pergunta: string;
@@ -768,6 +808,8 @@ export interface MedItem {
 }
 export interface MedSuggestion extends InsightItem {
   texto: string;
+  /** a fala citada tem medicamento, dose ou alergia de baixa confiança: confirmar o que foi ouvido (#38) */
+  confirmar_ouvido?: boolean;
   tipo:
     | "ajuste_dose"
     | "alternativa"
@@ -1176,6 +1218,7 @@ export interface ConsultInsights {
   modo: "regras" | "ia";
   queixas: ConsultTag[];
   emocoes: ConsultEmotion[];
+  preocupacoes?: ConsultConcern[];
   linha_emocional: { n: number; falante: Speaker; emocoes: string[] }[];
   comunicacao: {
     falas: number;
@@ -1375,12 +1418,25 @@ export interface CopilotState {
 }
 export interface Proposal {
   id: string;
-  tipo: "alergia" | "medicamento" | "condicao" | "observacao";
+  tipo: "alergia" | "medicamento" | "condicao" | "observacao" | "exame";
   tipo_rotulo: string;
   rotulo: string;
   detalhe: string;
   refs: string[];
   aceita: boolean;
+}
+export interface Laudo {
+  n: number;
+  ref: string;
+  tipo: "pdf" | "imagem";
+  paginas: number;
+  data_laudo: string | null;
+  identidade: "confere" | "nao_encontrada" | null;
+  avisos: string[];
+  valores: { chave: string; exame: string; valor: number; unidade: string; pagina: number; trecho: string; ref: string; comparacao: string }[];
+  ignorados: { pagina: number; exame: string; motivo: string }[];
+  guardado: string | null;
+  em: string | null;
 }
 export interface SendStatus {
   status: "pendente" | "enviando" | "erro" | "enviado";
@@ -1404,6 +1460,8 @@ export interface Consultation {
   consentimento?: ConsentInfo | null;
   /** propostas para o prontuário (alergia/medicamento relatados, CID, PA e peso ditos); aceite item a item */
   propostas?: Proposal[];
+  /** laudos em PDF ou foto lidos nesta consulta (#48): valores com a página de origem */
+  laudos?: Laudo[];
   /** fila de envio ao prontuário (null: nunca enviada) */
   envio?: SendStatus | null;
   insights: ConsultInsights | null;
@@ -1506,6 +1564,8 @@ export interface ConsultConfig {
   finalidades: { value: keyof ConsentPurposes; label: string }[];
   llm_mode: "real" | "mock";
   stt_servidor: boolean;
+  /** o servidor aceita áudio em fluxo (WebSocket) com texto parcial; senão cai nos trechos de 8 s */
+  stt_streaming?: boolean;
   /** false (ALLOW_BROWSER_STT): o áudio não vai ao fabricante do navegador e o modo Microfone some */
   stt_navegador: boolean;
   privacidade: PrivacyPanel;
@@ -1730,4 +1790,27 @@ export interface ConsultaBusca {
 export interface OnboardingConsultorio {
   passos: { chave: string; titulo: string; feito: boolean }[];
   concluido: boolean;
+}
+
+/** Cartão "Antes de entrar" (#44): montado por regras, com fonte em cada linha. */
+export interface PreConsultaLine {
+  texto: string;
+  refs: string[];
+  fonte: string;
+  tipo: string;
+  /** pendência citada na conversa desta consulta */
+  tratada: boolean;
+  tratada_refs: string[];
+}
+export interface PreConsulta {
+  patient_id: string;
+  encounter_id: string | null;
+  ultima_consulta: string | null;
+  motivo: PreConsultaLine[];
+  mudou: PreConsultaLine[];
+  pendencias: PreConsultaLine[];
+  ultima_alta: PreConsultaLine[];
+  resumo_ia: { texto: string; refs: string[] }[];
+  modo_resumo: "regras" | "ia" | null;
+  aviso: string;
 }

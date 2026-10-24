@@ -233,12 +233,15 @@ def test_example_app_enters_with_one_module_one_csv(client, auth, example_app):
 
 def test_duplicate_app_id_and_module_without_run_are_refused(example_app, tmp_path):
     clone = tmp_path / "clone.py"
-    clone.write_text(EXAMPLE_MODULE.replace("def run(", "def run_outro(") + "\n\ndef run(ctx):\n    return []\n")
+    clone.write_text(
+        EXAMPLE_MODULE.replace("def run(", "def run_outro(") + "\n\ndef run(ctx):\n    return []\n", encoding="utf-8"
+    )
     with pytest.raises(ValueError, match="duplicado"):
         apps.load_file(clone)
     no_run = tmp_path / "sem_run.py"
     no_run.write_text(
-        EXAMPLE_MODULE.replace("def run(", "def executar(").replace('exemplo_tabagismo"', 'outro_app"', 1)
+        EXAMPLE_MODULE.replace("def run(", "def executar(").replace('exemplo_tabagismo"', 'outro_app"', 1),
+        encoding="utf-8",
     )
     with pytest.raises(ValueError, match="MANIFEST"):
         apps.load_file(no_run)

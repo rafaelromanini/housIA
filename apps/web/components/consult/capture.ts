@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DemoScript, Speaker } from "@/lib/api";
+import { API_URL } from "@/lib/api";
+import type { ConsultInsights, DemoScript, Segment, Speaker } from "@/lib/api";
 
 /* ---------- Reconhecimento de fala do navegador (Web Speech API) ---------- */
 interface RecognitionResult {
@@ -52,7 +53,7 @@ export function useSpeechCapture(lang: string, onFinal: (text: string) => void) 
   const start = useCallback(() => {
     const Ctor = recognitionCtor();
     if (!Ctor) {
-      setError("Este navegador não tem reconhecimento de fala. Use Chrome ou Edge, ou o modo Digitar.");
+      setError("Este navegador não tem reconhecimento de fala. Use o modo Servidor (se disponível) ou Digitar.");
       return;
     }
     const r = new Ctor();
@@ -206,7 +207,7 @@ export function usePushToTalk(onText: (text: string) => void, onBegin?: () => vo
 }
 
 /* ---------- Gravação para transcrição no servidor (Whisper on-premise etc.) ---------- */
-export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
+export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8, deviceId = "") {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -216,10 +217,13 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
   const stopped = useRef<(() => void)[]>([]);
   const onChunkRef = useRef(onChunk);
   onChunkRef.current = onChunk;
+  const deviceRef = useRef(deviceId);
+  deviceRef.current = deviceId;
 
   const cycle = useCallback(() => {
     if (!stream.current) return;
-    const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    // Chrome/Edge gravam webm; o Safari (iOS) só grava mp4/aac
+    const mime = ["audio/webm", "audio/mp4"].find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
     const r = new MediaRecorder(stream.current, mime ? { mimeType: mime } : undefined);
     const chunks: Blob[] = [];
     r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
@@ -237,7 +241,9 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
 
   const start = useCallback(async () => {
     try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current = await navigator.mediaDevices.getUserMedia({
+        audio: deviceRef.current ? { deviceId: { exact: deviceRef.current } } : true,
+      });
     } catch {
       setError("Não foi possível acessar o microfone.");
       return;
@@ -278,6 +284,313 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8) {
   return { recording, error, start, stop };
 }
 
+/* ---------- Transcrição em fluxo no servidor (#11): AudioWorklet → PCM 16 kHz → WebSocket ---------- */
+// O worklet reamostra para 16 kHz mono e entrega blocos de 500 ms (int16). O áudio nunca é gravado no navegador.
+const PCM_WORKLET = `
+class Pcm16 extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = []; this.pos = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    const ratio = sampleRate / 16000;
+    for (; this.pos < ch.length; this.pos += ratio) this.buf.push(ch[Math.floor(this.pos)]);
+    this.pos -= ch.length;
+    while (this.buf.length >= 8000) {
+      const out = new Int16Array(8000);
+      const part = this.buf.splice(0, 8000);
+      for (let i = 0; i < 8000; i++) out[i] = Math.max(-1, Math.min(1, part[i])) * 32767;
+      this.port.postMessage(out.buffer, [out.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor("pcm16", Pcm16);
+`;
+
+export interface StreamFinal {
+  novos: Segment[];
+  insights: ConsultInsights | null;
+}
+
+/** `opts.url` troca o WebSocket (a passagem de plantão usa o dela) e `opts.onMessage` recebe cada mensagem do servidor. */
+export function useServerStream(
+  consultationId: number,
+  speaker: Speaker,
+  onFinal: (res: StreamFinal) => void,
+  opts?: { url?: string; onMessage?: (m: Record<string, unknown>) => void },
+) {
+  const [streaming, setStreaming] = useState(false);
+  const [partial, setPartial] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ws = useRef<WebSocket | null>(null);
+  const media = useRef<MediaStream | null>(null);
+  const ctx = useRef<AudioContext | null>(null);
+  const closing = useRef<(() => void)[]>([]);
+  const onFinalRef = useRef(onFinal);
+  onFinalRef.current = onFinal;
+  const onMessageRef = useRef(opts?.onMessage);
+  onMessageRef.current = opts?.onMessage;
+  const customUrl = opts?.url;
+
+  const release = useCallback(() => {
+    media.current?.getTracks().forEach((t) => t.stop());
+    media.current = null;
+    void ctx.current?.close();
+    ctx.current = null;
+    setStreaming(false);
+    setPartial(null);
+  }, []);
+
+  const start = useCallback(async () => {
+    setError(null);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true } });
+    } catch {
+      setError("Não foi possível acessar o microfone.");
+      return;
+    }
+    media.current = stream;
+    const socket = new WebSocket(
+      `${API_URL.replace(/^http/, "ws")}${customUrl ?? `/ws/consultations/${consultationId}/audio?falante=${speaker}`}`,
+    );
+    socket.binaryType = "arraybuffer";
+    ws.current = socket;
+    socket.onmessage = (e) => {
+      const m = JSON.parse(String(e.data));
+      onMessageRef.current?.(m);
+      if (m.tipo === "parcial") setPartial(m.texto);
+      else if (m.tipo === "final") {
+        setPartial(null);
+        onFinalRef.current({ novos: m.novos ?? [], insights: m.insights ?? null });
+      } else if (m.tipo === "erro") {
+        setError(m.mensagem);
+        release();
+      } else if (m.tipo === "fim") closing.current.splice(0).forEach((done) => done());
+    };
+    socket.onclose = () => {
+      closing.current.splice(0).forEach((done) => done());
+      release();
+    };
+    socket.onerror = () => setError("A conexão com a transcrição no servidor falhou.");
+    try {
+      const audio = new AudioContext();
+      ctx.current = audio;
+      const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: "text/javascript" }));
+      await audio.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      const node = new AudioWorkletNode(audio, "pcm16");
+      node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(e.data);
+      };
+      audio.createMediaStreamSource(stream).connect(node);
+      setStreaming(true);
+    } catch {
+      setError("Este navegador não consegue capturar áudio para o servidor. Use o modo Microfone ou Digitar.");
+      socket.close();
+      release();
+    }
+  }, [consultationId, speaker, release, customUrl]);
+
+  /** Para a captura; a Promise resolve quando o servidor fechou a última frase (ou após 4 s). */
+  const stop = useCallback((): Promise<void> => {
+    media.current?.getTracks().forEach((t) => t.stop());
+    const socket = ws.current;
+    ws.current = null;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      release();
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      const t = window.setTimeout(resolve, 4000);
+      closing.current.push(() => {
+        window.clearTimeout(t);
+        resolve();
+      });
+      socket.send(JSON.stringify({ tipo: "fim" }));
+    }).finally(release);
+  }, [release]);
+
+  // troca de falante no meio da transmissão: o servidor fecha a frase de quem falava e muda o idioma
+  useEffect(() => {
+    const socket = ws.current;
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ tipo: "falante", falante: speaker }));
+  }, [speaker]);
+
+  useEffect(
+    () => () => {
+      void stop();
+    },
+    [stop],
+  );
+  return { streaming, partial, error, start, stop };
+}
+
+/* ---------- Tela acesa durante a captura (Wake Lock) ---------- */
+interface WakeLockSentinelLike {
+  release(): Promise<void>;
+  addEventListener(type: "release", cb: () => void): void;
+}
+
+/** Mantém a tela acesa enquanto `active`: sem isso o celular bloqueia e a captura para. O sistema libera o bloqueio
+ * quando a aba fica oculta, então ele é pedido de novo no visibilitychange. Sem suporte (ou negado), segue sem. */
+export function useWakeLock(active: boolean) {
+  const [held, setHeld] = useState(false);
+  const sentinel = useRef<WakeLockSentinelLike | null>(null);
+
+  useEffect(() => {
+    const wl = typeof navigator !== "undefined" ? (navigator as unknown as { wakeLock?: { request(t: "screen"): Promise<WakeLockSentinelLike> } }).wakeLock : undefined;
+    if (!active || !wl) return;
+    let cancelled = false;
+    const acquire = async () => {
+      if (cancelled || sentinel.current || document.visibilityState !== "visible") return;
+      try {
+        const s = await wl.request("screen");
+        if (cancelled) {
+          void s.release();
+          return;
+        }
+        sentinel.current = s;
+        setHeld(true);
+        s.addEventListener("release", () => {
+          if (sentinel.current === s) sentinel.current = null;
+          setHeld(false);
+        });
+      } catch {
+        /* negado (economia de bateria, etc.): a captura segue, só a tela pode apagar */
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void acquire();
+    };
+    void acquire();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      const s = sentinel.current;
+      sentinel.current = null;
+      setHeld(false);
+      if (s) void s.release().catch(() => undefined);
+    };
+  }, [active]);
+
+  return held;
+}
+
+/* ---------- Escolha de microfone e medidor de nível ---------- */
+const MIC_KEY = "housia.microfone";
+
+function readMicPref(): string {
+  try {
+    return window.localStorage.getItem(MIC_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Lista os microfones (enumerateDevices) e guarda a escolha (só o deviceId) no localStorage, sem depender dele. */
+export function useMicrofones() {
+  const [devices, setDevices] = useState<{ id: string; label: string }[]>([]);
+  const [deviceId, setDeviceIdState] = useState("");
+
+  const refresh = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      const mics = all
+        .filter((d) => d.kind === "audioinput" && d.deviceId)
+        .map((d, i) => ({ id: d.deviceId, label: d.label || `Microfone ${i + 1}` }));
+      setDevices(mics);
+      // escolha guardada que não existe mais (fone desconectado): volta ao padrão do aparelho
+      setDeviceIdState((cur) => (cur && !mics.some((m) => m.id === cur) ? "" : cur));
+    } catch {
+      setDevices([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    setDeviceIdState(readMicPref());
+    void refresh();
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    md?.addEventListener?.("devicechange", refresh);
+    return () => md?.removeEventListener?.("devicechange", refresh);
+  }, [refresh]);
+
+  const setDeviceId = useCallback((id: string) => {
+    setDeviceIdState(id);
+    try {
+      if (id) window.localStorage.setItem(MIC_KEY, id);
+      else window.localStorage.removeItem(MIC_KEY);
+    } catch {
+      /* sem armazenamento: vale só nesta sessão */
+    }
+  }, []);
+
+  return { devices, deviceId, setDeviceId, refresh };
+}
+
+/** 'Testar áudio': abre o microfone escolhido e mostra o nível (AnalyserNode). Só local: nada é gravado nem enviado,
+ * e o teste se encerra sozinho em 10 s. */
+export function useTesteDeAudio(deviceId: string, onPermission?: () => void) {
+  const [testing, setTesting] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const cleanup = useRef<(() => void) | null>(null);
+
+  const stop = useCallback(() => {
+    cleanup.current?.();
+    cleanup.current = null;
+    setTesting(false);
+    setLevel(0);
+  }, []);
+
+  const start = useCallback(async () => {
+    if (cleanup.current) return;
+    setError(null);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { deviceId: { exact: deviceId } } : true });
+    } catch {
+      setError("Não foi possível acessar o microfone. Libere a permissão no navegador.");
+      return;
+    }
+    onPermission?.();
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) {
+      stream.getTracks().forEach((t) => t.stop());
+      setError("Este navegador não mede o nível do microfone.");
+      return;
+    }
+    const ctx = new Ctx();
+    void ctx.resume().catch(() => undefined);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Uint8Array(analyser.fftSize);
+    let raf = 0;
+    const tick = () => {
+      analyser.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+      setLevel(Math.min(1, peak / 64));
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    const timer = window.setTimeout(() => stop(), 10_000);
+    cleanup.current = () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf);
+      stream.getTracks().forEach((t) => t.stop());
+      void ctx.close().catch(() => undefined);
+    };
+    setTesting(true);
+  }, [deviceId, onPermission, stop]);
+
+  useEffect(() => () => cleanup.current?.(), []);
+  return { testing, level, error, start, stop };
+}
+
 /* ---------- Simulação com roteiro sintético (demo sem microfone) ---------- */
 export function useDemoPlayer(
   script: DemoScript | null,
@@ -292,7 +605,8 @@ export function useDemoPlayer(
   const onLineRef = useRef(onLine);
   onLineRef.current = onLine;
 
-  useEffect(() => setIndex(startAt), [startAt]);
+  // só avança: a contagem do servidor chega atrasada e rebobinar reenviaria a fala anterior (fala duplicada, outra perdida)
+  useEffect(() => setIndex((n) => Math.max(n, startAt)), [startAt]);
 
   const clear = () => {
     timers.current.forEach(clearTimeout);

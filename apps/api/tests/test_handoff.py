@@ -153,7 +153,7 @@ def test_llm_refusal_is_handled(monkeypatch, real_mode):
 
 def test_prompt_has_version():
     prompt = llm_client.load_prompt("handoff")
-    assert prompt.version == "1.0.0"
+    assert prompt.version == "1.1.0"
     assert "$eventos" in prompt.user and "refs" in prompt.system
 
 

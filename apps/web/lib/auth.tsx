@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useRouter } from "next/navigation";
 
 import { api, ApiError, endSession, type User } from "@/lib/api";
+import { garantirDono, limparTudo } from "@/lib/offline-queue";
 
 interface AuthState {
   user: User | null;
@@ -23,7 +24,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // A sessão vive num cookie httpOnly: quem decide se há sessão é o servidor.
     let vivo = true;
     api<User>("/auth/me")
-      .then((u) => vivo && setUser(u))
+      .then(async (u) => {
+        await garantirDono(u.id);
+        if (vivo) setUser(u);
+      })
       .catch((e) => {
         if (!(e instanceof ApiError) || e.status !== 401) console.warn("Falha ao consultar a sessão", e);
       })
@@ -38,12 +42,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       method: "POST",
       json: { email, password },
     });
+    await garantirDono(res.user.id); // outro usuário no mesmo aparelho não herda a fila
     setUser(res.user);
     return res.user;
   }, []);
 
   const logout = useCallback(() => {
     setUser(null);
+    void limparTudo(); // falas pendentes na fila offline não sobrevivem à saída da conta
     void endSession().then(() => router.push("/login"));
   }, [router]);
 

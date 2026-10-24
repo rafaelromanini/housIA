@@ -41,7 +41,20 @@ LAB_KEYWORDS = {
     "creatinina": ["creatinin", "funcao renal", "cr "],
     "glicose": ["glicose", "glicem"],
 }
-STABILITY = ["estavel", "sem intercorr", "sem alterac", "tranquil", "normotens", "sem queixa", "bem", "ok"]
+# afirmações de estabilidade, por palavra inteira ("tambem" não contém "bem"); radicais só com a borda esquerda
+STABILITY = re.compile(
+    r"(?<![a-z])(?:(?:estavel|estaveis|bem)(?![a-z])|sem intercorr|sem alterac|sem novidade|sem queixa|"
+    r"tranquil|normotens|estabiliz)"
+)
+# "não está estável", "nem estável", "não está bem": a negação até duas palavras antes inverte a afirmação
+NEGADA = re.compile(r"(?<![a-z])(nao|nem|nunca|jamais|longe de)\s+(?:[a-z]+\s+){0,2}$")
+# o relato que se corrige ("PA estável... na verdade subiu até 184/102"): valor clínico ou tendência dita depois da
+# estabilidade. Um número solto (hora, leito, "14h") não é correção.
+CORRECTION = re.compile(
+    r"\d{2,3}\s*[x/]\s*\d{2,3}|\d\s*/\s*10(?!\d)|(?<![\d:])\d{3}(?![\d:h]|\s*h)|\d+[.,]\d+|"
+    r"\d+\s*(mmhg|bpm|irpm|rpm|mg|mmol|meq|g/dl|graus|%|c(?![a-z]))|"
+    r"subi|elev|aument|piorou|pioran|alta\b|alto\b|hipertens|pico|critic|descompens|queda de"
+)
 
 
 class CheckItem(BaseModel):
@@ -59,6 +72,9 @@ class HandoffCheckOutput(BaseModel):
 
 def fact_keywords(fact: Fact, record: PatientRecord, events_by_ref: dict[str, ClinicalEvent]) -> list[str]:
     words: list[str] = list(TYPE_KEYWORDS.get(fact.tipo, []))
+    if fact.tipo == "tarefa_aberta":  # o assunto da tarefa (#47): as palavras do título, sem o responsável e o prazo
+        title = normalize(fact.texto.split(" — ", 1)[0])
+        words += [w for w in re.findall(r"[a-z0-9]{5,}", title) if w not in ("solicitar", "retorno", "ligar")]
     meds = {m.ref: m for m in record.medications}
     for ref in fact.refs:
         if ref in meds:
@@ -74,6 +90,21 @@ def fact_keywords(fact: Fact, record: PatientRecord, events_by_ref: dict[str, Cl
 
 def _sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"[.;\n!?]", normalize(text)) if s.strip()]
+
+
+def _says_stable(sentence: str) -> bool:
+    """O trecho afirma estabilidade (palavra inteira, sem negação). "Ok" solto e "também" não contam."""
+    text = f" {sentence} "
+    return any(not NEGADA.search(text[: m.start()]) for m in STABILITY.finditer(text))
+
+
+def _diverges(hits: list[str]) -> bool:
+    """O relato afirma estabilidade de um fato crítico. Vale a última palavra: se depois dela o relato traz o valor ou a
+    tendência sem afirmar estabilidade (correção), deixa de divergir. Outra frase depois mantém a divergência."""
+    stable = [i for i, s in enumerate(hits) if _says_stable(s)]
+    if not stable:
+        return False
+    return not any(CORRECTION.search(s) and not _says_stable(s) for s in hits[stable[-1] + 1 :])
 
 
 def mock_check(
@@ -96,7 +127,7 @@ def mock_check(
                     "refs": f.refs,
                 }
             )
-        elif f.severidade == "critico" and any(any(w in s for w in STABILITY) for s in hits):
+        elif f.severidade == "critico" and _diverges(hits):
             items.append(
                 {
                     "fato": f.texto,

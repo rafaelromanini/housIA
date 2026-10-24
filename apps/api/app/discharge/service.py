@@ -8,11 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.alerts.service import upsert_alert
+from app.alerts.service import communication_facts, tarefa_facts, upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import idiomas
-from app.db.models import Alert, DischargeAssessment, DischargeDocument, DischargeOverride, User
+from app.db.models import Alert, DischargeAssessment, DischargeDocument, DischargeOverride, JourneyTask, User
 from app.discharge.documents import DischargeDocsOutput, consult_fields, consult_note, home_meds, mock_documents
 from app.discharge.scoring import SocialChecklist, final_risk, lace, lace_band, social_band, social_score
 from app.discharge.suggestions import DischargeLLMOutput, mock_suggestions
@@ -64,9 +64,42 @@ def _overrides(db: Session, assessment_id: int) -> list[dict]:
     ]
 
 
+def _critical_tasks(db: Session, patient_id: str) -> list[JourneyTask]:
+    return list(
+        db.scalars(
+            select(JourneyTask).where(
+                JourneyTask.patient_id == patient_id, JourneyTask.status == "aberta", JourneyTask.critical.is_(True)
+            )
+        )
+    )
+
+
+def _task_lock(db: Session, a: DischargeAssessment) -> list[JourneyTask]:
+    """Tarefas críticas abertas que ainda travam a alta (#47): travam até serem concluídas com justificativa ou até um
+    override posterior à mais recente delas. Trava suave: o override com justificativa a libera, como no risco alto."""
+    crit = _critical_tasks(db, a.patient_id)
+    if not crit:
+        return []
+    newest = max(t.created_at for t in crit)
+    covered = db.scalar(
+        select(DischargeOverride.id).where(
+            DischargeOverride.assessment_id == a.id, DischargeOverride.created_at >= newest
+        )
+    )
+    return [] if covered else crit
+
+
+def _open_tasks_out(db: Session, patient_id: str) -> list[dict]:
+    from app.journey.service import open_tasks, task_out
+
+    return [task_out(t) for t in open_tasks(db, patient_id)]
+
+
 def assessment_out(db: Session, a: DischargeAssessment) -> dict:
     overrides = _overrides(db, a.id)
-    locked = a.final_risk == "alto" and not overrides
+    locked_risk = a.final_risk == "alto" and not overrides
+    task_lock = _task_lock(db, a)
+    locked = locked_risk or bool(task_lock)
     confirmed_by = db.get(User, a.confirmed_by) if a.confirmed_by else None
     extra = a.suggestions_json or {}
     return {
@@ -94,9 +127,25 @@ def assessment_out(db: Session, a: DischargeAssessment) -> dict:
         "meta": extra.get("meta", {}),
         "trava": {
             "ativa": locked and a.confirmed_at is None,
-            "motivo": "Risco ALTO: aplique as sugestões e reavalie, ou registre uma justificativa (override)."
-            if locked
-            else None,
+            "motivo": " ".join(
+                x
+                for x in (
+                    "Risco ALTO: aplique as sugestões e reavalie, ou registre uma justificativa (override)."
+                    if locked_risk
+                    else "",
+                    f"{len(task_lock)} tarefa(s) crítica(s) aberta(s) da consulta: conclua com justificativa ou "
+                    "registre uma justificativa (override)."
+                    if task_lock
+                    else "",
+                )
+                if x
+            )
+            or None,
+            "por_tarefas": bool(task_lock),
+        },
+        "tarefas": {
+            "abertas": _open_tasks_out(db, a.patient_id),
+            "criticas": [t.id for t in _critical_tasks(db, a.patient_id)],
         },
         "overrides": overrides,
         "confirmada": {"em": a.confirmed_at.isoformat(), "por": confirmed_by.name if confirmed_by else None}
@@ -116,6 +165,25 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
     new_meds = _new_meds(record)
     ctx = build_context(record)
     pending = record.pending_exams
+    concerns = [
+        {"texto": f.texto.split(" (", 1)[0], "refs": f.refs} for f in communication_facts(db, patient_id)
+    ]  # só o assunto, sem o texto das falas
+
+    from app.journey.reference import PAPEL_LABEL
+    from app.journey.service import open_tasks
+
+    task_facts = tarefa_facts(db, patient_id)
+    tasks = [
+        {
+            "titulo": t.title,
+            "papel": PAPEL_LABEL.get(t.role, t.role),
+            "prazo": t.due_at.astimezone(ZoneInfo(get_settings().timezone)).strftime("%d/%m"),
+            "critica": bool(t.critical),
+            "responsavel": "enfermagem" if t.role == "enfermagem" else ("medico" if t.role == "medico" else "equipe"),
+            "refs": next((f.refs for f in task_facts if f.texto.startswith(t.title)), []),
+        }
+        for t in open_tasks(db, patient_id)
+    ]
 
     pseudo = Pseudonymizer(**record.identifiers_for_pseudonymization())
     variables = pseudo.apply(
@@ -131,6 +199,18 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
             "checklist": {k: v for k, v in checklist.model_dump().items() if v is not None}
             | {"refs_disponiveis": [f"Checklist/{k}" for k in checklist.model_dump()]},
             "contexto": {
+                "preocupacoes_sem_resposta": concerns,
+                "tarefas_abertas": [
+                    {
+                        "texto": t["titulo"],
+                        "responsavel": t["papel"],
+                        "prazo": t["prazo"],
+                        "critica": t["critica"],
+                        "ref": t["refs"][0],
+                    }
+                    for t in tasks
+                    if t["refs"]
+                ],
                 "idade": record.age,
                 "motivo_internacao": record.admission_reason,
                 "diagnosticos": [{"ref": d.source_ref, "texto": d.summary} for d in ctx.diagnosticos],
@@ -146,10 +226,12 @@ def create_assessment(db: Session, fhir: FhirSource, user: User, patient_id: str
         PROMPT,
         variables,
         DischargeLLMOutput,
-        mock=lambda _v: mock_suggestions(checklist.model_dump(), components, social_items, meds, new_meds, pending),
+        mock=lambda _v: mock_suggestions(
+            checklist.model_dump(), components, social_items, meds, new_meds, pending, concerns, tasks
+        ),
     )
     valid = {f"Checklist/{k}" for k in checklist.model_dump()} | {m.ref for m in record.medications} | ctx.refs()
-    valid |= {e.ref for e in pending}
+    valid |= {e.ref for e in pending} | {r for c in concerns for r in c["refs"]} | {r for t in tasks for r in t["refs"]}
     valid |= {r for comp in components.values() for r in comp.get("refs", [])}
     suggestions, dropped = [], []
     for s in result.output.sugestoes:
@@ -222,8 +304,8 @@ def register_override(db: Session, user: User, assessment_id: int, justification
     text = justification.strip()
     if len(text) < MIN_JUSTIFICATION:
         raise HTTPException(422, f"A justificativa precisa ter pelo menos {MIN_JUSTIFICATION} caracteres.")
-    if a.final_risk != "alto":
-        raise HTTPException(409, "Override só se aplica a avaliações de risco alto.")
+    if a.final_risk != "alto" and not _critical_tasks(db, a.patient_id):
+        raise HTTPException(409, "Override só se aplica a avaliações de risco alto ou com tarefa crítica aberta.")
     override = DischargeOverride(assessment_id=a.id, user_id=user.id, justification=text, created_at=clock.now())
     db.add(override)
     db.flush()
@@ -244,6 +326,7 @@ def register_override(db: Session, user: User, assessment_id: int, justification
             "risco": a.final_risk,
             "lace": a.lace_score,
             "social": a.social_score,
+            "tarefas_criticas": [t.id for t in _critical_tasks(db, a.patient_id)],
         },
         commit=False,
     )
@@ -255,17 +338,23 @@ def confirm_discharge(db: Session, user: User, assessment_id: int) -> dict:
     a = _get(db, assessment_id)
     if a.confirmed_at:
         return assessment_out(db, a)
-    if a.final_risk == "alto" and not _overrides(db, a.id):
+    by_risk = a.final_risk == "alto" and not _overrides(db, a.id)
+    by_tasks = _task_lock(db, a)
+    if by_risk or by_tasks:
         log_action(
             db,
             user,
             "discharge.confirmacao_bloqueada",
             "discharge_assessment",
             a.id,
-            {"patient_id": a.patient_id, "risco": a.final_risk},
+            {"patient_id": a.patient_id, "risco": a.final_risk, "tarefas_criticas": [t.id for t in by_tasks]},
         )
         raise HTTPException(
-            409, "Alta travada: risco ALTO. Aplique as sugestões e reavalie, ou registre um override com justificativa."
+            409,
+            "Alta travada: risco ALTO. Aplique as sugestões e reavalie, ou registre um override com justificativa."
+            if by_risk
+            else f"Alta travada: {len(by_tasks)} tarefa(s) crítica(s) aberta(s) da consulta. Conclua com "
+            "justificativa ou registre um override com justificativa.",
         )
     a.confirmed_at, a.confirmed_by = clock.now(), user.id
     log_action(

@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
 from app import clock
-from app.alerts.service import upsert_alert
+from app.alerts.service import COMM_SOURCE, upsert_alert
 from app.audit.service import log_action
 from app.config import get_settings
 from app.consult import (
@@ -26,12 +26,13 @@ from app.consult import (
     consentimento,
     consultorio,
     encaminhamento,
+    estilo,
     fidelidade,
-    glossario,
     gs1,
     hipoteses,
     idiomas,
     knowledge,
+    laudos,
     notas,
     note_templates,
     opme,
@@ -41,7 +42,9 @@ from app.consult import (
     relevancia,
     scales,
     stt,
+    stt_vocab,
     summary,
+    tarefas_service,
 )
 from app.consult import ask as copilot
 from app.consult import orders as order_drafts
@@ -63,6 +66,7 @@ from app.consult.export import urn as export_urn
 from app.consult.schemas import (
     ConsultCreate,
     ConsultNote,
+    Correcao,
     FinishIn,
     Insights,
     Segment,
@@ -134,8 +138,10 @@ def _engine(c: Consultation, record, events, ctx, segments: list[Segment]) -> En
     return Engine(record, events, ctx, segments, c.specialty, c.kind, clock.now(), extra)
 
 
-def _valid_refs(record: PatientRecord, events: list[ClinicalEvent], ctx: PatientContext, segments) -> set[str]:
-    refs = {e.source_ref for e in events} | ctx.refs() | {fala_ref(s.n) for s in segments}
+def _valid_refs(
+    record: PatientRecord, events: list[ClinicalEvent], ctx: PatientContext, segments, extra: dict | None = None
+) -> set[str]:
+    refs = {e.source_ref for e in events} | ctx.refs() | {fala_ref(s.n) for s in segments} | laudos.refs_validas(extra)
     for rtype, items in record.resources.items():
         refs |= {f"{rtype}/{r['id']}" for r in items}
     return refs
@@ -159,6 +165,10 @@ def reidentify(data, record: PatientRecord):
     return data
 
 
+def _org(db: Session) -> int | None:
+    return db.info.get("org_id")
+
+
 def _get(db: Session, cid: int) -> Consultation:
     c = db.get(Consultation, cid)
     if c is None:
@@ -172,7 +182,7 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
     base = engine.run()
     meta = c.ai_meta_json or {}
     if meta.get("saida") and meta.get("modo") == "real" and c.kind != "cirurgia":
-        valid = _valid_refs(record, events, ctx, segments)
+        valid = _valid_refs(record, events, ctx, segments, c.extra_json)
         merged = ai.merge_live(base, ai.ConsultLiveOutput.model_validate(meta["saida"]), valid, segments, engine.r.sex)
         ai.reconcile_ai_allergies(engine, merged)
         base = merged
@@ -182,7 +192,7 @@ def _insights(c: Consultation, record, events, ctx, segments: list[Segment]) -> 
 def _smart_apps(c: Consultation, ins: Insights, engine: Engine) -> list:
     """Smart Apps do registro (app/consult/apps) sobre o que o engine e a IA já produziram; fontes conferidas aqui."""
     chart = engine.chart
-    valid = _valid_refs(chart.r, chart.events, chart.ctx, engine.all_segments) | {f"Patient/{chart.r.id}"}
+    valid = _valid_refs(chart.r, chart.events, chart.ctx, engine.all_segments, engine.extra) | {f"Patient/{chart.r.id}"}
     ctx = apps.AppContext(
         ins=ins,
         chart=chart,
@@ -210,12 +220,12 @@ def _decided(c: Consultation, ins: Insights, engine: Engine) -> Insights:
 def _consent_filter(c: Consultation, ins: Insights) -> Insights:
     """Sem consentimento para emoções, nada delas sobra: nem o que a IA acrescentou na mescla."""
     if not consentimento.flags(c.extra_json).emocoes:
-        ins.emocoes, ins.linha_emocional = [], []
+        ins.emocoes, ins.linha_emocional, ins.preocupacoes = [], [], []
     return ins
 
 
 def _fhir_refs(refs: list[str]) -> list[str]:
-    return [r for r in refs if not r.startswith("Fala/")]
+    return [r for r in refs if not r.startswith(("Fala/", "Documento/"))]
 
 
 def _sync_alerts(c: Consultation, ins: Insights) -> None:
@@ -253,6 +263,44 @@ def _sync_alerts(c: Consultation, ins: Insights) -> None:
             changed = True
     if changed:
         c.insight_actions_json = {**data, "alertas": mapping}
+
+
+WHO_LABEL = {"paciente": "Paciente", "acompanhante": "Família/acompanhante"}
+
+
+def _sync_communication(db: Session, c: Consultation, ins: Insights) -> int:
+    """Dúvidas e preocupações que ficaram sem resposta ao encerrar viram Alert(source='comunicacao'), que a passagem de
+    plantão e o plano de alta leem (#43). O título leva só o assunto (termos), nunca o texto das falas."""
+    if c.sandbox or c.kind == "cirurgia" or c.id is None:
+        return 0
+    open_ = [x for x in ins.preocupacoes if not x.respondida]
+    ref = f"Encounter/{c.encounter_id}" if c.encounter_id else f"Patient/{c.patient_id}"
+    ativos = db.scalars(
+        select(Alert).where(
+            Alert.patient_id == c.patient_id, Alert.source == COMM_SOURCE, Alert.status.in_(("aberto", "reconhecido"))
+        )
+    ).all()
+    for x in open_:
+        falas = ", ".join(r.split("/")[1] for r in x.refs)
+        title = f"{WHO_LABEL.get(x.quem, 'Paciente')}: {', '.join(x.termos) or x.tipo}"
+        detail = f"Consulta #{c.id}, fala {falas}; sinal de comunicação, não diagnóstico; teach-back recomendado"
+        # cada dúvida é um alerta próprio (consulta + fala): as consultas de um mesmo encontro compartilham a fonte
+        # FHIR, então casar por fonte (upsert_alert) apagaria a dúvida da consulta anterior
+        alert = next((a for a in ativos if a.detail == detail and a.title == title[:300]), None)
+        if alert is None:
+            alert = Alert(
+                patient_id=c.patient_id,
+                source=COMM_SOURCE,
+                severity="atencao",
+                status="aberto",
+                title="",
+                created_at=clock.now(),
+            )
+            db.add(alert)
+            ativos.append(alert)
+        alert.title, alert.detail, alert.source_refs = title[:300], detail, [ref]
+    db.flush()
+    return len(open_)
 
 
 def _nota(c: Consultation) -> dict | None:
@@ -297,6 +345,7 @@ def out(c: Consultation, user_names: dict[int, str] | None = None) -> dict:
         "justificativa_pendencias": (c.extra_json or {}).get("justificativa_pendencias"),
         "pedidos_fhir": (c.extra_json or {}).get("pedidos_fhir"),
         "propostas": propostas.public(_propostas(c)),
+        "laudos": [laudos.publico(item) for item in (c.extra_json or {}).get("laudos") or []],
         "envio": envio_state(c),
         "criado_por": (user_names or {}).get(c.created_by or 0),
         "created_at": c.created_at.isoformat(),
@@ -481,14 +530,23 @@ def _require_ai(c: Consultation, what: str, purpose: str = "ia") -> None:
         raise HTTPException(403, f"O paciente não autorizou {what}: só as regras do HousIA analisam esta consulta.")
 
 
-def _add_segments(c: Consultation, segments: list[Segment], items: list[SegmentIn]) -> list[Segment]:
+def _add_segments(
+    c: Consultation, segments: list[Segment], items: list[SegmentIn], permitir_adendo: bool = False
+) -> list[Segment]:
     """Acrescenta as falas (numeração, falante automático, relevância) sem confirmar a transação."""
+    if not permitir_adendo and any(i.origem == "adendo" for i in items):
+        raise HTTPException(422, 'A origem "adendo" só nasce no ditado de uma seção da nota.')
     elapsed = max(0.0, (clock.now() - c.created_at).total_seconds())
     new: list[Segment] = []
+    seen = {s.client_id for s in segments if s.client_id}
     for item in items:
         text = item.texto.strip()
         if not text:
             continue
+        if item.client_id:
+            if item.client_id in seen:
+                continue  # reenvio da fila offline: a fala já está na consulta
+            seen.add(item.client_id)
         speaker, auto = item.falante, False
         if speaker == "desconhecido":
             speaker, auto = infer_speaker(text), True
@@ -502,8 +560,12 @@ def _add_segments(c: Consultation, segments: list[Segment], items: list[SegmentI
             texto=text,
             idioma=language,
             origem="digitado" if item.origem == "marco" else item.origem,  # marco só nasce em /marker
+            client_id=item.client_id,
             relevancia=relevancia.classify(text, previous, speaker),
         )
+        if item.origem == "servidor":  # confiança e correções vêm do motor de fala, não do cliente da API
+            seg.confianca, seg.palavras_baixas = item.confianca, item.palavras_baixas
+            seg.corrigidos, seg.confirmar = item.corrigidos, item.confirmar
         segments.append(seg)
         new.append(seg)
     c.segments_json = [s.model_dump() for s in segments]
@@ -608,6 +670,7 @@ def edit_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int, bo
         if text != seg.texto:
             seg.texto_original = seg.texto_original if seg.texto_original is not None else seg.texto
             seg.texto, seg.traducao = text, None  # a tradução antiga não vale para o texto novo
+            seg.confirmar, seg.palavras_baixas = [], []  # quem corrigiu o texto já conferiu o que foi ouvido
             seg.traducao_divergente = []
             changed.append("texto")
     if body.falante is not None and body.falante != seg.falante:
@@ -716,22 +779,126 @@ def transcribe_audio(
     _require_capture(c)
     _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
     language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+    record, _, _ = _chart(fhir, c.patient_id)
     try:
-        text = stt.transcribe(
-            audio, content_type, language, glossario.prompt_stt(c.specialty) if language.startswith("pt") else ""
+        res = stt.transcribe_words(
+            audio,
+            content_type,
+            language,
+            stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else "",
         )
     except stt.STTUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
-    log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(text)})
-    if not text:
+    log_action(db, user, "consulta.audio", "consultation", c.id, {"bytes": len(audio), "caracteres": len(res.texto)})
+    if not res.texto:
         return {"novos": [], "insights": c.insights_json, "total": len(c.segments_json or [])}
-    return append_segments(
-        db,
-        fhir,
-        user,
-        cid,
-        [SegmentIn(falante=speaker, texto=text, origem="servidor")],  # type: ignore[arg-type]
+    item = _item_servidor(
+        record, speaker, res.texto, None, [(p.texto, p.prob) for p in res.palavras], res.avg_logprob, language, _org(db)
     )
+    return append_segments(db, fhir, user, cid, [item])
+
+
+def _item_servidor(
+    record,
+    speaker: str,
+    text: str,
+    start: float | None,
+    palavras: list[tuple[str, float | None]],
+    avg_logprob: float | None,
+    language: str,
+    org_id: int | None = None,
+) -> SegmentIn:
+    """Fala vinda do motor de fala (#38): corrige medicamento por similaridade e marca o que merece confirmação."""
+    text = text[:2000]
+    if not language.startswith(
+        "pt"
+    ):  # sem correção (o catálogo é em português), mas a confiança vale em qualquer idioma
+        aval = stt_vocab.avaliar(text, palavras, avg_logprob, [])
+        return SegmentIn(
+            falante=speaker,  # type: ignore[arg-type]
+            texto=text,
+            t=start,
+            origem="servidor",
+            confianca=aval.confianca,
+            palavras_baixas=aval.palavras_baixas,
+            confirmar=aval.confirmar,
+        )
+    termos = stt_vocab.termos_paciente(record) + [v["termo"] for v in stt_vocab.vocab_institucional(org_id)]
+    aval = stt_vocab.avaliar(text, palavras, avg_logprob, termos)
+    novo, correcoes = stt_vocab.corrigir(text, termos)
+    baixas, confirmar = list(aval.palavras_baixas), list(aval.confirmar)
+    for cor in correcoes:  # a palavra corrigida passa a ter o nome do catálogo no texto
+        partes = {norm(w) for w in cor.de.split()}
+        baixas = [cor.para if norm(w) in partes else w for w in baixas]
+        confirmar = [cor.para if norm(w) in partes else w for w in confirmar]
+    # um nome trocado por similaridade é palpite do HousIA, não o que o motor ouviu: o profissional confere
+    confirmar += [cor.para for cor in correcoes]
+    return SegmentIn(
+        falante=speaker,  # type: ignore[arg-type]
+        texto=novo,
+        t=start,
+        origem="servidor",
+        confianca=aval.confianca,
+        palavras_baixas=list(dict.fromkeys(baixas)),
+        corrigidos=[Correcao(**c.dump()) for c in correcoes],
+        confirmar=list(dict.fromkeys(confirmar)),
+    )
+
+
+def confirm_segment(db: Session, fhir: FhirSource, user: User, cid: int, n: int) -> dict:
+    """ "Confirmar o que foi ouvido" (#38): o profissional confere a fala de baixa confiança; os alertas voltam à
+    gravidade da regra."""
+    c = _get(db, cid)
+    if c.status == "enviada":
+        raise HTTPException(409, "Nota já enviada ao prontuário: a transcrição não pode mais ser alterada.")
+    segments = _segments(c)
+    seg = next((s for s in segments if s.n == n), None)
+    if seg is None:
+        raise HTTPException(404, "Fala não encontrada")
+    if not seg.confirmar or seg.confirmado_em:
+        raise HTTPException(409, "Esta fala não tem nada pendente de confirmação.")
+    seg.confirmado_por, seg.confirmado_em = user.name, clock.now().isoformat()
+    c.segments_json = [s.model_dump() for s in segments]
+    record, events, ctx = _chart(fhir, c.patient_id)
+    _refresh_insights(c, record, events, ctx, segments)
+    log_action(
+        db, user, "consulta.fala_confirmada", "consultation", c.id, {"n": n, "palavras": len(seg.confirmar)}
+    )  # nunca o texto da fala
+    db.commit()
+    return out(c)
+
+
+def stream_segment(
+    db: Session,
+    fhir: FhirSource,
+    user: User,
+    cid: int,
+    text: str,
+    speaker: str,
+    start: float | None = None,
+    palavras: list[tuple[str, float | None]] | None = None,
+    avg_logprob: float | None = None,
+) -> dict:
+    """Frase fechada da transmissão em fluxo (#11): mesmas travas do POST /audio e passa por append_segments."""
+    c = _get(db, cid)
+    _require_capture(c)
+    _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
+    record, _, _ = _chart(fhir, c.patient_id)
+    language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+    item = _item_servidor(record, speaker, text, start, palavras or [], avg_logprob, language, _org(db))
+    return append_segments(db, fhir, user, cid, [item])
+
+
+def stream_context(db: Session, fhir: FhirSource, user: User, cid: int, speaker: str) -> tuple[str, str]:
+    """(idioma, vocabulário) do STT para a transmissão; recusa quando a captura ou o consentimento não permitem."""
+    c = _get(db, cid)
+    if c.status != "em_andamento":
+        raise HTTPException(409, "Consulta finalizada: não aceita novas falas.")
+    _require_capture(c)
+    _require_ai(c, "enviar o áudio para transcrição no servidor", "stt")
+    language = c.patient_language if speaker in PATIENT_SIDE else "pt-BR"
+    record, _, _ = _chart(fhir, c.patient_id)
+    return language, stt_vocab.prompt(record, c.specialty, _org(db)) if language.startswith("pt") else ""
 
 
 CHECKLIST_LABEL = {"sign_in": "sign-in", "time_out": "time-out", "sign_out": "sign-out"}
@@ -1322,7 +1489,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         return out(c)
     engine = _engine(c, record, events, ctx, segments)
     base = engine.run()
-    valid = _valid_refs(record, events, ctx, segments)
+    valid = _valid_refs(record, events, ctx, segments, c.extra_json)
     pseudo = _pseudo(record)
     started = time.monotonic()
     analyzed = len(segments)
@@ -1349,7 +1516,7 @@ def analyze(db: Session, fhir: FhirSource, user: User, cid: int, force: bool = F
         # relevância: a IA reclassifica, mas fala com medicamento, dose, alergia ou sinal de alarme nunca vira social
         if relevancia.apply_ai(segments, {r.n: r.relevancia for r in result.output.relevancia}):
             c.segments_json = [s.model_dump() for s in segments]
-        valid = _valid_refs(record, events, ctx, segments)
+        valid = _valid_refs(record, events, ctx, segments, c.extra_json)
         engine = _engine(c, record, events, ctx, segments)
         base = engine.run()
         merged = ai.merge_live(base, result.output, valid, segments, engine.r.sex)
@@ -1495,7 +1662,7 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
         raise HTTPException(422, "A consulta não tem falas transcritas.")
     rules_only = not consentimento.flags(c.extra_json).ia
     engine = _engine(c, record, events, ctx, segments)
-    valid = _valid_refs(record, events, ctx, segments)
+    valid = _valid_refs(record, events, ctx, segments, c.extra_json)
     pseudo = _pseudo(record)
     fallback = False
     try:
@@ -1539,6 +1706,13 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
     c.status = "finalizada"
     c.finished_at = clock.now()
     c.extra_json = (c.extra_json or {}) | {"nota_original": note, "versoes_nota": []}  # base da métrica "% editado"
+    final = None if c.kind == "cirurgia" else _insights(c, record, events, ctx, segments)
+    sem_resposta = 0 if final is None else _sync_communication(db, c, final)
+    novas = (
+        {"criadas": 0, "criticas": 0}
+        if final is None
+        else tarefas_service.sincronizar(db, fhir, user, c, segments, final)
+    )  # pendências da consulta viram tarefas (#47)
     log_action(
         db,
         user,
@@ -1549,6 +1723,10 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
             "patient_id": c.patient_id,
             "falas": len(segments),
             "falas_no_corpo": len(pending),
+            "duvidas_sem_resposta": sem_resposta,
+            "tarefas_criadas": novas["criadas"],
+            "tarefas_criticas": novas["criticas"],
+            "tarefas_falante_automatico": novas.get("falante_automatico", 0),
             "modo": "regras" if rules_only else result.mode,
             "sem_ia": rules_only,
             "itens_descartados": len(dropped),
@@ -1698,6 +1876,9 @@ def update_note(db: Session, user: User, cid: int, note: dict, fhir: FhirSource 
         "atestada": attested,
         "secoes_editadas": {k: v for k, v in version["secoes"].items() if v > 0},
     } | ({"opme": changes} if changes else {})
+    if attested and c.kind != "cirurgia":  # memória de estilo (#46): só números, só da versão final atestada
+        perfil = estilo.registrar(db, user, c.id, draft, c.note_json)
+        payload |= {"estilo_notas": perfil["notas"], "estilo_ativo": perfil["ativo"]}
     log_action(db, user, "consulta.nota_revisada", "consultation", c.id, payload)
     return out(c)
 
@@ -2261,6 +2442,7 @@ def _propostas(c: Consultation, when: datetime | None = None) -> list[dict]:
         note=note,
         segments=_segments(c),
         accepted=set((c.extra_json or {}).get("propostas_aceitas") or []),
+        laudos=(c.extra_json or {}).get("laudos") or [],
     )
 
 
@@ -2637,7 +2819,7 @@ def ask(db: Session, fhir: FhirSource, user: User, cid: int, question: str, via:
         raise HTTPException(409, "O copiloto não está disponível no centro cirúrgico.")
     ins = Insights.model_validate(c.insights_json) if c.insights_json else _insights(c, record, events, ctx, segments)
     actx = copilot.Ctx(engine=engine, ins=ins, q=question, n=copilot.norm(question))
-    valid = _valid_refs(record, events, ctx, segments)
+    valid = _valid_refs(record, events, ctx, segments, c.extra_json)
     data = _copilot(c)
     msg_id = len(data["mensagens"]) + 1
     pseudo = _pseudo(record)
@@ -2738,7 +2920,7 @@ def insert_into_note(
     if not chosen:
         raise HTTPException(422, "Nada para inserir na nota.")
     record, events, ctx = _chart(fhir, c.patient_id)
-    valid = _valid_refs(record, events, ctx, _segments(c))
+    valid = _valid_refs(record, events, ctx, _segments(c), c.extra_json)
     refs = [r for f in chosen for r in f["refs"] if r in valid]
     texto = " ".join(f["texto"] for f in chosen)
     ins, created = _new_insertion(data, msg_id, _note_target(destino), texto, refs, user.name)

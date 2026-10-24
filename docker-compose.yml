@@ -64,6 +64,10 @@ services:
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # Aponta para o perfil `stt`; sem ele o serviço não responde e a tela não oferece o modo Servidor (STT_PROBE)
+      STT_URL: ${STT_URL:-http://stt:8000/v1/audio/transcriptions}
+      STT_MODEL: ${STT_MODEL:-Systran/faster-whisper-small}
+      STT_PROBE: ${STT_PROBE:-true}
     ports:
       - "8000:8000"
     depends_on:
@@ -73,6 +77,21 @@ services:
         condition: service_started
       fhir:
         condition: service_started
+
+  stt:
+    # Transcrição on-premise (#11): `docker compose --profile stt up`. Perfil opcional; o áudio não sai do host.
+    # O modelo (pt, "small" em CPU) é baixado pelo próprio contêiner na primeira subida e fica no volume `housia-stt`.
+    # Com GPU use a imagem -cuda e STT_WHISPER_MODEL=Systran/faster-whisper-large-v3.
+    profiles: ["stt"]
+    image: fedirz/faster-whisper-server:0.6.0-rc.3-cpu
+    environment:
+      WHISPER__MODEL: ${STT_WHISPER_MODEL:-Systran/faster-whisper-small}
+      WHISPER__INFERENCE_DEVICE: ${STT_DEVICE:-cpu}
+      WHISPER__COMPUTE_TYPE: ${STT_COMPUTE_TYPE:-int8}
+      ENABLE_UI: "false"
+    volumes:
+      - housia-stt:/root/.cache/huggingface
+    restart: unless-stopped
 
   web:
     build:
@@ -87,3 +106,4 @@ services:
 
 volumes:
   housia-db:
+  housia-stt:

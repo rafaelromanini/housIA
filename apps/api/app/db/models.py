@@ -346,6 +346,10 @@ class JourneyTask(Tenant, Base):
     closed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     closing_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # pendência da consulta (#47): ligação com a consulta, criticidade e chave que impede duplicar ao finalizar de novo
+    consultation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    critical: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    chave: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
 
 class ImpactBaseline(Tenant, Base):
@@ -377,4 +381,19 @@ class SmartAppProfile(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     especialidade: Mapped[str] = mapped_column(String(40), default="")
     ocultos: Mapped[list] = mapped_column(JsonType, default=list)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class EstiloNota(Tenant, Base):
+    """Memória de estilo da nota (#46): só preferências de forma (tamanho, siglas, ordem) por profissional.
+
+    Guarda números por consulta (razões e contagens), nunca texto clínico de paciente.
+    """
+
+    __tablename__ = "estilo_notas"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_estilo_notas_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    dados_json: Mapped[dict] = mapped_column(JsonType, default=dict)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)

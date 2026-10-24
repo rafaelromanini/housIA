@@ -1,0 +1,18 @@
+{
+  "patient_id": "cen1",
+  "audience": "enfermagem",
+  "titulo": "Passagem de enfermagem do Sr. Antônio (cen1): PA dita como estável e depois corrigida",
+  "descricao": "Roteiro sintético. A 2ª fala diz que a PA está estável com o prontuário em 184/102: a divergência aparece na hora. A 4ª corrige. Omissões críticas (queda, acesso venoso, diurese) aparecem como pendentes até serem ditas.",
+  "falas": [
+    { "t": 0.0, "falante": "enfermagem", "texto": "Boa noite. Seu Antônio, leito 12, pós-operatório de colecistectomia, veio da UTI." },
+    { "t": 6.0, "falante": "enfermagem", "texto": "PA estável, sem intercorrências." },
+    { "t": 11.0, "falante": "enfermagem", "texto": "Tem dreno em flanco direito e ceftriaxona às 20h." },
+    { "t": 17.0, "falante": "enfermagem", "texto": "Corrigindo: a PA subiu até 184/102 e o plantonista já foi comunicado." },
+    { "t": 23.0, "falante": "enfermagem", "texto": "Risco de queda alto, grades elevadas." },
+    { "t": 28.0, "falante": "enfermagem", "texto": "AVP com 72 horas, avaliar a troca." },
+    { "t": 34.0, "falante": "enfermagem", "texto": "Não urinou desde a retirada da sonda vesical." },
+    { "t": 40.0, "falante": "enfermagem", "texto": "Losartana nova às 20h no lugar do anlodipino. Enoxaparina às 18h com dupla checagem." },
+    { "t": 47.0, "falante": "enfermagem", "texto": "Antecedente de hipertensão, sem alergia conhecida." },
+    { "t": 52.0, "falante": "enfermagem", "texto": "Pendente: reavaliar a PA em uma hora e chamar o médico se piorar." }
+  ]
+}

@@ -18,7 +18,7 @@ Origin = Literal["regra", "ia"]
 Confidence = Literal["baixa", "media", "alta"]
 Priority = Literal["alta", "media", "baixa"]
 ConsultKind = Literal["consulta", "visita", "cirurgia"]
-CaptureSource = Literal["microfone", "servidor", "digitado", "demo", "marco"]  # marco: pausa/retomada/revogação
+CaptureSource = Literal["microfone", "servidor", "digitado", "demo", "marco", "adendo"]  # marco: privacidade
 Marker = Literal["pausa", "retomada", "revogado"]
 # qualquer código de data/reference/languages.csv (≥ 95 idiomas, BCP-47); "pt", "es-MX"… são normalizados
 Language = Annotated[str, AfterValidator(idiomas.validar)]
@@ -29,6 +29,12 @@ def fala_ref(n: int) -> str:
 
 
 # ---------- transcrição ----------
+class Correcao(BaseModel):
+    de: str  # o que o reconhecimento escreveu
+    para: str  # o termo do catálogo (medicamento ou marca)
+    razao: float = 0.0  # similaridade (0 a 1)
+
+
 class Segment(BaseModel):
     n: int
     t: float = Field(description="segundos desde o início da consulta")
@@ -41,6 +47,7 @@ class Segment(BaseModel):
         default_factory=list, description="diferenças de números, doses e medicamentos entre a fala e a tradução"
     )
     origem: CaptureSource = "digitado"
+    client_id: str | None = None  # id gerado pelo cliente (dedupe de reenvio); não é dado clínico
     relevancia: Literal["clinica", "social", "administrativa"] | None = None  # None: ainda não classificada
     relevancia_origem: Literal["regra", "ia"] = "regra"
     # edição pelo profissional (#2): o texto e o falante originais ficam guardados; o selo "editada" vem de editado_em
@@ -50,6 +57,15 @@ class Segment(BaseModel):
     editado_em: str | None = None
     expurgada: bool = False  # texto apagado pelo prazo de retenção (#31)
     marco: Marker | None = None  # só nos marcos de privacidade (origem "marco"): não é fala, as regras e a IA ignoram
+    # transcrição que conhece o paciente (#38): confiança do trecho, palavras duvidosas e o que foi corrigido
+    confianca: float | None = None  # 0 a 1 (exp do avg_logprob ou média da probabilidade por palavra)
+    palavras_baixas: list[str] = Field(default_factory=list, description="palavras de baixa confiança, como no texto")
+    corrigidos: list[Correcao] = Field(default_factory=list, description="termos trocados por similaridade")
+    confirmar: list[str] = Field(
+        default_factory=list, description="medicamento, dose ou alergia de baixa confiança: confirmar o que foi ouvido"
+    )
+    confirmado_por: str | None = None
+    confirmado_em: str | None = None
 
 
 class SegmentEdit(BaseModel):
@@ -66,10 +82,32 @@ class SegmentIn(BaseModel):
     t: float | None = None
     idioma: Annotated[str, AfterValidator(idiomas.validar)] | None = None
     origem: CaptureSource = "digitado"
+    # idempotência do reenvio (fila offline): a mesma fala reenviada com o mesmo client_id não vira fala nova
+    client_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+    # só valem com origem "servidor" (preenchidos pelo próprio HousIA a partir da resposta do motor de fala)
+    confianca: float | None = None
+    palavras_baixas: list[str] = Field(default_factory=list, max_length=50)
+    corrigidos: list[Correcao] = Field(default_factory=list, max_length=20)
+    confirmar: list[str] = Field(default_factory=list, max_length=50)
 
 
 class SegmentsIn(BaseModel):
     segmentos: list[SegmentIn] = Field(..., min_length=1, max_length=50)
+
+
+class AdendoSeg(BaseModel):
+    """Trecho ditado ou digitado. Falante (profissional) e origem ("adendo") são decididos pelo servidor."""
+
+    texto: str = Field(..., min_length=1, max_length=2000)
+    client_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+
+class AdendoIn(BaseModel):
+    """Ditado numa seção da nota (#41), antes ou depois de finalizar a consulta."""
+
+    secao: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_]+$")
+    segmentos: list[AdendoSeg] = Field(..., min_length=1, max_length=20)
+    via: Literal["navegador", "servidor", "digitado"] = "navegador"
 
 
 class FinishIn(BaseModel):
@@ -132,6 +170,23 @@ class Emotion(ItemAcionavel):
     abordagem: str
     refs: list[str]
     origem: Origin = "regra"
+    pistas: list[str] = []  # intensificadores da fala que definiram a intensidade ("muito medo", "pavor") (#43)
+    aviso: str = "sinal de comunicação, não diagnóstico"
+
+
+class Concern(ItemAcionavel):
+    """Dúvida ou preocupação do paciente ou família e se o profissional já respondeu (#43). Sinal, não diagnóstico."""
+
+    tipo: Literal["duvida", "preocupacao"]
+    quem: Speaker
+    trecho: str
+    termos: list[str] = []  # assunto (termos de conteúdo), com que a resposta do profissional é ligada
+    refs: list[str]  # a fala que levantou a dúvida
+    respondida: bool = False
+    resposta_refs: list[str] = []  # a fala do profissional que respondeu
+    teach_back: bool = False  # recomendado: preocupação da família ou medo
+    origem: Origin = "regra"
+    aviso: str = "sinal de comunicação, não diagnóstico"
 
 
 class EmotionPoint(BaseModel):
@@ -262,6 +317,7 @@ class MedSuggestion(ItemAcionavel):
     refs: list[str]
     origem: Origin = "regra"
     fonte: str = ""  # regra de onde vem o alerta (dose_alerts.csv, interactions.csv, allergy_cross.csv...)
+    confirmar_ouvido: bool = False  # a fala citada tem medicamento, dose ou alergia de baixa confiança (#38)
 
 
 class SurgeryItem(BaseModel):
@@ -716,6 +772,7 @@ class Insights(BaseModel):
     emocoes: list[Emotion] = []
     linha_emocional: list[EmotionPoint] = []
     comunicacao: CommMetrics | None = None
+    preocupacoes: list[Concern] = []  # dúvidas e preocupações do paciente/família, respondidas ou não (#43)
     perguntas: list[Question] = []
     perguntas_abordadas: list[Question] = []
     hipoteses: list[Hypothesis] = []

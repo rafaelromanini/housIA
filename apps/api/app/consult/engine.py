@@ -18,9 +18,11 @@ from app.consult import (
     extract,
     idiomas,
     knowledge,
+    laudos,
     orders,
     reminders,
     semiology,
+    sinais,
     summary,
 )
 from app.consult.chart import ChartView, fmt_date
@@ -377,7 +379,8 @@ class Engine:
         by_key = {d.key: d for d in defs}
         for (key, who), segs in hits.items():
             d = by_key[key]
-            intensity = "alta" if len(segs) >= 3 else ("media" if len(segs) == 2 else "baixa")
+            # intensidade pelos intensificadores da fala ("muito medo", "pavor"), não pela contagem de falas (#43)
+            intensity, marks = sinais.combine(sinais.intensity_of(s.texto, d.words) for s in segs)
             out.append(
                 Emotion(
                     emocao=key,
@@ -387,6 +390,7 @@ class Engine:
                     trecho=self.quote(segs[-1]),
                     abordagem=d.approach,
                     refs=[fala_ref(s.n) for s in segs],
+                    pistas=marks,
                 )
             )
         out.sort(key=lambda e: int(e.refs[-1].split("/")[1]), reverse=True)  # mais recente primeiro
@@ -969,6 +973,29 @@ class Engine:
         present: dict[str, list[str]] | None = None,
         planned: list[tuple[str, str, str]] | None = None,
     ) -> list[MedSuggestion]:
+        """Alertas de medicamento. Alerta que depende de uma fala com medicamento, dose ou alergia de baixa confiança
+        na transcrição (#38) ganha a marca "confirmar o que foi ouvido" até o profissional confirmar a fala (ou
+        corrigir o texto). A gravidade NUNCA desce: regra de segurança não é rebaixada por dúvida do reconhecimento
+        (ADR 0009); um alerta crítico sobre algo mal ouvido continua crítico e visível."""
+        out = self._med_safety(allergies, present, planned)
+        duvida = {fala_ref(s.n): s for s in self.segments if s.confirmar and not s.confirmado_em}
+        if not duvida:
+            return out
+        for m in out:
+            hits = [duvida[r] for r in m.refs if r in duvida]
+            if not hits:
+                continue
+            m.confirmar_ouvido = True
+            ouvido = ", ".join(dict.fromkeys(w for s in hits for w in s.confirmar))
+            m.texto = f"Confirmar o que foi ouvido («{ouvido}»): {m.texto}"
+        return out
+
+    def _med_safety(
+        self,
+        allergies: list[AllergyInfo],
+        present: dict[str, list[str]] | None = None,
+        planned: list[tuple[str, str, str]] | None = None,
+    ) -> list[MedSuggestion]:
         reported = self.reported_meds()
         planned = self.planned_meds() if planned is None else planned
         classes = self._med_classes(reported, planned)
@@ -1386,7 +1413,8 @@ class Engine:
         allergies = self.allergies(planned)
         meds_safety = self.med_safety(allergies, present, planned)
         reported = self.reported_meds()
-        exams = self.chart.exams() + self.extraction().exames
+        laudo_list = list(self.extra.get("laudos") or [])
+        exams = self.chart.exams() + self.extraction().exames + laudos.exam_infos(laudo_list, self.chart)
         history = self.history()
         egfr = self.chart.egfr
         order_ctx = orders.OrderContext(
@@ -1400,7 +1428,12 @@ class Engine:
         referrals = [] if self.kind == "cirurgia" else encaminhamento.build(self.chart, self.segments, hyps, self.extra)
         alerts = self.alerts(meds_safety)
         alerts = sorted(
-            [*self.translation_alerts(), *self.protocol_alerts(protocols), *alerts],
+            [
+                *self.translation_alerts(),
+                *self.protocol_alerts(protocols),
+                *laudos.alertas(laudo_list, self.chart),
+                *alerts,
+            ],
             key=lambda h: SEVERITY[h.severidade],
         )
         alerts += coding.compat_alerts(  # diagnóstico do prontuário que não combina com o sexo ou a idade do paciente
@@ -1415,6 +1448,7 @@ class Engine:
             modo="regras",
             queixas=tags,
             emocoes=emotions,
+            preocupacoes=sinais.unanswered_concerns(self.segments, not self.extra.get("sem_emocoes")),
             linha_emocional=timeline,
             comunicacao=metrics,
             perguntas=questions,

@@ -30,6 +30,7 @@ TYPE_LABEL = {
     "hipotese": "hipótese",
     "queixa": "queixa",
     "emocao": "emoção",
+    "preocupacao": "dúvida ou preocupação",
 }
 # listas do Insights por tipo de item: (tipo, caminho, campo do rótulo)
 _LISTS = (
@@ -40,6 +41,7 @@ _LISTS = (
     ("hipotese", "hipoteses"),
     ("queixa", "queixas"),
     ("emocao", "emocoes"),
+    ("preocupacao", "preocupacoes"),
 )
 
 
@@ -57,6 +59,8 @@ def label_of(tipo: str, item: Any) -> str:
         return f"{item.rotulo} {item.status}"
     if tipo == "emocao":
         return f"{item.rotulo} {item.quem}"
+    if tipo == "preocupacao":
+        return f"{item.tipo} {item.quem} {' '.join(item.termos)}"
     return item.texto
 
 
@@ -174,7 +178,8 @@ def record(actions: dict | None, tipo: str, item: Any, acao: str, motivo: str, w
     entry = dict(data["acoes"].get(item.item_key) or {})
     entry |= {
         "tipo": tipo,
-        "rotulo": label[:300],
+        # o rótulo da dúvida leva os termos da fala: o registro de decisões não guarda assunto de conversa (#43)
+        "rotulo": (TYPE_LABEL[tipo] if tipo == "preocupacao" else label)[:300],
         "origem": getattr(item, "origem", "regra"),
         "sk": stable_key(tipo, label),
     }

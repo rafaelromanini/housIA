@@ -19,9 +19,20 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { useDemoPlayer, usePushToTalk, useServerRecorder, useSpeechCapture, speechSupported } from "@/components/consult/capture";
+import {
+  useDemoPlayer,
+  useMicrofones,
+  usePushToTalk,
+  useServerRecorder,
+  useServerStream,
+  useSpeechCapture,
+  useTesteDeAudio,
+  useWakeLock,
+  speechSupported,
+} from "@/components/consult/capture";
 import { CopilotPanel } from "@/components/consult/copilot-panel";
 import { PrivacyPanel } from "@/components/consult/privacy-panel";
+import { PreConsultaCard } from "@/components/consult/pre-consulta-card";
 import { SmartAppsPanel } from "@/components/consult/smart-apps";
 import { SurgicalPanel } from "@/components/consult/surgical-panel";
 import { Transcript, clock, speakerLabel, SPEAKER_STYLE, TEAM_SPEAKERS, type SegmentPatch } from "@/components/consult/transcript";
@@ -45,11 +56,20 @@ import {
   type Segment,
   type Speaker,
 } from "@/lib/api";
+import {
+  carregarFila,
+  enfileirar,
+  type FalaPendente,
+  limparFila,
+  novoClientId,
+  pendentes as filaPendentes,
+  removerEnviadas,
+} from "@/lib/offline-queue";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 
 type Mode = "microfone" | "servidor" | "digitar" | "demo";
-type SegmentIn = { falante: Speaker; texto: string; t?: number; origem: Segment["origem"]; idioma?: string };
+type SegmentIn = { falante: Speaker; texto: string; t?: number; origem: Segment["origem"]; idioma?: string; client_id?: string };
 
 const AI_EVERY_MS = 12000;
 const KIND_LABEL = { consulta: "Consulta", visita: "Visita à beira do leito", cirurgia: "Ditado cirúrgico" };
@@ -86,13 +106,13 @@ export function LiveConsult({
   const speakers = surgical ? SURGICAL_SPEAKERS : CONSULT_SPEAKERS;
   const browserStt = config.stt_navegador;
   const [mode, setMode] = useState<Mode>(() =>
-    c.roteiro_demo ? "demo" : browserStt && speechSupported() ? "microfone" : "digitar",
+    c.roteiro_demo ? "demo" : config.stt_servidor ? "servidor" : browserStt && speechSupported() ? "microfone" : "digitar",
   );
   // no microfone a fala chega contínua: começa em "Automático" (as regras atribuem quem falou e a IA corrige). Com
   // paciente em outro idioma, quem fala escolhe o idioma do reconhecimento, então o falante continua manual. No ditado
   // cirúrgico quem dita é a equipe: começa em "Profissional" (a heurística chamaria a afirmação solta de paciente).
   const startSpeaker = useCallback(
-    (m: Mode): Speaker => (m === "microfone" && !surgical && c.idioma_paciente === "pt-BR" ? "desconhecido" : "medico"),
+    (m: Mode): Speaker => ((m === "microfone" || m === "servidor") && !surgical && c.idioma_paciente === "pt-BR" ? "desconhecido" : "medico"),
     [c.idioma_paciente, surgical],
   );
   const [speaker, setSpeaker] = useState<Speaker>(() => startSpeaker(mode));
@@ -171,26 +191,99 @@ export function LiveConsult({
     [c.id, setConsultation, config.idiomas, patient.nome],
   );
 
-  // envia em ordem (fila), mesmo com falas chegando rápido
-  const send = useCallback(
-    (items: SegmentIn[]) => {
-      unsent.current.push(...items);
-      queue.current = queue.current.then(async () => {
-        try {
-          const res = await api<{ novos: Segment[]; insights: ConsultInsights }>(`/consultations/${c.id}/segments`, {
-            method: "POST",
-            json: { segmentos: items },
-          });
-          unsent.current = unsent.current.filter((u) => !items.includes(u));
-          apply(res.novos, res.insights);
-          void translate(res.novos.map((s) => s.n));
-        } catch (e) {
-          setError(e instanceof Error ? e.message : "Erro ao enviar a fala");
-        }
+  // ---------- fila offline (#12): só texto, com client_id; reenvio em ordem quando a rede volta ----------
+  const [aguardando, setAguardando] = useState(0);
+  const filaParada = useRef(false); // erro do servidor no reenvio: só tenta de novo por ação da pessoa ou ao voltar a rede
+  const postSegments = useCallback(
+    async (items: SegmentIn[]) => {
+      const res = await api<{ novos: Segment[]; insights: ConsultInsights }>(`/consultations/${c.id}/segments`, {
+        method: "POST",
+        json: { segmentos: items },
       });
+      apply(res.novos, res.insights);
+      void translate(res.novos.map((s) => s.n));
     },
     [apply, c.id, translate],
   );
+  const dropUnsent = (ids: Set<string | undefined>) => {
+    unsent.current = unsent.current.filter((u) => !ids.has(u.client_id));
+  };
+
+  const flushOffline = useCallback(() => {
+    queue.current = queue.current.then(async () => {
+      for (;;) {
+        const lote = filaPendentes(c.id).slice(0, 50);
+        if (lote.length === 0) break;
+        try {
+          await postSegments(lote as SegmentIn[]);
+          await removerEnviadas(c.id, lote.map((f) => f.client_id));
+          dropUnsent(new Set(lote.map((f) => f.client_id)));
+          setAguardando(filaPendentes(c.id).length);
+          setError(null);
+        } catch (e) {
+          if (!(e instanceof TypeError)) {
+            filaParada.current = true;
+            setError(e instanceof Error ? `${e.message} As falas pendentes continuam guardadas.` : "Erro ao reenviar as falas pendentes");
+          }
+          break; // rede ainda fora (ou erro do servidor): mantém a fila e a ordem
+        }
+      }
+    });
+  }, [c.id, postSegments]);
+
+  // envia em ordem (fila), mesmo com falas chegando rápido; sem rede, a fala vai para a fila offline
+  const send = useCallback(
+    (items: SegmentIn[]) => {
+      const withId = items.map((i) => (i.client_id ? i : { ...i, client_id: novoClientId() }));
+      unsent.current.push(...withId);
+      queue.current = queue.current.then(async () => {
+        const toQueue = async () => {
+          await enfileirar(c.id, withId as FalaPendente[]);
+          setAguardando(filaPendentes(c.id).length);
+        };
+        if (filaPendentes(c.id).length > 0) {
+          await toQueue(); // já há falas esperando: esta entra atrás delas para manter a ordem
+          if (!filaParada.current && navigator.onLine) flushOffline();
+          return;
+        }
+        try {
+          await postSegments(withId);
+          dropUnsent(new Set(withId.map((i) => i.client_id)));
+        } catch (e) {
+          if (e instanceof TypeError) await toQueue();
+          else setError(e instanceof Error ? e.message : "Erro ao enviar a fala");
+        }
+      });
+    },
+    [c.id, flushOffline, postSegments],
+  );
+
+  // retoma o que ficou pendente (a aba pode ter sido recarregada sem rede) e reenvia quando a rede volta
+  useEffect(() => {
+    let vivo = true;
+    void carregarFila(c.id).then((f) => {
+      if (!vivo) return;
+      setAguardando(f.length);
+      if (f.length > 0 && navigator.onLine) flushOffline();
+    });
+    const online = () => {
+      filaParada.current = false;
+      flushOffline();
+    };
+    window.addEventListener("online", online);
+    return () => {
+      vivo = false;
+      window.removeEventListener("online", online);
+    };
+  }, [c.id, flushOffline]);
+
+  useEffect(() => {
+    if (aguardando === 0) return;
+    const id = window.setInterval(() => {
+      if (!filaParada.current) flushOffline();
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [aguardando, flushOffline]);
 
   const runAI = useCallback(
     async (force = false) => {
@@ -229,6 +322,7 @@ export function LiveConsult({
   const patientSide = speaker === "paciente" || speaker === "acompanhante";
   const lang = patientSide ? (config.idiomas.find((i) => i.value === c.idioma_paciente)?.web_speech ?? c.idioma_paciente) : "pt-BR";
   const mic = useSpeechCapture(lang, (texto) => send([{ falante: speaker, texto, origem: "microfone" }]));
+  const mics = useMicrofones();
   const recorder = useServerRecorder((blob) => {
     queue.current = queue.current.then(async () => {
       try {
@@ -243,7 +337,14 @@ export function LiveConsult({
         setError(e instanceof Error ? e.message : "Erro na transcrição do servidor");
       }
     });
+  }, 8, mics.deviceId);
+  const audioTest = useTesteDeAudio(mics.deviceId, mics.refresh);
+  // transcrição em fluxo (WebSocket): texto parcial na hora e frase fechada pelo silêncio; sem ela, trechos de 8 s
+  const stream = useServerStream(c.id, speaker, ({ novos, insights }) => {
+    apply(novos, insights);
+    void translate(novos.map((s) => s.n));
   });
+  const streamMode = !!config.stt_streaming;
   const script = useApi<DemoScript>(c.roteiro_demo && mode === "demo" ? `/consult/demo-scripts/${c.roteiro_demo}` : null);
   const demoStart = c.segmentos.filter((s) => s.origem === "demo").length;
   const demo = useDemoPlayer(script.data, demoStart, (line) => send([{ falante: line.falante, texto: line.texto, t: line.t, origem: "demo", idioma: line.idioma }]));
@@ -265,13 +366,15 @@ export function LiveConsult({
   const pttStart = ptt.start;
   const pttStop = ptt.stop;
 
-  const capturing = mic.listening || recorder.recording || demo.playing;
-  const interim = demo.interim ?? (mic.interim ? { falante: speaker, texto: mic.interim } : null);
+  const capturing = mic.listening || recorder.recording || stream.streaming || demo.playing;
+  const wakeLock = useWakeLock(capturing);
+  const interim =
+    demo.interim ?? (mic.interim ? { falante: speaker, texto: mic.interim } : stream.partial ? { falante: speaker, texto: stream.partial } : null);
 
   /** Para toda captura e espera o último resultado do reconhecimento (ou o último trecho de áudio) entrar na fila. */
   async function stopAll() {
     demo.pause();
-    await Promise.all([mic.stop(), recorder.stop()]);
+    await Promise.all([mic.stop(), recorder.stop(), stream.stop()]);
   }
 
   // atalhos: Alt+1 profissional, Alt+2 paciente, Alt+3 acompanhante, Alt+0 detectar automaticamente;
@@ -381,6 +484,8 @@ export function LiveConsult({
     [apply, c.id],
   );
 
+  const openConcerns = (c.insights?.preocupacoes ?? []).filter((x) => !x.respondida);
+
   async function finish() {
     setFinishing(true);
     setError(null);
@@ -388,12 +493,18 @@ export function LiveConsult({
     // (falha de rede, por exemplo) vai no corpo do /finish e entra de forma atômica antes da nota
     await stopAll();
     await queue.current;
+    if (filaPendentes(c.id).length > 0 && navigator.onLine) {
+      flushOffline();
+      await queue.current;
+    }
     try {
       const updated = await api<Consultation>(`/consultations/${c.id}/finish`, {
         method: "POST",
         json: { segmentos: unsent.current },
       });
       unsent.current = [];
+      await limparFila(c.id); // a nota já tem as falas: nada de texto de paciente fica no aparelho
+      setAguardando(0);
       setConsultation(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao gerar a nota");
@@ -401,6 +512,18 @@ export function LiveConsult({
       setFinishing(false);
     }
   }
+
+  // "confirmar o que foi ouvido" (#38): o servidor devolve a conversa e os alertas com a gravidade da regra
+  const confirmSegment = useCallback(
+    async (n: number) => {
+      await queue.current;
+      const updated = await api<Consultation>(`/consultations/${c.id}/segments/${n}/confirm`, { method: "POST" });
+      setConsultation((prev) =>
+        prev ? { ...prev, segmentos: updated.segmentos, insights: updated.insights ?? prev.insights } : prev,
+      );
+    },
+    [c.id, setConsultation],
+  );
 
   // correção de uma fala (texto e/ou quem falou): o servidor reroda as regras e devolve a conversa inteira
   const editSegment = useCallback(
@@ -522,6 +645,13 @@ export function LiveConsult({
                   <ShieldOff aria-hidden /> Revogar consentimento
                 </Button>
               ))}
+            {openConcerns.length > 0 && (
+              <p className="basis-full text-sm" role="status" data-testid="antes-de-encerrar">
+                <span className="font-bold">Antes de encerrar, ficou sem resposta: </span>
+                {openConcerns.map((x) => x.trecho).join(" · ")}{" "}
+                <span className="text-xs text-muted-foreground">(sinal de comunicação, não diagnóstico)</span>
+              </p>
+            )}
             <Button variant="outline" size="sm" onClick={() => void runAI(true)} disabled={aiRunning || c.segmentos.length === 0 || !canAI}>
               <RefreshCw aria-hidden /> Analisar agora
             </Button>
@@ -542,6 +672,22 @@ export function LiveConsult({
               : consent.recusou
                 ? "O paciente recusou a IA: as regras do HousIA analisam a conversa e a nota sai sem IA."
                 : "IA externa não autorizada: só as regras do HousIA analisam a conversa."}
+        </Alert>
+      )}
+
+      {aguardando > 0 && (
+        <Alert variant="atencao" role="status" data-testid="falas-aguardando-rede">
+          {aguardando} {aguardando === 1 ? "fala aguardando rede" : "falas aguardando rede"}
+          <span className="text-xs"> — ficam guardadas só neste aparelho, cifradas, e são enviadas em ordem quando a rede voltar.</span>
+          <button
+            className="ml-2 underline"
+            onClick={() => {
+              filaParada.current = false;
+              flushOffline();
+            }}
+          >
+            tentar agora
+          </button>
         </Alert>
       )}
 
@@ -611,7 +757,10 @@ export function LiveConsult({
               {mode === "microfone" && (
                 <div className="space-y-2">
                   {!speechSupported() && (
-                    <Alert variant="atencao">Este navegador não tem reconhecimento de fala. Use Chrome ou Edge, ou o modo Digitar.</Alert>
+                    <Alert variant="atencao">
+                      Este navegador não tem reconhecimento de fala.{" "}
+                      {config.stt_servidor ? "Use o modo Servidor (transcrição no servidor) ou Digitar." : "Use o modo Digitar, ou Chrome/Edge."}
+                    </Alert>
                   )}
                   <Button
                     size="lg"
@@ -639,18 +788,78 @@ export function LiveConsult({
 
               {mode === "servidor" && (
                 <div className="space-y-2">
-                  <Button
-                    size="lg"
-                    variant={recorder.recording ? "destructive" : "default"}
-                    className="w-full"
-                    onClick={() => (recorder.recording ? void recorder.stop() : void recorder.start())}
-                    disabled={captureBlocked || (consent ? !consent.permite.transcricao_servidor : false)}
+                  {(() => {
+                    const on = streamMode ? stream.streaming : recorder.recording;
+                    const err = streamMode ? stream.error : recorder.error;
+                    return (
+                      <>
+                        <Button
+                          size="lg"
+                          variant={on ? "destructive" : "default"}
+                          className="w-full"
+                          onClick={() => (streamMode ? (on ? void stream.stop() : void stream.start()) : on ? void recorder.stop() : void recorder.start())}
+                          disabled={captureBlocked || (consent ? !consent.permite.transcricao_servidor : false)}
+                        >
+                          {on ? <MicOff aria-hidden /> : <Mic aria-hidden />}
+                          {on ? "Parar gravação" : "Gravar e transcrever no servidor"}
+                        </Button>
+                        {err && <p className="text-sm text-critico" role="alert">{err}</p>}
+                        <p className="text-xs text-muted-foreground">
+                          {streamMode
+                            ? "O áudio segue em fluxo para o servidor do hospital, que mostra o texto parcial e fecha a frase no silêncio. Nada é gravado em disco."
+                            : "Trechos de 8 s vão para o serviço de transcrição configurado e são descartados."}
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {(mode === "microfone" || mode === "servidor") && (
+                <div className="space-y-2 rounded-md border p-2" data-testid="painel-microfone">
+                  <label className="block text-xs font-bold text-muted-foreground" htmlFor="seletor-microfone">
+                    Microfone
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <NativeSelect
+                      id="seletor-microfone"
+                      value={mics.deviceId}
+                      onChange={(e) => mics.setDeviceId(e.target.value)}
+                      className="min-w-0 flex-1"
+                    >
+                      <option value="">Padrão do aparelho</option>
+                      {mics.devices.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => (audioTest.testing ? audioTest.stop() : void audioTest.start())}
+                      disabled={capturing}
+                    >
+                      {audioTest.testing ? "Parar teste" : "Testar áudio"}
+                    </Button>
+                  </div>
+                  <div
+                    role="meter"
+                    aria-label="Nível do microfone"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(audioTest.level * 100)}
+                    className="h-2 overflow-hidden rounded-full bg-muted"
                   >
-                    {recorder.recording ? <MicOff aria-hidden /> : <Mic aria-hidden />}
-                    {recorder.recording ? "Parar gravação" : "Gravar e transcrever no servidor"}
-                  </Button>
-                  {recorder.error && <p className="text-sm text-critico">{recorder.error}</p>}
-                  <p className="text-xs text-muted-foreground">Trechos de 8 s vão para o serviço de transcrição configurado e são descartados.</p>
+                    <div className="h-full bg-primary transition-[width] duration-75" style={{ width: `${Math.round(audioTest.level * 100)}%` }} />
+                  </div>
+                  {audioTest.error && <p className="text-sm text-critico">{audioTest.error}</p>}
+                  <p className="text-xs text-muted-foreground">
+                    O teste é só local: nada é gravado nem enviado.{" "}
+                    {mode === "microfone" ? "A transcrição ao vivo do navegador usa o microfone padrão do sistema; a escolha vale para o modo Servidor e o teste." : ""}
+                    {wakeLock ? " A tela fica acesa durante a captura." : ""}
+                  </p>
                 </div>
               )}
 
@@ -701,12 +910,17 @@ export function LiveConsult({
             </CardContent>
           </Card>
 
+          {c.tipo !== "cirurgia" && (
+            <PreConsultaCard patientId={c.patient_id} consultaId={c.id} falas={c.segmentos.length} defaultOpen={false} />
+          )}
+
           <Transcript
             segments={c.segmentos}
             interim={interim}
             proLabel={proLabel}
             patientLanguage={c.idioma_paciente}
             onEdit={editSegment}
+            onConfirm={confirmSegment}
             speakers={speakers.filter((sp) => sp !== "desconhecido")}
           />
           <PrivacyPanel panel={c.privacidade ?? config.privacidade} expurgadaEm={c.privacidade?.expurgada_em} />

@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { DictateText } from "@/components/dictate-button";
 import { api, type DischargeAssessment, type DischargePrefill, type SocialChecklist } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime } from "@/lib/format";
@@ -347,6 +348,20 @@ export function DischargeView() {
                         </Alert>
                       )
                     )}
+                    {a.tarefas && a.tarefas.abertas.length > 0 && (
+                      <div className="rounded-md border bg-card p-3 text-sm" data-testid="tarefas-abertas">
+                        <p className="font-medium">Tarefas abertas do paciente</p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                          {a.tarefas.abertas.map((t) => (
+                            <li key={t.id}>
+                              {t.titulo}
+                              {t.critica && <span className="font-semibold text-destructive"> (crítica)</span>} · prazo{" "}
+                              {new Date(t.prazo).toLocaleDateString("pt-BR")}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         variant="accent"
@@ -388,6 +403,14 @@ export function DischargeView() {
                           <p id="just-count" className="text-xs text-muted-foreground tabular-nums">
                             {justification.trim().length}/20 caracteres
                           </p>
+                          <DictateText
+                            label="justificativa do override"
+                            value={justification}
+                            onChange={(t) => {
+                              setJustification(t);
+                              setOverrideError(null);
+                            }}
+                          />
                           <Button variant="destructive" size="sm" onClick={() => void override()} disabled={busy}>
                             Registrar override
                           </Button>
