@@ -22,6 +22,7 @@ import { CidEditor } from "@/components/consult/cid-editor";
 import { OPME_STATUS } from "@/components/consult/opme-panel";
 import { ReadinessCard } from "@/components/consult/readiness-card";
 import { OrdersCard } from "@/components/consult/orders-card";
+import { AuthorizationPanel } from "@/components/consult/authorization-panel";
 import { DocumentsPanel } from "@/components/consult/documents-panel";
 import { TasksPanel } from "@/components/consult/tasks-panel";
 import { SectionRewrite } from "@/components/consult/section-rewrite";
@@ -972,6 +973,8 @@ export function NoteReview({
             onChange={(propostas) => onChange({ ...c, propostas })}
           />
         )}
+
+        {!surgical && c.nota && <AuthorizationPanel consultId={c.id} patientId={patient.id} />}
 
         {!surgical && c.nota && <DocumentsPanel consultId={c.id} patientId={patient.id} ready />}
 

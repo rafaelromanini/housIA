@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     diarization_timeout_s: float = 10.0
     diarization_limiar: float = 0.75  # similaridade cosseno mínima com o perfil para ser o profissional
     diarization_margem: float = 0.10  # faixa abaixo do limiar em que a fala fica "incerta"
+    # Autorização prévia (#56): vazio = tabelas de EXEMPLO do repositório; a instituição aponta para as importadas
+    autorizacao_regras_csv: str = ""
+    autorizacao_operadoras_csv: str = ""
     diarization_pausa_s: float = 0.4  # pausa que separa turnos no backend heurístico
     # Vocabulário institucional do STT (CSV termo,tipo,observacao); vazio: data/reference/vocab_institucional.csv
     vocab_institucional_path: Path | None = None

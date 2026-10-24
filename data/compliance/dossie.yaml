@@ -95,6 +95,16 @@ ropa:
     operadores: [Serviço de diarização on-premise (opcional, DIARIZATION_BACKEND=externo; o áudio da consulta não sai da rede da instituição), HousIA]
     codigo: [apps/api/app/consult/diarizacao.py, apps/api/app/db/models.py, apps/api/app/db/migrations/versions/c305_perfil_de_voz.py]
     revisao_juridica: true
+  - id: OP-09
+    operacao: Autorização prévia (Rol da ANS/DUT e operadora) com pacote de justificativa
+    dados: "Operadora informada na consulta, checklist de critérios com a evidência (Fala/N e referências FHIR), texto da justificativa clínica, anexos listados, protocolo e andamento (rascunho, enviado, aprovado, negado). Dado de saúde cifrado; o audit_log guarda só ações, ids e contagens."
+    titulares: Pacientes
+    finalidade: Documentar o pedido de exame, procedimento ou medicamento de alto custo para a operadora e evitar atraso de autorização.
+    base_legal: "LGPD art. 11, II, a e f (obrigação regulatória e tutela da saúde, pedido assistencial à operadora); a confirmar. A saída (PDF/JSON) só existe depois da revisão e aprovação do médico."
+    retencao: Junto da consulta (exclusão a pedido do titular cobre os pedidos); sem expurgo próprio.
+    operadores: [Provedor de LLM (opcional, só reescreve a justificativa, atrás da pseudonimização em camadas e do consentimento ia_externa), Operadora de saúde (destino escolhido pela instituição, envio manual), HousIA]
+    codigo: [apps/api/app/consult/autorizacao.py, apps/api/app/consult/autorizacao_service.py, apps/api/app/consult/autorizacao_regras.py, apps/api/app/db/models.py, apps/api/app/db/migrations/versions/c306_autorizacao_previa.py]
+    revisao_juridica: true
 
 ripd:
   escopo: >-
@@ -124,6 +134,7 @@ ripd:
       medida: Toda afirmação exige fonte; regras de segurança nunca removidas pela IA; revisão e atestação obrigatórias.
       residual: Viés e erro do modelo não são eliminados; monitorar pelo feedback e pela auditoria.
   pendencias:
+    - As regras de autorização prévia do repositório são de EXEMPLO (não oficiais): importar e conferir por pessoa a tabela vigente do Rol da ANS/DUT e de cada operadora antes de depender do checklist.
     - Validar a diarização (taxa de erro, viés por sotaque e ruído) com áudio real anonimizado antes de confiar no rótulo como prova.
     - Medir a cobertura da pseudonimização de nomes e endereços com corpus real anonimizado pela instituição (o corpus do CI é sintético).
     - Parecer do encarregado e do jurídico sobre bases legais e transferência internacional.

@@ -206,4 +206,4 @@ def test_alembic_tem_uma_cabeca_so_e_ela_e_a_c301():
     root = Path(__file__).resolve().parents[1]
     cfg = Config(str(root / "alembic.ini"))
     cfg.set_main_option("script_location", str(root / "app/db/migrations"))
-    assert ScriptDirectory.from_config(cfg).get_heads() == ["c305"]
+    assert ScriptDirectory.from_config(cfg).get_heads() == ["c306"]

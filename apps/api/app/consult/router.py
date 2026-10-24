@@ -17,6 +17,8 @@ from app.consult import (
     acesso,
     adendo_service,
     antiglosa,
+    autorizacao_regras,
+    autorizacao_service,
     cid,
     consentimento,
     consultorio,
@@ -482,6 +484,160 @@ def decide_referral(
 ) -> dict:
     """Encaminhar ou manejar na APS (#29): auditado; encaminhar com exame mínimo faltando exige justificativa."""
     return service.decide_referral(db, fhir, user, cid, enc_id, body.escolha, body.motivo)
+
+
+class OperadoraIn(BaseModel):
+    operadora: str = Field("", max_length=120)
+
+
+class AutorizacaoIn(BaseModel):
+    regra_id: str = Field(..., min_length=2, max_length=60)
+
+
+class FraseAutorizacaoIn(BaseModel):
+    texto: str = Field("", max_length=1200)
+    refs: list[str] = Field(default_factory=list, max_length=20)
+
+
+class JustificativaIn(BaseModel):
+    frases: list[FraseAutorizacaoIn] = Field(default_factory=list, max_length=60)
+
+
+class StatusAutorizacaoIn(BaseModel):
+    status: Literal["rascunho", "enviado", "aprovado", "negado"]
+    protocolo: str = Field("", max_length=120)
+
+
+@router.get("/consultations/{cid}/autorizacoes")
+def autorizacoes(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+) -> dict:
+    """Autorização prévia (#56): checklist ao vivo do Rol/DUT e da operadora, e os pedidos já montados."""
+    return autorizacao_service.listar(db, fhir, user, cid)
+
+
+@router.put("/consultations/{cid}/autorizacao/operadora")
+def autorizacao_operadora(
+    cid: int,
+    body: OperadoraIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Operadora do paciente nesta consulta (o cadastro não guarda convênio)."""
+    return autorizacao_service.definir_operadora(db, fhir, user, cid, body.operadora)
+
+
+@router.post("/consultations/{cid}/autorizacoes")
+def autorizacao_gerar(
+    cid: int,
+    body: AutorizacaoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Gera (ou refaz, enquanto for rascunho) o pacote de justificativa de uma autorização citada na consulta."""
+    return autorizacao_service.gerar(db, fhir, user, cid, body.regra_id)
+
+
+@router.put("/consultations/{cid}/autorizacoes/{aid}/justificativa")
+def autorizacao_editar(
+    cid: int,
+    aid: int,
+    body: JustificativaIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return autorizacao_service.editar(db, fhir, user, cid, aid, [f.model_dump() for f in body.frases])
+
+
+@router.post("/consultations/{cid}/autorizacoes/{aid}/aprovar")
+def autorizacao_aprovar(
+    cid: int,
+    aid: int,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """O médico revisa e aprova o pacote: sem isso, nada sai (PDF, JSON, envio)."""
+    return autorizacao_service.aprovar(db, fhir, user, cid, aid)
+
+
+@router.put("/consultations/{cid}/autorizacoes/{aid}/status")
+def autorizacao_status(
+    cid: int,
+    aid: int,
+    body: StatusAutorizacaoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return autorizacao_service.mudar_status(db, fhir, user, cid, aid, body.status, body.protocolo)
+
+
+@router.get("/consultations/{cid}/autorizacoes/{aid}/export.json")
+def autorizacao_json(
+    cid: int,
+    aid: int,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return autorizacao_service.exportar_json(db, fhir, user, cid, aid)
+
+
+@router.get("/consultations/{cid}/autorizacoes/{aid}/export.pdf")
+def autorizacao_pdf(
+    cid: int,
+    aid: int,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> Response:
+    data, filename = autorizacao_service.exportar_pdf(db, fhir, user, cid, aid)
+    return Response(
+        data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+class ValidarRegrasIn(BaseModel):
+    tabela: Literal["regras", "operadoras"]
+    csv: str = Field(..., max_length=autorizacao_regras.MAX_BYTES)
+
+
+@router.post("/consult/autorizacao/validar-regras")
+def autorizacao_validar(body: ValidarRegrasIn, _: User = Depends(require_roles("gestor"))) -> dict:
+    """Confere uma tabela do Rol/DUT ou de operadora ANTES de importar (relatório de erros por linha). Não grava."""
+    rel = (
+        autorizacao_regras.validar_regras(body.csv)
+        if body.tabela == "regras"
+        else autorizacao_regras.validar_operadoras(body.csv)
+    )
+    return rel.publico()
+
+
+@router.get("/consult/autorizacao/base")
+def autorizacao_base(_: User = Depends(get_current_user)) -> dict:
+    """Qual base de regras está ativa (exemplo ou importada) e o que ainda falta conferir."""
+    base = autorizacao_regras.base_ativa()
+    return {
+        "aviso": base.aviso(),
+        "regras": [
+            {
+                "id": r.id,
+                "procedimento": r.procedimento,
+                "tipo": r.tipo,
+                "versao": r.versao,
+                "vigencia": r.vigencia.texto(),
+                "origem": r.origem,
+                "conferencia": r.conferencia,
+            }
+            for r in base.regras.values()
+        ],
+        "operadoras": sorted({e.nome for e in base.operadoras}),
+        "erros_ao_carregar": len(base.erros),
+    }
 
 
 class HypothesisDecisionIn(BaseModel):

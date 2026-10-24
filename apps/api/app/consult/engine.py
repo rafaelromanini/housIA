@@ -11,6 +11,8 @@ import re
 from datetime import datetime
 
 from app.consult import (
+    autorizacao,
+    autorizacao_regras,
     coding,
     cronologia,
     dose_peso,
@@ -1436,6 +1438,10 @@ class Engine:
         )
         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
         referrals = [] if self.kind == "cirurgia" else encaminhamento.build(self.chart, self.segments, hyps, self.extra)
+        auths = autorizacao.build(
+            autorizacao_regras.base_ativa(), self.chart, self.segments, hyps, drafts, self.extra
+        )  # Rol/DUT e operadora ao vivo (#56)
+        questions = autorizacao.perguntas(auths) + questions
         alerts = self.alerts(meds_safety)
         alerts = sorted(
             [
@@ -1473,6 +1479,7 @@ class Engine:
             protocolos=protocols,
             pedidos=drafts,
             encaminhamentos=referrals,
+            autorizacoes=auths,
             resumo=self.summary(tags, hyps, meds_safety, exams, emotions),
             lembretes=reminders.build(self),
             anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),

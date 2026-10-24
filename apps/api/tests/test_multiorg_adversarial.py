@@ -90,7 +90,13 @@ def test_toda_rota_de_consulta_responde_404_para_outra_organizacao(client, auth)
     assert len(rotas) >= 27  # a lista vem do OpenAPI: rota nova com {cid} entra sozinha
     sem_404 = []
     for metodo, path, corpo in rotas:
-        url = path.replace("{cid}", str(cid)).replace("{n}", "1").replace("{draft_id}", "x").replace("{item_id}", "1")
+        url = (
+            path.replace("{cid}", str(cid))
+            .replace("{n}", "1")
+            .replace("{draft_id}", "x")
+            .replace("{item_id}", "1")
+            .replace("{aid}", "1")
+        )
         url = (
             url.replace("{escala}", "phq9")
             .replace("{enc_id}", "uro_hpb")

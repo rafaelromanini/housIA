@@ -773,6 +773,61 @@ class Encaminhamento(BaseModel):
     rascunho: dict = {}  # ServiceRequest (status=draft, intent=proposal) com a justificativa estruturada
 
 
+class ItemAutorizacao(BaseModel):
+    """Um critério da DUT ou da operadora e o que o prontuário e a conversa mostram (#56). Sem evidência = faltando."""
+
+    id: str
+    texto: str
+    status: Literal["atendido", "faltando", "nao_aplicavel"]
+    evidencia: str = ""
+    refs: list[str] = []  # Fala/N e recursos FHIR do paciente que sustentam o status
+    fonte: str = ""  # regra/critério e versão da base
+    pergunta: str = ""  # o que perguntar ou documentar quando falta
+
+
+class DocumentoAutorizacao(BaseModel):
+    rotulo: str
+    status: Literal["gerado", "disponivel", "faltando"]
+    origem: Literal["dut", "operadora"] = "dut"
+    refs: list[str] = []
+
+
+class OperadoraAutorizacao(BaseModel):
+    informada: str = ""
+    nome: str = ""
+    status: Literal["com_regras", "sem_regras", "nao_informada"] = "nao_informada"
+    prazo_dias: int | None = None
+    justificativa_obrigatoria: bool = False
+    aviso: str = ""
+
+
+class RegraAutorizacao(BaseModel):
+    id: str
+    versao: str
+    fonte: str
+    vigencia: str
+    origem: str  # exemplo | importado
+    conferencia: str  # pendente | conferido
+
+
+class Autorizacao(BaseModel):
+    """Autorização prévia de um pedido citado na consulta: exigências do Rol/DUT e da operadora (#56)."""
+
+    id: str  # id da regra
+    procedimento: str
+    tipo: str
+    gatilho: Literal["fala", "pedido"]
+    gatilho_texto: str = ""
+    gatilho_refs: list[str] = []
+    situacao: Literal["completa", "incompleta", "regra_vencida"]
+    criterios: list[ItemAutorizacao] = []
+    documentos: list[DocumentoAutorizacao] = []
+    operadora: OperadoraAutorizacao = OperadoraAutorizacao()
+    regra: RegraAutorizacao
+    faltam: int = 0
+    avisos: list[str] = []
+
+
 class Insights(BaseModel):
     tipo: ConsultKind
     especialidade: str
@@ -800,6 +855,7 @@ class Insights(BaseModel):
     relatorio_cirurgico: SurgicalReport | None = None
     pedidos: list[OrderDraft] = []
     encaminhamentos: list[Encaminhamento] = []  # "Antes de encaminhar" (#29)
+    autorizacoes: list[Autorizacao] = []  # autorização prévia: Rol/DUT e operadora (#56)
     tfg: float | None = None
     rcri: Rcri | None = None
     descartados: list[dict] = []

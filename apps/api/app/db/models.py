@@ -406,6 +406,34 @@ class EstiloNota(Tenant, Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
 
 
+class AutorizacaoPrevia(Tenant, Base):
+    """Pedido de autorização prévia de uma consulta (#56): pacote de justificativa revisado pelo profissional e o
+    andamento junto da operadora. rascunho -> enviado -> aprovado | negado (negado volta a rascunho para um novo
+    recurso). O pacote tem dado de saúde: cifrado. A trilha de cada mudança vai ao audit_log, sem o texto."""
+
+    __tablename__ = "autorizacoes_previas"
+    __table_args__ = (UniqueConstraint("consultation_id", "regra_id", name="uq_autorizacao_consulta_regra"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consultation_id: Mapped[int] = mapped_column(ForeignKey("consultations.id"), index=True)
+    patient_id: Mapped[str] = mapped_column(String(64), index=True)
+    regra_id: Mapped[str] = mapped_column(String(60))
+    regra_versao: Mapped[str] = mapped_column(String(40))
+    procedimento: Mapped[str] = mapped_column(String(160))
+    operadora: Mapped[str] = mapped_column(String(120), default="")
+    status: Mapped[str] = mapped_column(String(20), default="rascunho")  # rascunho | enviado | aprovado | negado
+    pacote_json: Mapped[dict] = mapped_column(EncryptedJson(), default=dict)
+    pacote_hash: Mapped[str] = mapped_column(String(64), default="")
+    revisado_por: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    revisado_em: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    protocolo: Mapped[str] = mapped_column(String(60), default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    enviado_em: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    decidido_em: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
 class PerfilVoz(Tenant, Base):
     """Voz do profissional para a diarização (#40). DADO BIOMÉTRICO (LGPD art. 5º, II): só o vetor (embedding), cifrado,
     nunca o áudio. Um por usuário; apagável a qualquer momento e junto do usuário (ON DELETE CASCADE)."""

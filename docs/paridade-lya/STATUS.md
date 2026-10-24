@@ -969,3 +969,35 @@ Branch `claude/p1-restantes`. Migração c305 (sobre c304): tabela `perfis_voz` 
   `X-Client-Id` (replay com áudio diferente não duplica, ids `id:k` estáveis), PATCH não forja a trilha, resposta externa com NaN/falante_id
   gigante/JSON aninhado. Pendente: ainda não há como o profissional exportar/ver o consentimento além do `audit_log`; o rótulo de um único
   falante que contradiz o botão (ex.: botão "médico", voz abaixo do piso) vira "paciente" sem selo de incerto (decisão de produto a validar).
+
+## #56 autorização prévia: Rol da ANS/DUT e exigências da operadora ao vivo, com pacote de justificativa (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c306 (sobre c305): tabela `autorizacoes_previas` (um pedido por consulta e regra, pacote cifrado). Cabeça única c306.
+- **Base de regras** (`app/consult/autorizacao_regras.py`): `data/reference/rol_dut_exemplo.csv` (15 procedimentos: RM de joelho/coluna/crânio, PET-CT, cintilografia, eco, colonoscopia, EDA, polissonografia, densitometria,
+  mamografia, colecistectomia, artroplastia de joelho, bariátrica, adalimumabe) e `operadoras_exemplo.csv` (2 operadoras FICTÍCIAS). **Tudo é EXEMPLO, não oficial** (`origem=exemplo`, `conferencia=pendente`, fonte marcada
+  "NÃO OFICIAL"); o texto não foi tirado de nenhuma RN. Colunas com fonte, versão e vigência por linha. Importador: `validar_regras`/`validar_operadoras` (relatório por linha/campo: colunas, id, tipo, CID, idade, data,
+  gramática dos critérios, id repetido, CSV de até 1 MB/3000 linhas, **célula começando com = + - @ ou tab é recusada**) e `gravar_importacao` (só grava sem nenhum erro; força `origem=importado` e `conferencia=pendente`,
+  o arquivo não se declara oficial). `scripts/importar_rol_dut.py` e `POST /consult/autorizacao/validar-regras` (gestor, dry-run). `AUTORIZACAO_REGRAS_CSV`/`AUTORIZACAO_OPERADORAS_CSV` apontam para a base da instituição.
+  Linha inválida ao carregar é pulada (não derruba a consulta); `GET /consult/autorizacao/base` mostra aviso e contagem de erros.
+- **Motor ao vivo** (`app/consult/autorizacao.py`, plugado em `engine.run`, `Insights.autorizacoes`): o gatilho é o médico/fala sem dono dizendo que vai pedir o item (afirmativo, sem pergunta, negação, condição ou passado) ou um
+  rascunho de pedido não recusado. Cada critério vira `atendido` (com `Fala/N` ou recurso FHIR), `faltando` (com o que perguntar) ou `nao_aplicavel` (condição `aplica`). **Sem evidência = faltando; nada é inferido**: CID só
+  vale confirmado (Condition ativa sem verificationStatus provisório/não confirmado, ou hipótese confirmada pelo médico com ref); hipótese pendente/provisória não vale; idade exige nascimento e vale no limite (>= mínimo,
+  <= máximo); tratamento negado, perguntado ou só planejado ("vou pedir fisioterapia") não conta; exame vem do prontuário/laudo #48, com validade em dias. Perguntas que faltam entram em `perguntas` (RM de joelho sugere
+  "já fez tratamento conservador?"). Operadora: campo por consulta (`PUT /autorizacao/operadora`, o cadastro não guarda convênio); desconhecida/ausente = só a DUT é conferida, com aviso; exigências da operadora (documentos,
+  prazo) só dentro da vigência. Regra com vigência vencida: nenhuma checagem, situação `regra_vencida`, pacote não gera.
+- **Pacote** (`autorizacao_service.py`): `POST /autorizacoes` gera as frases das regras (só o que está atendido, cada uma com refs) + anexos (exames citados e laudos #48) + pendências (não afirmadas) + documentos; a IA é
+  opcional e SÓ reescreve (`generate_structured` com a pseudonimização do #54; `rules_only` sem consentimento; em mock devolve as frases das regras); a reescrita é descartada se ganhar ref de fora, número ou CID novo.
+  O médico edita (`PUT .../justificativa`, cada frase precisa de ref real desta consulta/paciente: Fala/N existente, recurso do prontuário do paciente; senão 422) e **aprova** (`POST .../aprovar`, só médico, revalida tudo e
+  grava hash do conteúdo). PDF e JSON (Bundle FHIR `ServiceRequest` draft + `Claim` use=preauthorization draft) só saem aprovados (senão 409) e levam o aviso quando a regra é de exemplo. Status
+  rascunho -> enviado (exige aprovação com hash íntegro) -> aprovado | negado; negado volta a rascunho (recurso, nova revisão); aprovado/enviado não mudam (409). Enfermagem registra andamento, não aprova.
+  Audit (`consulta.autorizacao_*`, 7 ações, rótulos em `audit-view.tsx`): ids, regra/versão, estados e contagens, sem texto, sem nome, sem protocolo. Todas as rotas passam pela trava de vínculo do #53 (403) e de organização (404).
+- Front: `AuthorizationPanel` na revisão da nota (checklist, perguntas, documentos, gerar/refazer, aprovar, baixar PDF/JSON, andamento). Não validado em navegador real; lint e typecheck limpos.
+- Dossiê: OP-09, pendência de RIPD sobre regras de exemplo.
+- Testes: `tests/test_autorizacao_previa.py` (25: regra sem evidência, CID só hipótese/provisório, tratamento negado/planejado/perguntado, só o pedido do profissional abre, idade no limite, operadora desconhecida e conhecida,
+  tabela malformada, CSV com fórmula, importação sempre pendente, vigência vencida, pacote com Fala/N e saída só aprovada, FHIR válido, afirmação sem fonte/de outro paciente/adulterada no banco, pedido aprovado/enviado
+  imutável, só médico aprova, audit sem PII, consulta sem vínculo 403, outra organização 404, pedido de outra consulta, evidência de outro paciente/consulta, reescrita da IA com fato novo, migração). Pytest direcionado;
+  suíte completa e e2e não rodados.
+- **Limites e pendências:** as tabelas OFICIAIS do Rol/DUT (RN vigente da ANS) e de operadoras reais NÃO foram importadas nem conferidas; o conjunto de exemplo serve só para estrutura e demonstração e exige conferência
+  humana antes de qualquer uso. Os critérios dependem de a conversa citar o fato (Fala/N) ou do prontuário; "exame prévio" é busca por palavra em evolução/procedimento (não lê o laudo anexado, só laudos #48 com valor); a
+  leitura de passado/negação/futuro é por regras e erra em frases incomuns. Não há integração TISS/envio à operadora (envio é manual; só registramos o andamento). Pendente do item: o "Waze da alta" não recebe a pendência
+  de autorização pós-alta (critério 3 do backlog) e não há Task FHIR (#47) para a pendência; marcar a regra como `conferido` hoje é editar o CSV; atestado manual de critério pelo profissional (critério `manual`) não existe.
