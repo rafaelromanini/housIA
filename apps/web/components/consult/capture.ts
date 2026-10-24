@@ -605,7 +605,8 @@ export function useDemoPlayer(
   const onLineRef = useRef(onLine);
   onLineRef.current = onLine;
 
-  useEffect(() => setIndex(startAt), [startAt]);
+  // só avança: a contagem do servidor chega atrasada e rebobinar reenviaria a fala anterior (fala duplicada, outra perdida)
+  useEffect(() => setIndex((n) => Math.max(n, startAt)), [startAt]);
 
   const clear = () => {
     timers.current.forEach(clearTimeout);
