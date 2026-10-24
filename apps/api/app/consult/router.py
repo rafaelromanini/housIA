@@ -315,6 +315,8 @@ def add_segments(
     user: User = Depends(clinician),
 ) -> dict:
     """Recebe falas transcritas e devolve os Smart Apps atualizados na hora (camada de regras)."""
+    for item in body.segmentos:  # a trilha do falante (#40) nasce no servidor: o cliente não forja "diarizacao"
+        item.falante_origem, item.falante_confianca, item.falante_incerto = None, None, False
     return service.append_segments(db, fhir, user, cid, body.segmentos)
 
 
@@ -617,13 +619,30 @@ async def add_audio(
     cabeca = request.headers.get("x-client-id")
     if cabeca is not None and not _CLIENT_ID.fullmatch(cabeca):
         raise HTTPException(422, "X-Client-Id inválido (até 56 caracteres: letras, números e _ . : -).")
-    audio = await request.body()
+    audio = await _corpo_limitado(request, MAX_AUDIO_BYTES, "Áudio")
     return service.transcribe_audio(
         db, fhir, user, cid, audio, request.headers.get("content-type", ""), falante, cabeca
     )
 
 
 _CLIENT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,56}$")
+MAX_AUDIO_BYTES = (
+    25 * 1024 * 1024
+)  # um trecho de consulta, não a gravação inteira: teto de memória e de CPU do POST /audio
+
+
+async def _corpo_limitado(request: Request, limite: int, nome: str) -> bytes:
+    """Lê o corpo no máximo até o limite + 1: corpo gigante é recusado (413) sem ocupar a memória do servidor."""
+    declarado = request.headers.get("content-length")
+    msg = f"{nome} maior que {limite // (1024 * 1024)} MB."
+    if declarado and declarado.isdigit() and int(declarado) > limite:
+        raise HTTPException(413, msg)
+    corpo = bytearray()
+    async for pedaco in request.stream():
+        corpo += pedaco
+        if len(corpo) > limite:
+            raise HTTPException(413, msg)
+    return bytes(corpo)
 
 
 # ---------- voz do profissional para a diarização (#40) ----------
@@ -639,7 +658,7 @@ async def perfil_voz_cadastrar(
 ) -> dict:
     """Amostra de voz (corpo bruto, WAV mono 16 kHz com o backend local) -> só o vetor cifrado é guardado, nunca o
     áudio. Exige o cabeçalho X-Consentimento-Voz com a versão do termo (GET /consult/perfil-voz)."""
-    audio = await request.body()
+    audio = await _corpo_limitado(request, diarizacao.MAX_AMOSTRA_BYTES, "Amostra de voz")
     return diarizacao.cadastrar_voz(
         db, user, audio, request.headers.get("content-type", ""), request.headers.get("x-consentimento-voz")
     )

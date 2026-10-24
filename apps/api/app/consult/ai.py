@@ -500,7 +500,7 @@ def _merge_anamnese(
         if not all(r in valid for r in field.refs):
             return False
         spoken = [_fala(r, segments) for r in field.refs]
-        return all(x is not None and x.falante in PATIENT_SIDE for x in spoken)
+        return all(x is not None and (x.falante in PATIENT_SIDE or x.falante_incerto) for x in spoken)
 
     def sync(q: QueixaDetalhada) -> QueixaDetalhada:
         q.faltam = [f for f in semiology().group_of(q.chave).fields if not getattr(q, f).valor]  # type: ignore[misc]
@@ -686,7 +686,9 @@ def _ai_allergies(base: Insights, ai: ConsultLiveOutput, v: RefValidator, segmen
     out: list[AllergyInfo] = []
     for al in v.keep(ai.alergias_relatadas, "alergias"):
         spoken = [_fala(r, segments) for r in al.refs]
-        if not al.alergeno.strip() or not all(x is not None and x.falante in PATIENT_SIDE for x in spoken):
+        if not al.alergeno.strip() or not all(
+            x is not None and (x.falante in PATIENT_SIDE or x.falante_incerto) for x in spoken
+        ):
             v.dropped.append({"onde": "alergias", "texto": al.alergeno, "refs_invalidas": al.refs})
             continue
         if all(keyword_status(norm(x.texto), ("alergi",)) == "negado" for x in spoken if x):

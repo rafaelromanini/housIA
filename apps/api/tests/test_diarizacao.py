@@ -582,3 +582,227 @@ def test_migracao_c305_sobe_e_desce(tmp_path, monkeypatch):
     command.downgrade(cfg, "c304")
     assert "perfis_voz" not in inspect(create_engine(url)).get_table_names()
     assert PerfilVoz.__tablename__ == "perfis_voz"
+
+
+# ======================= verificação cética do #40 (entradas adversariais) =======================
+def _wav_cru(pcm: bytes, canais=1, taxa=TAXA, bits=16, declarado: int | None = None) -> bytes:
+    """WAV montado à mão para mentir no cabeçalho (tamanho declarado diferente do real, outra taxa, 8 bits...)."""
+    n = len(pcm) if declarado is None else declarado
+    return (
+        b"RIFF"
+        + (36 + n).to_bytes(4, "little")
+        + b"WAVEfmt "
+        + (16).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + canais.to_bytes(2, "little")
+        + taxa.to_bytes(4, "little")
+        + (taxa * canais * bits // 8).to_bytes(4, "little")
+        + (canais * bits // 8).to_bytes(2, "little")
+        + bits.to_bytes(2, "little")
+        + b"data"
+        + n.to_bytes(4, "little")
+        + pcm
+    )
+
+
+def _dor():
+    return stt.Transcricao(
+        "tenho dor", [stt.PalavraSTT("tenho", 0, 0.4, 0.9), stt.PalavraSTT("dor", 0.5, 0.9, 0.9)], -0.1
+    )
+
+
+def test_corpo_gigante_e_recusado_sem_ler_tudo(client, auth, heur, monkeypatch):
+    from app.consult import router as consult_router
+
+    h = auth()
+    cid = start(client, h)["id"]
+    monkeypatch.setattr(consult_router, "MAX_AUDIO_BYTES", 5000)
+    monkeypatch.setattr(dz, "MAX_AMOSTRA_BYTES", 5000)
+    r = client.post(f"/consultations/{cid}/audio", content=bytes(6000), headers=h | WAV)
+    assert r.status_code == 413
+    assert cadastrar(client, h, bytes(6000)).status_code == 413
+
+    def pedacos():  # sem Content-Length (corpo em pedaços): o limite vale do mesmo jeito
+        for _ in range(10):
+            yield bytes(1000)
+
+    assert client.post(f"/consultations/{cid}/audio", content=pedacos(), headers=h | WAV).status_code == 413
+    assert linhas("SELECT COUNT(*) FROM perfis_voz")[0][0] == 0
+
+
+@pytest.mark.parametrize(
+    "wav",
+    [
+        _wav_cru(bytes(3200), declarado=2_000_000_000),  # cabeçalho mente: promete 2 GB
+        _wav_cru(bytes(3200), canais=2),
+        _wav_cru(bytes(3200), taxa=8000),
+        _wav_cru(bytes(3200), bits=8),
+        b"RIFF\x00\x00\x00\x00WAVE",  # só o começo
+        b"RIFF" + bytes(40),
+    ],
+)
+def test_wav_malformado_nunca_perde_a_fala_nem_cadastra(client, auth, heur, monkeypatch, wav):
+    h = auth()
+    assert cadastrar(client, h, wav).status_code == 422
+    cid = start(client, h)["id"]
+    dublar_stt(monkeypatch, _dor())
+    r = client.post(f"/consultations/{cid}/audio?falante=paciente", content=wav, headers=h | WAV)
+    assert r.status_code == 200, r.text
+    novos = r.json()["novos"]
+    assert [(n["texto"], n["falante"], n["falante_incerto"]) for n in novos] == [("tenho dor", "paciente", False)]
+    assert linhas("SELECT COUNT(*) FROM perfis_voz")[0][0] == 0
+
+
+def test_heuristico_recusa_audio_longo_demais(heur):
+    longo = bytes(int(dz.MAX_HEURISTICO_S * TAXA * 2) + 2)
+    assert dz.segmentar_pcm(longo)[1] == "falhou"  # volta ao botão em vez de gastar minutos de CPU
+    assert dz.segmentar(stt_stream.para_wav(longo), "audio/wav")[1] == "falhou"
+
+
+def test_alergia_dita_por_falante_incerto_nao_e_descartada(client, auth, heur, monkeypatch):
+    """Sem perfil, o 1º falante herda o botão. Se o paciente fala primeiro com o botão em "medico", a fala sai como
+    médico incerto: a alergia dele precisa aparecer do mesmo jeito (com a Fala/N), nunca sumir em silêncio."""
+    h = auth()
+    cid = start(client, h)["id"]
+    wav, tr = conversa([("B", 2.0, "tenho alergia a dipirona"), ("A", 2.0, "entendi vou examinar")])
+    dublar_stt(monkeypatch, tr)
+    r = client.post(f"/consultations/{cid}/audio?falante=medico", content=wav, headers=h | WAV)
+    novos = r.json()["novos"]
+    assert novos[0]["falante"] == "medico" and novos[0]["falante_incerto"] is True  # rótulo errado, mas sinalizado
+    alergias = r.json()["insights"]["alergias"]
+    assert any("dipirona" in a["alergeno"].lower() for a in alergias), alergias
+    # a fala incerta continua na transcrição, citável por Fala/N, e fora das métricas
+    assert novos[0]["texto"].startswith("tenho alergia a dipirona")
+    assert r.json()["insights"]["comunicacao"]["falas_incertas"] == 2
+
+
+def test_medicamento_planejado_dito_por_incerto_continua_valendo(client, auth, heur, monkeypatch):
+    h = auth()
+    cid = start(client, h)["id"]
+    wav, tr = conversa([("A", 2.0, "vou passar dipirona para a senhora"), ("B", 2.0, "tenho alergia a dipirona")])
+    dublar_stt(monkeypatch, tr)
+    # botão "paciente": a fala do médico sai como paciente incerto; o remédio planejado não pode se perder
+    r = client.post(f"/consultations/{cid}/audio?falante=paciente", content=wav, headers=h | WAV)
+    ins = r.json()["insights"]
+    assert r.json()["novos"][0]["falante_incerto"] is True
+    assert any("dipirona" in a["alergeno"].lower() for a in ins["alergias"])
+    alerta = [a for a in ins["alertas"] if a["texto"].startswith("Alergia a Dipirona")]
+    assert alerta and "Fala/1" in alerta[0]["refs"], "o remédio dito pelo falante incerto precisa cruzar com a alergia"
+
+
+def test_cliente_nao_forja_trilha_de_diarizacao_nem_pelo_patch(client, auth, heur):
+    h = auth()
+    cid = start(client, h)["id"]
+    forjado = {
+        "texto": "tenho alergia a dipirona",
+        "falante": "medico",
+        "origem": "servidor",
+        "falante_origem": "diarizacao",
+        "falante_confianca": 0.99,
+        "falante_incerto": True,
+    }
+    r = client.post(f"/consultations/{cid}/segments", json={"segmentos": [forjado]}, headers=h)
+    assert r.status_code == 200, r.text
+    s = r.json()["novos"][0]
+    assert s["falante_origem"] != "diarizacao" and s["falante_confianca"] is None and s["falante_incerto"] is False
+    # PATCH ignora campos de trilha e carimba "correcao"
+    p = client.patch(
+        f"/consultations/{cid}/segments/{s['n']}",
+        json={"falante": "paciente", "falante_origem": "diarizacao", "falante_confianca": 1.0},
+        headers=h,
+    )
+    assert p.status_code == 200, p.text
+    seg_ = next(x for x in p.json()["segmentos"] if x["n"] == s["n"])
+    assert seg_["falante"] == "paciente" and seg_["falante_origem"] == "correcao" and seg_["falante_confianca"] is None
+
+
+def test_chave_de_cifra_perdida_nao_derruba_nem_trava_o_recadastro(client, auth, heur, monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "data_encryption_key", "k1:primeira-chave")
+    h = auth()
+    assert cadastrar(client, h).status_code == 200
+    monkeypatch.setattr(s, "data_encryption_key", "k2:outra-chave")  # a k1 saiu da configuração
+    r = client.get("/consult/perfil-voz", headers=h)
+    assert r.status_code == 200 and r.json()["cadastrado"] is True and r.json()["compativel"] is False
+    assert cadastrar(client, h).status_code == 200  # recadastrar substitui o perfil ilegível
+    assert client.get("/consult/perfil-voz", headers=h).json()["compativel"] is True
+    assert linhas("SELECT COUNT(*) FROM perfis_voz")[0][0] == 1
+
+
+def test_apagar_com_perfil_ilegivel_funciona_e_nao_deixa_resto(client, auth, heur, monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "data_encryption_key", "k1:primeira-chave")
+    h = auth()
+    cadastrar(client, h)
+    monkeypatch.setattr(s, "data_encryption_key", "k2:outra-chave")
+    assert client.delete("/consult/perfil-voz", headers=h).status_code == 200
+    assert linhas("SELECT COUNT(*) FROM perfis_voz")[0][0] == 0
+
+
+def test_perfil_nao_vaza_para_outra_organizacao_nem_para_o_audit(client, auth, heur):
+    from tests.test_multiorg import cadastro_completo
+
+    medico = auth()
+    assert cadastrar(client, medico).status_code == 200
+    outra, _ = cadastro_completo(client, "dra.bia@clinica.test")
+    assert client.get("/consult/perfil-voz", headers=outra).json()["cadastrado"] is False
+    assert client.delete("/consult/perfil-voz", headers=outra).json()["cadastrado"] is False
+    assert linhas("SELECT COUNT(*) FROM perfis_voz")[0][0] == 1  # o da outra org segue intacto
+    with db_session.SessionLocal() as db:
+        trilha = json.dumps([a.payload_json for a in db.scalars(select(AuditLog))], default=str)
+    assert "embedding" not in trilha and '"v"' not in trilha
+
+
+def test_externo_resposta_gigante_ou_falante_id_enorme_cai_no_botao(client, auth, monkeypatch):
+    h = auth()
+    cid = start(client, h)["id"]
+    dublar_stt(monkeypatch, _dor())
+    gigante = b'{"segmentos":[],"lixo":"' + b"x" * (dz.MAX_RESPOSTA_BYTES + 10) + b'"}'
+    respostas = [
+        httpx.Response(200, content=gigante),
+        httpx.Response(200, json={"segmentos": [seg(0, 1, "f" * 200, emb(1))]}),
+        httpx.Response(200, json={"segmentos": [seg(0, 1, 10**80, emb(1))]}),
+        httpx.Response(200, content=b'{"segmentos":[{"inicio":0,"fim":1e999,"falante_id":"a"}]}'),
+        httpx.Response(200, content=b'{"segmentos":' + b"[" * 3000 + b"]" * 3000 + b"}"),
+        httpx.Response(200, content=b"\xff\xfe\x00"),
+    ]
+    for resposta in respostas:
+        _externo(monkeypatch, resposta)
+        r = client.post(
+            f"/consultations/{cid}/audio?falante=paciente",
+            content=b"x" * 50,
+            headers=h | {"Content-Type": "audio/webm"},
+        )
+        assert r.status_code == 200, r.text
+        assert [(n["texto"], n["falante"]) for n in r.json()["novos"]][-1] == ("tenho dor", "paciente")
+        assert dz.segmentar(b"x", "audio/webm")[1] == "falhou"
+
+
+def test_incerta_nao_some_da_transcricao_so_das_metricas(client, auth, heur, monkeypatch):
+    h = auth()
+    cid = start(client, h)["id"]
+    wav, tr = conversa([("A", 1.5, "como esta"), ("B", 1.5, "com dor de cabeca")])
+    dublar_stt(monkeypatch, tr)
+    r = client.post(f"/consultations/{cid}/audio?falante=medico", content=wav, headers=h | WAV)
+    assert all(n["falante_incerto"] for n in r.json()["novos"])
+    c = client.get(f"/consultations/{cid}", headers=h).json()
+    textos = [s["texto"] for s in c["segmentos"] if s["origem"] == "servidor"]
+    assert textos == ["como esta", "com dor de cabeca"]  # tudo na transcrição, na ordem
+    assert c["insights"]["comunicacao"]["falas_incertas"] == 2
+
+
+def test_replay_com_audio_diferente_e_mesmo_id_nao_duplica_e_ids_sao_estaveis(client, auth, heur, monkeypatch):
+    h = auth()
+    cid = start(client, h)["id"]
+    wav1, tr1 = conversa([("A", 1.5, "primeira fala"), ("B", 1.5, "segunda fala")])
+    dublar_stt(monkeypatch, tr1)
+    cab = h | WAV | {"X-Client-Id": "q-1"}
+    r1 = client.post(f"/consultations/{cid}/audio", content=wav1, headers=cab)
+    ids1 = [s["client_id"] for s in r1.json()["novos"]]
+    wav2, tr2 = conversa([("B", 1.5, "outra coisa"), ("A", 1.5, "totalmente diferente"), ("B", 1.5, "terceira")])
+    dublar_stt(monkeypatch, tr2)
+    r = client.post(f"/consultations/{cid}/audio", content=wav2, headers=cab)
+    assert r.json()["duplicada"] is True and r.json()["novos"] == []
+    assert [s["client_id"] for s in segmentos(client, h, cid)] == ids1 == ["q-1:0", "q-1:1"]
+    r3 = client.post(f"/consultations/{cid}/audio", content=wav2, headers=h | WAV | {"X-Client-Id": "q-2"})
+    assert [n["n"] for n in r3.json()["novos"]] == [3, 4, 5]

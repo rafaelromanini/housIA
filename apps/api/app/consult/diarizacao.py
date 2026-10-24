@@ -17,8 +17,10 @@ só na memória da requisição. Qualquer falha cai no comportamento antigo: a f
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+import time
 from array import array
 from dataclasses import dataclass
 
@@ -51,6 +53,7 @@ MAX_SEGMENTOS = 500
 MAX_RESPOSTA_BYTES = 2 * 1024 * 1024
 MAX_AMOSTRA_BYTES = 5 * 1024 * 1024
 AMOSTRA_MIN_S, AMOSTRA_MAX_S, FALA_MIN_S = 5.0, 60.0, 4.0
+MAX_HEURISTICO_S = 300.0  # o heurístico é Python puro: áudio mais longo que isto volta ao falante do botão (anti-DoS)
 LIMIAR_AGRUPAR = 0.9  # dois turnos do heurístico com cosseno >= isto são o mesmo falante
 LADO_PROFISSIONAL = ("medico", "paciente", "acompanhante", "desconhecido")  # falantes que a diarização pode decidir
 
@@ -216,6 +219,8 @@ def _turnos(a: array, pausa_s: float) -> list[tuple[int, int]]:
 
 
 def segmentar_heuristico(pcm: bytes) -> list[Trecho]:
+    if len(pcm) > MAX_HEURISTICO_S * stt_stream.TAXA * 2:
+        raise DiarizacaoErro("áudio longo demais para a diarização local")
     a = stt_stream._amostras(pcm)
     q = int(stt_stream.QUADRO * stt_stream.TAXA)
     bruto: list[tuple[float, float, tuple[float, ...]]] = []
@@ -295,19 +300,29 @@ def segmentar_externo(audio: bytes, content_type: str) -> list[Trecho]:
         headers |= extra
     mime = (content_type or "audio/wav").split(";")[0].strip()
     try:
-        with httpx.Client(transport=_transporte, timeout=s.diarization_timeout_s, follow_redirects=False) as http:
-            r = http.post(url, files={"file": ("trecho", audio, mime)}, headers=headers, extensions=extensoes)
+        with (
+            httpx.Client(transport=_transporte, timeout=s.diarization_timeout_s, follow_redirects=False) as http,
+            http.stream(
+                "POST", url, files={"file": ("trecho", audio, mime)}, headers=headers, extensions=extensoes
+            ) as r,
+        ):
+            if r.status_code >= 300:
+                raise DiarizacaoErro(f"o serviço de diarização respondeu {r.status_code}")
+            bruto = bytearray()
+            limite_t = time.monotonic() + 3 * s.diarization_timeout_s  # o timeout do httpx é por leitura: pingo a pingo
+            for pedaco in r.iter_bytes():  # corta no limite: resposta gigante não ocupa a memória
+                bruto += pedaco
+                if time.monotonic() > limite_t:
+                    raise DiarizacaoErro("o serviço de diarização demorou demais")
+                if len(bruto) > MAX_RESPOSTA_BYTES:
+                    raise DiarizacaoErro("resposta da diarização grande demais")
     except httpx.TimeoutException as exc:
         raise DiarizacaoErro("o serviço de diarização demorou demais") from exc
     except httpx.HTTPError as exc:
         raise DiarizacaoErro("sem conexão com o serviço de diarização") from exc
-    if r.status_code >= 300:
-        raise DiarizacaoErro(f"o serviço de diarização respondeu {r.status_code}")
-    if len(r.content) > MAX_RESPOSTA_BYTES:
-        raise DiarizacaoErro("resposta da diarização grande demais")
     try:
-        corpo = r.json()
-    except ValueError as exc:
+        corpo = json.loads(bytes(bruto))
+    except ValueError as exc:  # inclui JSON inválido, UnicodeDecodeError e inteiro gigante
         raise DiarizacaoErro("resposta da diarização não é JSON") from exc
     return interpretar_resposta(corpo)
 
@@ -349,18 +364,30 @@ def segmentar_pcm(pcm: bytes) -> tuple[list[Trecho], str]:
 # ---------- perfil de voz do profissional ----------
 def carregar_perfil(db: Session, user_id: int) -> Perfil | None:
     """Só o perfil do próprio usuário. Vetor ilegível ou inválido vale como sem perfil."""
-    row = db.scalar(select(PerfilVoz).where(PerfilVoz.user_id == user_id))
-    if row is None:
-        return None
     try:
+        row = db.scalar(select(PerfilVoz).where(PerfilVoz.user_id == user_id))
+        if row is None:
+            return None
         dados = row.embedding_json or {}
         return Perfil(normalizar(dados.get("v")), str(dados.get("backend", "")))
-    except (ValueError, AttributeError):
+    except Exception:  # noqa: BLE001 - chave de cifra trocada/perdida, JSON estranho: vale como sem perfil, nunca 500
         return None
+
+
+def _meta_perfil(db: Session, user_id: int) -> tuple[bool, dict | None, object]:
+    """(existe, dados ou None se ilegível, linha). Perfil que não decifra (chave perdida) existe, mas não vale."""
+    existe = db.scalar(select(PerfilVoz.id).where(PerfilVoz.user_id == user_id)) is not None
+    if not existe:
+        return False, None, None
+    try:
+        row = db.scalar(select(PerfilVoz).where(PerfilVoz.user_id == user_id))
+        return True, dict(row.embedding_json or {}), row
+    except Exception:  # noqa: BLE001
+        return True, None, None
 
 
 def estado_perfil(db: Session, user: User) -> dict:
-    row = db.scalar(select(PerfilVoz).where(PerfilVoz.user_id == user.id))
+    existe, dados, row = _meta_perfil(db, user.id)
     atual = backend()
     base = {
         "backend": atual,
@@ -370,16 +397,16 @@ def estado_perfil(db: Session, user: User) -> dict:
         "limiar": get_settings().diarization_limiar,
         "cifrado": crypto.enabled(),  # sem DATA_ENCRYPTION_KEY o vetor fica em JSON puro (a tela avisa)
     }
-    if row is None:
+    if not existe:
         return base | {"cadastrado": False}
     perfil = carregar_perfil(db, user.id)
     return base | {
         "cadastrado": True,
-        "compativel": bool(perfil and perfil.backend == atual),  # outro backend: recadastrar
-        "backend_do_perfil": (row.embedding_json or {}).get("backend"),
+        "compativel": bool(perfil and perfil.backend == atual),  # outro backend ou ilegível: recadastrar
+        "backend_do_perfil": (dados or {}).get("backend"),
         "dim": perfil.dim if perfil else None,
-        "consentimento_em": row.consentimento_em.isoformat(),
-        "atualizado_em": row.updated_at.isoformat(),
+        "consentimento_em": row.consentimento_em.isoformat() if row is not None else None,
+        "atualizado_em": row.updated_at.isoformat() if row is not None else None,
     }  # o vetor nunca sai por aqui
 
 
@@ -436,13 +463,12 @@ def cadastrar_voz(db: Session, user: User, audio: bytes, content_type: str, term
     vetor = _vetor_do_cluster(trechos, principal)
     if vetor is None:
         raise HTTPException(422, "O serviço de voz não devolveu o vetor da amostra.")
-    existente = db.scalar(select(PerfilVoz).where(PerfilVoz.user_id == user.id))
+    existente = db.scalar(select(PerfilVoz.id).where(PerfilVoz.user_id == user.id))
     dados = {"v": list(vetor), "backend": backend(), "dim": len(vetor)}
     agora = clock.now()
-    if existente is None:
-        db.add(PerfilVoz(user_id=user.id, embedding_json=dados, termo_versao=TERMO_VERSAO, consentimento_em=agora))
-    else:
-        existente.embedding_json, existente.termo_versao, existente.consentimento_em = dados, TERMO_VERSAO, agora
+    # troca (apaga e grava): um perfil antigo que não decifra mais (chave perdida) não pode travar o recadastro
+    db.execute(delete(PerfilVoz).where(PerfilVoz.user_id == user.id))
+    db.add(PerfilVoz(user_id=user.id, embedding_json=dados, termo_versao=TERMO_VERSAO, consentimento_em=agora))
     log_action(
         db,
         user,

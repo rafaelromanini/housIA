@@ -55,6 +55,8 @@ export function VoiceProfileView() {
   const ctx = useRef<AudioContext | null>(null);
   const timer = useRef<number | null>(null);
   const segundosRef = useRef(0);
+  const aceiteRef = useRef(false);
+  aceiteRef.current = aceite;
 
   const liberar = useCallback(() => {
     if (timer.current) window.clearInterval(timer.current);
@@ -70,7 +72,13 @@ export function VoiceProfileView() {
 
   const parar = useCallback(async () => {
     const ok = segundosRef.current >= MIN_S;
+    const havia = blocos.current.length > 0; // um 2º "parar" (clique junto do fim dos 20 s) não reenvia nada
     liberar();
+    if (!havia) return;
+    if (!aceiteRef.current) {
+      blocos.current = []; // sem o aceite vigente nenhum áudio sai do navegador
+      return;
+    }
     if (!ok) {
       blocos.current = [];
       setErro(`Grave ao menos ${MIN_S} segundos falando.`);

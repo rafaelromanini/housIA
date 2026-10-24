@@ -282,7 +282,10 @@ class Engine:
         self.kind = kind
         self.extra = extra or {}
         self.norm = {s.n: norm(s.texto) for s in segments}
-        self.patient_segments = [s for s in segments if s.falante in PATIENT_SIDE]
+        # falante incerto (#40) conta como possível fala do paciente para o que é SEGURANÇA (alergia, uso de remédio,
+        # exames, histórico): perder uma alergia dita por quem a diarização não soube rotular é pior que mostrar
+        # uma a mais com a Fala/N para conferir. Só as métricas de comunicação e as emoções o excluem.
+        self.patient_segments = [s for s in segments if s.falante in PATIENT_SIDE or s.falante_incerto]
         self.denied: dict[str, list[str]] = {}
         self.tags_denied: list[Tag] = []
         self.dropped: list[dict] = []  # itens recusados pelas regras (ex.: CID que a tabela oficial não aceita)
@@ -447,7 +450,7 @@ class Engine:
         """(princípio ou @classe, termo, ref) do que o PROFISSIONAL diz que vai prescrever ("vou passar X")."""
         out: list[tuple[str, str, str]] = []
         for s in self.segments:
-            if s.falante not in TEAM_SIDE:
+            if s.falante not in TEAM_SIDE and not s.falante_incerto:  # incerto (#40): "vou passar X" não pode sumir
                 continue
             for p in planned_drugs(s.texto):
                 if all(p.ingredient != o[0] for o in out):

@@ -954,3 +954,18 @@ Branch `claude/p1-restantes`. Migração c305 (sobre c304): tabela `perfis_voz` 
 - Pendente: o serviço `externo` real (speechbrain ECAPA + agrupamento) como contêiner no perfil `stt` do compose e do chart (hoje só o
   contrato), recadastro guiado ao trocar de backend, mudar o falante de uma fala reroda a IA mas não há ainda botão de "reprocessar métricas",
   exclusão de conta que chame `apagar_do_usuario`, tela do gestor com quem tem perfil (propositalmente não existe), teste e2e.
+
+- Verificação #40 (cética, privacidade e segurança clínica): fala de falante **incerto** sumia da segurança clínica (alergia dita pelo paciente
+  e rotulada "médico incerto" não gerava alergia/alerta; "vou passar X" dito pelo médico rotulado "paciente incerto" não cruzava com
+  alergia): agora a fala incerta conta como possível fala do paciente **e** do profissional para alergias, uso de remédio, histórico, exames,
+  remédio planejado e validação das alergias da IA (continua fora de métricas de comunicação/emoções, e sempre citável por Fala/N).
+- Corrigido: `POST /audio` e `PUT /perfil-voz` liam o corpo inteiro antes de qualquer limite (DoS de memória; agora 413 por Content-Length ou
+  pedaços, 25 MB no áudio, 5 MB na amostra); heurístico sem teto de duração (agora 300 s, acima volta ao botão); `POST /segments` deixava o
+  cliente forjar `falante_origem=diarizacao`/confiança/incerto (zerados no servidor); perfil que não decifra mais (chave de cifra trocada)
+  dava 500 no GET e travava o recadastro (agora vale como sem perfil, "recadastre", e o PUT substitui); resposta do serviço externo era
+  lida inteira antes do teto de 2 MB e sem prazo total (agora em fluxo, corte no limite e prazo de 3x o timeout).
+- Verificado sem bug: consentimento (sem cabeçalho/versão velha = 428 e nada gravado), GET sem vetor, perfil isolado por usuário e por
+  organização, apagar com perfil ilegível, WAV malformado (cabeçalho mentiroso, estéreo, 8 bits, 8 kHz, truncado) volta ao botão, dedupe por
+  `X-Client-Id` (replay com áudio diferente não duplica, ids `id:k` estáveis), PATCH não forja a trilha, resposta externa com NaN/falante_id
+  gigante/JSON aninhado. Pendente: ainda não há como o profissional exportar/ver o consentimento além do `audit_log`; o rótulo de um único
+  falante que contradiz o botão (ex.: botão "médico", voz abaixo do piso) vira "paciente" sem selo de incerto (decisão de produto a validar).
