@@ -63,7 +63,7 @@ def _persist(
         db, user, "jornada.tarefa_criada", "journey_task", task.id,
         {"patient_id": c.patient_id, "regra": task.rule, "papel": task.role, "prazo": task.due_at.isoformat(),
          "fhir": task.fhir_ref, "consulta": c.id, "critica": task.critical,
-         "origem": "profissional" if manual else "regra"},
+         "origem": "profissional" if manual else "regra", "falante_auto": bool(p.extra.get("falante_auto"))},
         commit=False,
     )  # fmt: skip
     return task
@@ -94,7 +94,8 @@ def sincronizar(
             continue
         created.append(_persist(db, fhir, user, c, p))
     db.flush()
-    return {"criadas": len(created), "criticas": sum(t.critical for t in created)}
+    auto = sum(1 for p in props if p.extra.get("falante_auto") and any(t.chave == p.chave for t in created))
+    return {"criadas": len(created), "criticas": sum(t.critical for t in created), "falante_automatico": auto}
 
 
 def adicionar(

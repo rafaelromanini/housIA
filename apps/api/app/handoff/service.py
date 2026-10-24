@@ -19,7 +19,7 @@ from app.audit.service import log_action
 from app.config import get_settings
 from app.db.models import HandoffReport, User
 from app.fhir_client.client import FhirSource
-from app.handoff.ao_vivo import MAX_TEXTO, atribuir_falas, contagem, garantir_criticos
+from app.handoff.ao_vivo import MAX_TEXTO, MAX_TEXTO_REGRAS, atribuir_falas, contagem, garantir_criticos
 from app.handoff.ao_vivo import roteiro as roteiro_sbar
 from app.handoff.check import HandoffCheckOutput, mock_check
 from app.handoff.facts import compute_facts
@@ -397,16 +397,24 @@ def verbal_check_ao_vivo(db: Session, fhir: FhirSource, user: User, patient_id: 
     segs = sorted(((s.n, s.texto.strip()) for s in body.segmentos if s.texto.strip()), key=lambda x: x[0])
     if not segs:
         raise HTTPException(422, "Nenhuma fala com texto.")
-    if sum(len(t) for _, t in segs) > MAX_TEXTO:
-        raise HTTPException(413, f"O relato passou de {MAX_TEXTO} caracteres: encerre a passagem.")
+    total = sum(len(t) for _, t in segs)
+    if total > MAX_TEXTO_REGRAS:
+        raise HTTPException(413, f"O relato passou de {MAX_TEXTO_REGRAS} caracteres: encerre a passagem.")
     conferidor = Conferidor(db, fhir, patient_id, body.audience, body.window_hours)
+    so_regras = body.final and total > MAX_TEXTO  # passagem longa: fecha e audita, mas sem mandar o texto todo à IA
     try:
+        if so_regras:
+            raise LLMError("relato maior que o limite da IA")
         out = conferir_ao_vivo(conferidor, segs, body.final)
     except LLMError:
         if not body.final:
             raise
         out = conferir_ao_vivo(conferidor, segs, False) | {"final": True}
-        out["meta"]["aviso"] = "A IA não respondeu: este resultado vem só das regras determinísticas."
+        out["meta"]["aviso"] = (
+            f"O relato passou de {MAX_TEXTO} caracteres: este resultado vem só das regras determinísticas."
+            if so_regras
+            else "A IA não respondeu: este resultado vem só das regras determinísticas."
+        )
     if body.final:
         auditar_conferencia(db, user, patient_id, body.audience, out, segmentos=segs, origens=body.segmentos)
     return out
@@ -426,6 +434,7 @@ def auditar_conferencia(db, user, patient_id, audience, out, *, segmentos=None, 
     if segmentos is not None:
         payload |= {
             "ao_vivo": True,
+            "ciente": True,  # quem falou confirmou que a fala é transcrita e conferida (sem consentimento da consulta)
             "segmentos": len(segmentos),
             "origens": sorted({o.origem for o in origens or []}),
             "regra_prevaleceu": out["meta"].get("regra_prevaleceu", 0),

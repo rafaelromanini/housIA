@@ -704,29 +704,21 @@ texto digitado ou colado.
   achou por sinônimo fica `mencionado` sem `fala_ref`); a conferência parcial por regras é por palavra-chave, então sinônimos
   coloquiais podem aparecer como "ainda não citado" até o `final` com IA; sem teste com motor de fala real (só o falso).
 
-## #47/#42: verificação interrompida (2026-10-23, cota)
+## #47/#42: verificação concluída (2026-10-24)
 
-Verificação independente parada no meio, **sem nenhuma correção de código feita**. Só esta seção foi adicionada.
-- **Conferido**: critérios de aceite de #47 e #42 batem com o código e os testes (`test_consult_tarefas.py`, `test_handoff_ao_vivo.py`,
-  `test_journey.py` verdes); `alembic heads` = `c302` (cabeça única) e o upgrade até a cabeça roda em SQLite; só fala da equipe
-  vira tarefa; sandbox, outra organização, finalizar duas vezes e texto fora da auditoria estão cobertos; WebSocket recusa sem
-  login, sem ciência, perfil errado e plano sem o módulo.
-- **LGPD (ponto 4)**: decisão proposta, ainda não gravada em código: manter o FHIR Task (é registro de pedido no prontuário, como o
-  `DocumentReference` já enviado; retenção do prontuário prevalece) e registrar na auditoria/resposta quantos Tasks ficaram.
-- **Bugs achados e NÃO corrigidos (#47)**: "Não é necessário retornar em 30 dias" gera tarefa (falta `nao e necessari\w+` em
-  `_NEGATION`); "Isso não é urgente, retorno em 1 mês" vira tarefa crítica (urgência negada); "Vou encaminhar a senhora para o
-  cardiologista" não gera tarefa (objeto lido antes do "para"); título herda "urgente"; fala com falante automático
-  (`falante_auto`) vira tarefa sem aviso; `edit_task` rebaixa a prioridade FHIR de tarefa da jornada de urgent para routine
-  (a coluna `critical` é falsa nelas).
-- **Bugs achados e NÃO corrigidos (#42)**: `_says_stable` usa substring: "também" contém "bem" (PA 184/102 dita com "também" vira
-  divergência falsa), "não está estável" conta como estabilidade (divergência falsa), "Ok" solto também; `CORRECTION` aceita
-  qualquer dígito, então "PA estável. Aferi a PA às 8h e às 14h" deixa de divergir (falso negativo crítico); o teto de 6000
-  caracteres devolve 413 também no `final` (a passagem longa não fecha nem audita) enquanto o WebSocket não tem teto de texto
-  acumulado (cada parcial reprocessa tudo); a auditoria não registra a ciência.
-- **Sem conferir**: prompt-injection no caminho com IA real, `garantir_criticos` no caminho final com casos novos, token de outra
-  organização e teto de duração no WebSocket, e os 9 pontos do implementador (ciência no lugar do consentimento, parcial por
-  palavra-chave, contexto fixo, `sem_registro`, `_ORDERABLE`, auditoria só no final, `critical` das tarefas da jornada) além do
-  que está acima. Nenhum teste novo foi escrito.
+Todos os bugs da verificação interrompida foram corrigidos, cada um com teste de regressão (`test_consult_tarefas.py`,
+`test_handoff_ao_vivo.py`; `test_journey.py` verde; ruff limpo).
+- **#47**: negação "não é necessário" (`_NEGATION`); urgência negada ("não é urgente", "sem urgência") não marca crítica;
+  "encaminhar a senhora para o cardiologista" gera tarefa; título sem "urgente"; fala de `falante_auto` vira tarefa com aviso no
+  detalhe e na auditoria (`tarefas_falante_automatico`); `edit_task` não rebaixa a prioridade FHIR (só muda se a criticidade foi
+  editada).
+- **#42**: `_says_stable` por palavra inteira e sem negação ("também", "não está estável", "Ok" solto); `CORRECTION` só aceita valor
+  clínico ou tendência (hora/número solto não apaga a divergência); relato acima de 6000 caracteres fecha o `final` só com regras
+  (aviso, audita), teto duro de 60000 (413 no HTTP; erro 1009 no WebSocket); auditoria registra `ciente`.
+- **LGPD**: o FHIR Task é mantido; `DELETE /patients/{id}/consultation-data` e a auditoria informam `tasks_fhir_mantidos`.
+- **Verificação cética extra**: prompt-injection no relato (prompt `handoff_check` 1.0.1 trata o relato como dado; a regra
+  prevalece sobre a IA), `garantir_criticos` no caminho final, token de outra organização no WebSocket e teto de duração
+  (`MAX_SESSAO_BYTES`) testados.
 
 ## Pausa 4 (2026-10-23, cota em ~60%+)
 
@@ -735,11 +727,10 @@ Trabalho acumulado na branch **`claude/integracao-paridade-lya`** (a partir da m
 A suíte completa (~20 min) e os e2e **ainda não foram rodados** nesta branch; só testes parciais por item.
 
 Já na branch, implementado e verificado: #11 (Whisper no servidor), #12 (PWA no celular), #38, #43, #44, #45, #46.
-Implementado mas com verificação interrompida: **#47 e #42** (ver seção "#47/#42: verificação interrompida" acima,
-com os bugs achados e **ainda abertos**). Ambiente: Windows, venv `apps/api/.venv/Scripts/python` (Python 3.13).
+Implementado mas com verificação interrompida: **#47 e #42** (bugs corrigidos, ver "#47/#42: verificação concluída"). Ambiente: Windows, venv `apps/api/.venv/Scripts/python` (Python 3.13).
 
 Falta, na ordem:
-1. Corrigir os bugs abertos de #47 e #42 e terminar a verificação (inclui a decisão da LGPD × FHIR Task).
+1. (feito) bugs de #47/#42 corrigidos e verificados.
 2. #41 (ditado), #48 (laudos em PDF ou foto).
 3. **Suíte completa + e2e + PR único** da branch de integração (CI: API, Web, Helm, E2E), merge na main. Não deixe para o fim
    da fila: faça logo após o item 2.

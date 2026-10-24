@@ -41,9 +41,20 @@ LAB_KEYWORDS = {
     "creatinina": ["creatinin", "funcao renal", "cr "],
     "glicose": ["glicose", "glicem"],
 }
-STABILITY = ["estavel", "sem intercorr", "sem alterac", "tranquil", "normotens", "sem queixa", "bem", "ok"]
-# o relato que se corrige ("PA estável... na verdade subiu até 184/102"): valor ou tendência dita depois da estabilidade
-CORRECTION = re.compile(r"\d|subi|elev|aument|piorou|pioran|alta\b|alto\b|hipertens|pico|critic|descompens|queda de")
+# afirmações de estabilidade, por palavra inteira ("tambem" não contém "bem"); radicais só com a borda esquerda
+STABILITY = re.compile(
+    r"(?<![a-z])(?:(?:estavel|estaveis|bem)(?![a-z])|sem intercorr|sem alterac|sem novidade|sem queixa|"
+    r"tranquil|normotens|estabiliz)"
+)
+# "não está estável", "nem estável", "não está bem": a negação até duas palavras antes inverte a afirmação
+NEGADA = re.compile(r"(?<![a-z])(nao|nem|nunca|jamais|longe de)\s+(?:[a-z]+\s+){0,2}$")
+# o relato que se corrige ("PA estável... na verdade subiu até 184/102"): valor clínico ou tendência dita depois da
+# estabilidade. Um número solto (hora, leito, "14h") não é correção.
+CORRECTION = re.compile(
+    r"\d{2,3}\s*[x/]\s*\d{2,3}|\d\s*/\s*10(?!\d)|(?<![\d:])\d{3}(?![\d:h]|\s*h)|\d+[.,]\d+|"
+    r"\d+\s*(mmhg|bpm|irpm|rpm|mg|mmol|meq|g/dl|graus|%|c(?![a-z]))|"
+    r"subi|elev|aument|piorou|pioran|alta\b|alto\b|hipertens|pico|critic|descompens|queda de"
+)
 
 
 class CheckItem(BaseModel):
@@ -82,7 +93,9 @@ def _sentences(text: str) -> list[str]:
 
 
 def _says_stable(sentence: str) -> bool:
-    return any(w in f" {sentence} " for w in STABILITY)
+    """O trecho afirma estabilidade (palavra inteira, sem negação). "Ok" solto e "também" não contam."""
+    text = f" {sentence} "
+    return any(not NEGADA.search(text[: m.start()]) for m in STABILITY.finditer(text))
 
 
 def _diverges(hits: list[str]) -> bool:

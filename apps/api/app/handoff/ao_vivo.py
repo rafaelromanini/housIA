@@ -20,7 +20,8 @@ from app.handoff.schemas import Audience, Fact
 from app.timeline.events import ClinicalEvent
 from app.timeline.record import PatientRecord, normalize
 
-MAX_TEXTO = 6000  # o mesmo teto do relato digitado (HandoffCheckRequest)
+MAX_TEXTO = 6000  # o mesmo teto do relato digitado (HandoffCheckRequest): acima disso a IA não entra, só as regras
+MAX_TEXTO_REGRAS = 60000  # teto duro do relato acumulado (cada fala reprocessa tudo); vale também no WebSocket
 MAX_SEGMENTOS = 200
 ORDEM = {"mencionado": 0, "omitido": 1, "divergente": 2}
 RANK = {"info": 0, "atencao": 1, "critico": 2}

@@ -225,6 +225,7 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
     for c in rows:
         db.delete(c)
     tarefas = list(db.scalars(select(JourneyTask).where(JourneyTask.consultation_id.in_(ids)))) if ids else []
+    tasks_fhir = sum(1 for t in tarefas if t.fhir_ref)  # o FHIR Task é registro de pedido no prontuário: fica
     for t in tarefas:  # o título da tarefa nasceu da conversa (#47): vai embora com a consulta
         db.delete(t)
     estilo.esquecer_consultas(db, ids)  # a memória de estilo (#46) guarda só números, mas por consulta
@@ -234,11 +235,21 @@ def delete_patient_data(db: Session, user: User, patient_id: str) -> dict:
         "consulta.dados_excluidos",
         "patient",
         patient_id,
-        {"consultas": len(ids), "ids": ids, "tarefas": len(tarefas)},
+        {"consultas": len(ids), "ids": ids, "tarefas": len(tarefas), "tasks_fhir_mantidos": tasks_fhir},
         commit=False,
     )
     db.commit()
-    return {"patient_id": patient_id, "consultas_excluidas": len(ids)}
+    return {
+        "patient_id": patient_id,
+        "consultas_excluidas": len(ids),
+        "tasks_fhir_mantidos": tasks_fhir,
+        "aviso": (
+            f"{tasks_fhir} Task(s) FHIR de pedidos no prontuário foram mantidos (registro do prontuário); "
+            "exclua-os no sistema de prontuário se necessário."
+            if tasks_fhir
+            else None
+        ),
+    }
 
 
 def panel(kind: str | None = None) -> dict:

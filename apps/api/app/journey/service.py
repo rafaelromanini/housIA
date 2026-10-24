@@ -347,7 +347,10 @@ def edit_task(db: Session, fhir: FhirSource, user: User, task_id: int, body) -> 
         if resource is not None:
             keep = {k: resource[k] for k in ("id", "meta", "status", "requester", "authoredOn", "focus", "reasonCode")
                     if k in resource}  # fmt: skip
-            fhir.update(resource | task_resource(task, list(task.source_refs or []), user.name) | keep)
+            # a prioridade só muda quando a criticidade foi editada: a tarefa da jornada (coluna `critical` falsa) pode
+            # ter nascido urgente pela severidade do item, e editar o prazo não a rebaixa
+            urgent = task.critical if "critica" in changed else resource.get("priority") == "urgent" or None
+            fhir.update(resource | task_resource(task, list(task.source_refs or []), user.name, urgent=urgent) | keep)
     log_action(
         db, user, "jornada.tarefa_editada", "journey_task", task.id,
         {"patient_id": task.patient_id, "regra": task.rule, "campos": changed, "critica": bool(task.critical),

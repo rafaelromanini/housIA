@@ -407,3 +407,68 @@ def test_o_loader_do_fhir_nao_apaga_a_task_da_jornada(client, auth, jstore):  # 
     (t,) = da_consulta(client, h, cid)["tarefas"]
     assert jstore.get("Task", t["fhir_ref"].split("/")[1]) is not None
     assert clock.now() is not None
+
+
+# ---------- regressões da verificação (#47) ----------
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Não é necessário retornar em 30 dias.",
+        "Isso não é urgente, não vou pedir exame agora.",
+    ],
+)
+def test_negacao_de_necessidade_nao_vira_tarefa(fala):
+    assert propostas([("medico", fala)]) == []
+
+
+def test_urgencia_negada_nao_marca_a_tarefa_como_critica():
+    (p,) = propostas([("medico", "Isso não é urgente, retorno em 1 mês.")])
+    assert p.regra == "consulta_retorno" and not p.critica and p.horas == 30 * 24
+    (q,) = propostas([("medico", "Retorno em 1 semana, sem urgência.")])
+    assert not q.critica
+    (r,) = propostas([("medico", "Retorno em 1 semana, é urgente.")])
+    assert r.critica
+
+
+def test_encaminhar_a_senhora_para_o_especialista_gera_tarefa():
+    (p,) = propostas([("medico", "Vou encaminhar a senhora para o cardiologista.")])
+    assert p.regra == "consulta_solicitar" and p.assunto == "cardiologista"
+    (q,) = propostas([("medico", "Vamos encaminhar o senhor ao cardiologista.")])
+    assert q.assunto == "cardiologista"
+
+
+def test_titulo_nao_herda_a_palavra_urgente():
+    (p,) = propostas([("medico", "Vou pedir um hemograma urgente.")])
+    assert p.titulo == "Solicitar hemograma" and p.critica
+
+
+def test_falante_automatico_vira_tarefa_com_aviso():
+    s = Segment(n=1, t=1.0, falante="medico", texto="Retorno em 2 semanas.", falante_auto=True)
+    (p,) = tarefas.extrair([s], Insights.model_construct(protocolos=[]), "cen6")
+    assert p.extra["falante_auto"] and "deduzido automaticamente" in p.detalhe
+    (q,) = propostas([("medico", "Retorno em 2 semanas.")])
+    assert not q.extra and "deduzido" not in q.detalhe
+
+
+def test_editar_prazo_nao_rebaixa_a_prioridade_fhir_da_tarefa_da_jornada(client, auth, jstore):  # noqa: F811
+    h = auth("medico")
+    cid = finalizar(client, h, "cen6", [("medico", "Retorno em 2 semanas, urgente.")])
+    (t,) = da_consulta(client, h, cid)["tarefas"]
+    ref = t["fhir_ref"].split("/")[1]
+    assert jstore.get("Task", ref)["priority"] == "urgent"
+    with db_session.SessionLocal() as db:  # tarefa da jornada: nasce urgente no FHIR, mas a coluna `critical` é falsa
+        db.get(JourneyTask, t["id"]).critical = False
+        db.commit()
+    novo = (datetime.fromisoformat(t["prazo"]) + timedelta(days=2)).isoformat()
+    assert client.put(f"/journey/tasks/{t['id']}", json={"prazo": novo}, headers=h).status_code == 200
+    assert jstore.get("Task", ref)["priority"] == "urgent"
+
+
+def test_excluir_dados_informa_quantos_tasks_fhir_ficaram(client, auth, jstore):  # noqa: F811
+    h = auth("medico")
+    cid = finalizar(client, h, "cen6", [("medico", "Retorno em 2 semanas.")])
+    (t,) = da_consulta(client, h, cid)["tarefas"]
+    res = client.delete("/patients/cen6/consultation-data", headers=auth("gestor")).json()
+    assert res["tasks_fhir_mantidos"] == 1 and "mantidos" in res["aviso"]
+    assert jstore.get("Task", t["fhir_ref"].split("/")[1]) is not None  # o registro do prontuário prevalece
+    assert audit("consulta.dados_excluidos")[0]["tasks_fhir_mantidos"] == 1

@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.db.tenancy import set_org
 from app.fhir_client.client import FhirSource, get_fhir
 from app.handoff import ao_vivo
-from app.handoff.ao_vivo import SBAR, SegmentosIn
+from app.handoff.ao_vivo import MAX_TEXTO_REGRAS, SBAR, SegmentosIn
 from app.handoff.schemas import Audience, HandoffCheckRequest, HandoffRequest
 from app.handoff.service import (
     Conferidor,
@@ -146,6 +146,10 @@ def _ws_auditar_passagem(user_id: int, org_id: int, patient_id: str, payload: di
         log_action(db, db.get(User, user_id), "handoff.audio_stream", "patient", patient_id, payload)
 
 
+class _RelatoGrande(Exception):
+    """O texto acumulado da passagem passou do teto (MAX_TEXTO_REGRAS)."""
+
+
 # o WebSocket fica fora do router com a dependência HTTP do módulo: o plano é conferido em `_ws_abrir`
 ws_router = APIRouter(tags=["passagem de plantão"])
 
@@ -186,6 +190,8 @@ async def passagem_audio(
     async def entregar(eventos: list[stt_stream.Evento]) -> None:
         nonlocal finais
         for ev in eventos:
+            if sum(len(t) for _, t in falas) + len(ev.texto) > MAX_TEXTO_REGRAS:
+                raise _RelatoGrande
             if ev.tipo == "parcial":
                 parcial = [*falas, (len(falas) + 1, ev.texto)]
                 conf = await asyncio.to_thread(conferir_ao_vivo, conferidor, parcial, False)
@@ -228,6 +234,11 @@ async def passagem_audio(
                     break
     except WebSocketDisconnect:
         pass
+    except _RelatoGrande:
+        try:
+            await erro("O relato passou do limite: encerre a passagem.", 1009)
+        except Exception:  # noqa: BLE001
+            pass
     except stt.STTUnavailable as exc:
         try:
             await erro(str(exc), 1011)
@@ -237,5 +248,5 @@ async def passagem_audio(
         sessao.buf.clear()
         falas.clear()  # o relato só existe na memória da conexão
         await asyncio.to_thread(
-            _ws_auditar_passagem, uid, org, patient_id, {"bytes": sessao.bytes_total, "frases": finais}
+            _ws_auditar_passagem, uid, org, patient_id, {"bytes": sessao.bytes_total, "frases": finais, "ciente": True}
         )

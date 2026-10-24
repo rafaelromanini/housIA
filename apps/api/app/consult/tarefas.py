@@ -55,16 +55,25 @@ _CONDITIONAL = re.compile(
     r"^(se|caso|quando|a menos que|qualquer)\b|\b(se piorar|se nao melhorar|se persistir|se tiver)\b"
 )
 _NEGATION = re.compile(
-    r"\b(nao (precisa|e preciso|ha necessidade|tem necessidade|vou|vamos|preciso)|sem necessidade|dispens\w+)\b"
+    r"\b(nao (precisa|e preciso|ha necessidade|tem necessidade|vou|vamos|preciso)|nao (e |eh |ha )?necessari\w+|"
+    r"sem necessidade|dispens\w+)\b"
 )
 _URGENT = re.compile(
     r"(?<![a-z])(urgente|urgencia|hoje mesmo|ainda hoje|imediat\w+|o quanto antes|prioridade|sem demora)"
 )
+# urgência negada ("isso não é urgente", "sem urgência") não marca a tarefa como crítica
+_URGENT_NEGADA = re.compile(r"\b(nao|sem|nenhum\w*|nada)\s+(?:\w+\s+){0,2}?(urgente|urgencia|imediat\w+|prioridade)\b")
+
+
+def _urgente(sentence: str) -> bool:
+    return bool(_URGENT.search(_URGENT_NEGADA.sub(" ", sentence)))
+
 
 _ASK = re.compile(
     r"(?<![a-z])(?:vou |vamos |irei |iremos |preciso |precisamos )?"
     r"(?:pedir|pedirei|pedimos|peco|solicitar|solicito|solicitarei|solicitamos|requisitar|mandar fazer|encaminhar|"
-    r"encaminho|encaminharei)\s+(?:um |uma |o |a |os |as |uns |umas |de |do |da |dos |das )*(?P<obj>[a-z0-9 ]{3,60})"
+    r"encaminho|encaminharei)\s+(?:(?:a senhora|o senhor|voce|o paciente|a paciente|ele|ela)\s+)?"
+    r"(?:(?:para|pra|pro|ao)\s+)?(?:um |uma |o |a |os |as |uns |umas |de |do |da |dos |das )*(?P<obj>[a-z0-9 ]{3,60})"
 )
 _OBJ_STOP = re.compile(
     r"\b(para|pra|pro|porque|pois|que|antes|depois|hoje|amanha|quando|mas|em|com a senhora|com o senhor)\b"
@@ -154,7 +163,7 @@ def _returns(sentence: str, ref: str) -> Proposta | None:
         if qty is None:
             continue  # "retorne se piorar" ou "volte logo": sem prazo não há tarefa
         label, days = qty
-        crit = bool(_URGENT.search(sentence))
+        crit = _urgente(sentence)
         return Proposta(
             chave=f"retorno:{ref}",
             regra="consulta_retorno",
@@ -176,7 +185,7 @@ def _asks(sentence: str, ref: str) -> list[Proposta]:
         if _NEGATION.search(clause):
             continue
         for m in _ASK.finditer(clause):
-            for obj in _objects(m.group("obj")):
+            for obj in _objects(_URGENT.sub(" ", m.group("obj"))):  # "hemograma urgente" é o hemograma
                 if not any(re.search(r"(?<![a-z])" + re.escape(k), obj) for k in _ORDERABLE):
                     continue
                 out.append(
@@ -187,7 +196,7 @@ def _asks(sentence: str, ref: str) -> list[Proposta]:
                         detalhe="Pedido dito pelo profissional na consulta: conferir se foi solicitado e agendado.",
                         papel=PAPEL["consulta_solicitar"],
                         horas=PRAZO_HORAS["consulta_solicitar"],
-                        critica=bool(_URGENT.search(sentence)),
+                        critica=_urgente(sentence),
                         refs=[ref],
                         assunto=obj,
                     )
@@ -212,7 +221,7 @@ def _calls(sentence: str, ref: str) -> Proposta | None:
             detalhe="O profissional combinou avisar o paciente quando o resultado sair.",
             papel=PAPEL["consulta_ligar_resultado"],
             horas=horas,
-            critica=bool(_URGENT.search(sentence)),
+            critica=_urgente(sentence),
             refs=[ref],
             assunto=obj,
         )
@@ -224,9 +233,12 @@ def extrair(segments: list[Segment], ins: Insights, patient_id: str) -> list[Pro
     out: list[Proposta] = []
     seen: set[str] = set()
 
-    def add(p: Proposta | None) -> None:
+    def add(p: Proposta | None, auto: bool = False) -> None:
         if p is not None and p.chave not in seen:
             seen.add(p.chave)
+            if auto:  # o falante foi deduzido pelo sistema: o profissional confere na revisão
+                p.extra["falante_auto"] = True
+                p.detalhe += " Atenção: quem falou foi deduzido automaticamente; confirme que foi a equipe."
             out.append(p)
 
     for s in segments:
@@ -237,10 +249,10 @@ def extrair(segments: list[Segment], ins: Insights, patient_id: str) -> list[Pro
             if is_question(sentence):
                 continue
             t = norm(sentence)
-            add(_returns(t, ref))
+            add(_returns(t, ref), s.falante_auto)
             for p in _asks(t, ref):
-                add(p)
-            add(_calls(t, ref))
+                add(p, s.falante_auto)
+            add(_calls(t, ref), s.falante_auto)
     for p in ins.protocolos:
         if p.status not in ("pendente", "critico"):  # "sem_registro" não é atraso: nunca foi registrado
             continue

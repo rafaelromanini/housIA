@@ -1718,6 +1718,7 @@ def finish(db: Session, fhir: FhirSource, user: User, cid: int, body: FinishIn |
             "duvidas_sem_resposta": sem_resposta,
             "tarefas_criadas": novas["criadas"],
             "tarefas_criticas": novas["criticas"],
+            "tarefas_falante_automatico": novas.get("falante_automatico", 0),
             "modo": "regras" if rules_only else result.mode,
             "sem_ia": rules_only,
             "itens_descartados": len(dropped),
