@@ -15,11 +15,12 @@ from sqlalchemy.orm import Session, object_session
 
 from app import clock
 from app.alerts.service import COMM_SOURCE, upsert_alert
-from app.audit.service import log_action
+from app.audit.service import log_action, log_leitura
 from app.br import cadastro as br_cadastro
 from app.br import perfis as br_perfis
 from app.config import get_settings
 from app.consult import (
+    acesso,
     acoes,
     ai,
     antiglosa,
@@ -512,7 +513,7 @@ def list_for_patient(db: Session, patient_id: str) -> list[dict]:
 
 def get(db: Session, user: User, cid: int) -> dict:
     c = _get(db, cid)
-    log_action(db, user, "consulta.visualizada", "consultation", c.id, {"patient_id": c.patient_id})
+    log_leitura(db, user, "consulta.visualizada", "consultation", c.id, {"patient_id": c.patient_id})  # sem repetir
     return out(c)
 
 
@@ -894,6 +895,7 @@ def stream_segment(
 def stream_context(db: Session, fhir: FhirSource, user: User, cid: int, speaker: str) -> tuple[str, str]:
     """(idioma, vocabulário) do STT para a transmissão; recusa quando a captura ou o consentimento não permitem."""
     c = _get(db, cid)
+    acesso.exigir(db, user, c)  # o WebSocket não passa pela dependência de vínculo das rotas HTTP (#53)
     if c.status != "em_andamento":
         raise HTTPException(409, "Consulta finalizada: não aceita novas falas.")
     _require_capture(c)

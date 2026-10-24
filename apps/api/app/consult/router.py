@@ -8,11 +8,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Res
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from app.audit.service import log_action
+from app.audit.service import log_action, log_leitura
 from app.auth.deps import get_current_user, require_roles
 from app.auth.security import decode_access_token
 from app.config import get_settings
 from app.consult import (
+    acesso,
     adendo_service,
     antiglosa,
     cid,
@@ -43,14 +44,25 @@ from app.consult import ask as copilot
 from app.consult.schemas import AdendoIn, ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
 from app.db import session as db_session
-from app.db.models import User
+from app.db.models import Consultation, User
 from app.db.session import get_db
 from app.db.tenancy import set_org
 from app.fhir_client.client import FhirSource, get_fhir
 from app.prontidao import ambiente
 
-router = APIRouter(tags=["consulta com IA"])
 clinician = require_roles("medico", "enfermagem")
+
+
+def guarda_consulta(request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    """Toda rota com {cid} passa pelo vínculo do médico com a consulta (#53), exceto o pedido de quebra de vidro."""
+    cid = request.path_params.get("cid")
+    if cid is None or request.url.path.endswith("/quebra-de-vidro"):
+        return
+    acesso.exigir(db, user, db.get(Consultation, int(cid)))
+
+
+router = APIRouter(tags=["consulta com IA"], dependencies=[Depends(guarda_consulta)])
+ws_router = APIRouter(tags=["consulta com IA"])  # WebSocket: a trava de vínculo roda em service.stream_context
 
 
 @router.get("/consult/config")
@@ -261,6 +273,21 @@ def delete_consultation_data(
 @router.get("/patients/{patient_id}/consultations")
 def list_consultations(patient_id: str, db: Session = Depends(get_db), _: User = Depends(clinician)) -> list[dict]:
     return service.list_for_patient(db, patient_id)
+
+
+class QuebraDeVidroIn(BaseModel):
+    motivo: str = Field(max_length=2000)
+
+
+@router.post("/consultations/{cid}/quebra-de-vidro")
+def quebra_de_vidro(
+    cid: int, body: QuebraDeVidroIn, db: Session = Depends(get_db), user: User = Depends(require_roles("medico"))
+) -> dict:
+    """Acesso excepcional a consulta sem vínculo: motivo (10+ caracteres) auditado e aviso ao gestor (#53)."""
+    c = db.get(Consultation, cid)
+    if c is None:
+        raise HTTPException(404, "Consulta não encontrada")
+    return acesso.registrar_quebra(db, user, c, body.motivo)
 
 
 @router.get("/consultations/{cid}")
@@ -690,7 +717,11 @@ def addendum(
 @router.get("/consultations/{cid}/note/diff")
 def note_diff(cid: int, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
     """Quanto o profissional mudou, seção a seção, em relação ao rascunho que a IA gerou (que fica guardado intacto)."""
-    return service.note_diff(db, user, cid)
+    out = service.note_diff(db, user, cid)
+    c = db.get(Consultation, cid)
+    if c is not None:
+        log_leitura(db, user, "consulta.nota_visualizada", "consultation", c.id, {"patient_id": c.patient_id})  # #53
+    return out
 
 
 class RewriteIn(BaseModel):
@@ -1088,7 +1119,7 @@ def _ws_auditar(user_id: int, org_id: int, cid: int, payload: dict) -> None:
         log_action(db, db.get(User, user_id), "consulta.audio_stream", "consultation", cid, payload)
 
 
-@router.websocket("/ws/consultations/{cid}/audio")
+@ws_router.websocket("/ws/consultations/{cid}/audio")
 async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -> None:
     """Áudio PCM 16 kHz mono int16 em blocos (~500 ms, binário) → {tipo:'parcial'} e {tipo:'final', novos, insights}.
 

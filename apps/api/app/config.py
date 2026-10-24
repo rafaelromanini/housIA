@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_expires_minutes: int = 12 * 60
     cookie_secure: bool | None = None  # None: ligado em produção
+    # Chave do HMAC do encadeamento do audit_log (#53). Vazia: usa JWT_SECRET (trocar a chave quebra a verificação das
+    # linhas antigas: gire só com a exportação assinada guardada).
+    audit_chain_key: str = ""
 
     # E-mail (#33): verificação de cadastro, recuperação de senha e convites. Sem SMTP_HOST, a mensagem fica só no
     # log e na caixa de saída em memória (testes); no compose de dev o mailpit recebe tudo (UI 8025, API /api/v1).

@@ -8,6 +8,7 @@ import {
   CalendarClock,
   ChartNoAxesCombined,
   ClipboardList,
+  Scale,
   LogOut,
   Route,
   Server,
@@ -49,6 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { href: "/gestao", label: "Gestão", Icon: ClipboardList, show: user.role === "gestor" },
     { href: "/impacto", label: "Impacto", Icon: ChartNoAxesCombined, show: user.role === "gestor" },
     { href: "/auditoria", label: "Auditoria", Icon: ShieldCheck, show: user.role === "gestor" },
+    { href: "/conformidade", label: "Conformidade", Icon: Scale, show: user.role === "gestor" },
     { href: "/equipe", label: "Equipe", Icon: Users, show: user.role === "gestor" },
     { href: "/ambiente", label: "Ambiente", Icon: Server, show: user.role === "gestor" },
   ].filter((n) => n.show);

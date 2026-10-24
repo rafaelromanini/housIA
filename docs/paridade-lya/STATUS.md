@@ -838,3 +838,33 @@ Verificador cético, 20 testes novos em `tests/test_br_perfis.py`. Bugs achados 
 CID-10 sai, o resto vira pendência; (6) CNS provisório `700000000000000` passava na conta do dígito: recusado; (7) resposta
 do LEDI sem `Cache-Control: no-store`. Sem achado: IDOR de consulta/profissional entre organizações (404), auditoria sem
 CNS/CPF/CNES/CBO. Pendência: o Bundle `/export` ainda usa o cadastro de quem exporta (comportamento anterior ao #52).
+
+## #53 dossiê de conformidade vivo e auditoria à prova de adulteração (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c304 (sobre c303): `audit_log.prev_hash/hash` + gatilhos contra UPDATE/DELETE
+(Postgres, com TRUNCATE; SQLite). Cabeça única c304.
+- Cadeia (`app/audit/chain.py`): HMAC-SHA256 (`AUDIT_CHAIN_KEY`, senão JWT_SECRET) por organização, selada em
+  `log_action` (lock consultivo no Postgres). `GET /audit/verify` aponta a primeira linha quebrada. Linhas sem hash antes
+  da primeira encadeada = "anteriores ao encadeamento" (não quebram); sem hash depois = quebra. UPDATE/DELETE bloqueados
+  no ORM e em massa (`AuditoriaImutavel`) e no banco. Limite assumido: apagar só a cauda exige comparar a `cabeca` guardada
+  fora do banco; quem tem a chave e o banco refaz a cadeia; girar a chave quebra a verificação das linhas antigas.
+- `GET /audit/export?formato=json|csv&since&until` (gestor): SHA-256 do arquivo + HMAC em cabeçalhos (e no corpo do JSON),
+  sem nome/e-mail (só id e perfil), CSV sem injeção de fórmula, teto de 50 mil linhas; a exportação é auditada.
+- Leituras auditadas com deduplicação de 5 min por usuário/recurso (`log_leitura`): `consulta.visualizada` (antes gravava
+  a cada GET), `consulta.nota_visualizada`, `consulta.documento_visualizado`, `paciente.visualizado`,
+  `paciente.timeline_visualizada`. Exportações da consulta já eram auditadas.
+- Acesso (`app/consult/acesso.py`, dependência no router da consulta + `stream_context` do WebSocket): modelo do projeto
+  não tem equipe/CareTeam, então o vínculo do médico é só ser o autor da consulta. Sem vínculo: 403 (tentativa auditada);
+  `POST /consultations/{cid}/quebra-de-vidro` com motivo (10+ caracteres efetivos, invisíveis não contam) libera aquela
+  consulta por 8 h, grava `consulta.quebra_de_vidro` e abre alerta "atencao" ao gestor. Outra organização segue 404.
+- Dossiê: `data/compliance/dossie.yaml` (RoPA de 7 operações, RIPD resumido, matriz de 14 linhas) + parte calculada
+  (retenção, cadeia, quebras de vidro, criptografia, provedor de LLM, suboperadores). `GET /compliance/dossie?formato=json|md`
+  (gestor, auditado); tela `/conformidade`; cartão de integridade/exportação em `/auditoria`.
+  `tests/test_compliance_dossie.py` garante que todo código e teste citado existe e que "não implementado" não cita controle.
+- **Precisa de revisão jurídica humana**: todas as bases legais do RoPA, o texto do RIPD, os artigos da Resolução CFM
+  2.454/2026 (marcados "a confirmar"), CEM art. 73 e CFM 1.821/2007, transferência internacional (provedor de LLM) e prazo
+  de guarda. O dossiê não afirma conformidade.
+- Pendente: relatório de acessos para o paciente em PDF (LGPD art. 18) e FHIR AuditEvent; vínculo por equipe/CareTeam
+  (enfermagem hoje sem trava; listagem global de consultas ainda mostra metadados ao médico); tela web para o médico pedir
+  a quebra de vidro (hoje só API; o 403 traz a instrução); `patient_id` em `consulta.audio`; incidente (art. 48) e
+  encarregado ficam com a instituição. Testes: pytest direcionado (385 passaram); suíte completa e e2e não rodados.

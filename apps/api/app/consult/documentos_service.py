@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.audit.service import log_action
+from app.audit.service import log_action, log_leitura
 from app.config import get_settings
 from app.consult import consentimento, documentos, idiomas, service
 from app.consult.export import selo_profissional
@@ -138,6 +138,9 @@ def obter(db: Session, fhir: FhirSource, user: User, cid: int, tipo: str) -> dic
     doc = _estado(c).get(_tipo(tipo))
     if doc is None:
         raise HTTPException(404, "Documento ainda não gerado.")
+    log_leitura(
+        db, user, "consulta.documento_visualizado", "consultation", c.id, {"patient_id": c.patient_id, "tipo": tipo}
+    )
     return _com_estado(c, doc, fhir, db, user)
 
 

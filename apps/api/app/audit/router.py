@@ -1,5 +1,8 @@
 import csv
+import hashlib
+import hmac
 import io
+import json
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -10,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.audit import impact
+from app.audit import chain, impact
 from app.audit.service import log_action
 from app.auth.deps import require_roles
 from app.config import get_settings
@@ -69,6 +72,115 @@ def list_audit(
             or (a.entity == "patient" and a.entity_id == patient_id)
         ]
     return {"total": len(rows), "items": [_entry(a, u) for a, u in rows[offset : offset + limit]]}
+
+
+MAX_EXPORT = 50_000
+CSV_COLUNAS = ["id", "created_at", "user_id", "perfil", "action", "entity", "entity_id", "payload", "prev_hash", "hash"]
+
+
+def _celula(valor: object) -> str:
+    """Texto de célula de planilha sem fórmula: o que começa com = + - @ ganha apóstrofo (CSV injection)."""
+    texto = "" if valor is None else str(valor)
+    return "'" + texto if texto[:1] in ("=", "+", "-", "@", "\t", "\r") else texto
+
+
+@router.get("/verify")
+def verify_chain(db: Session = Depends(get_db), user: User = Depends(gestor)) -> dict:
+    """Confere a cadeia de hash do audit_log da organização e aponta a primeira linha quebrada (#53)."""
+    out = chain.verificar(db, user.organization_id)
+    log_action(
+        db,
+        user,
+        "audit.cadeia_verificada",
+        "audit_log",
+        None,
+        {"integra": out["integra"], "total": out["total"], "primeira_quebra": (out["primeira_quebra"] or {}).get("id")},
+    )
+    return out
+
+
+@router.get("/export")
+def export_audit(
+    formato: str = Query("json", pattern="^(json|csv)$"),
+    since: date | None = None,
+    until: date | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(gestor),
+) -> Response:
+    """Exporta o audit_log da organização no período (JSON ou CSV), só para o gestor/DPO. O arquivo sai com o SHA-256 do
+    conteúdo e uma assinatura HMAC (cabeçalhos `X-Conteudo-SHA256` e `X-Assinatura`; no JSON, no corpo também).
+    A própria exportação vira um registro (`audit.exportado`). Sem nome de usuário: só o id e o perfil."""
+    start, end = _range(since, until)
+    rows = db.execute(
+        select(AuditLog, User.role)
+        .outerjoin(User, User.id == AuditLog.user_id)
+        .where(AuditLog.created_at >= start, AuditLog.created_at <= end)
+        .order_by(AuditLog.id)
+        .limit(MAX_EXPORT + 1)
+    ).all()
+    if len(rows) > MAX_EXPORT:
+        raise HTTPException(422, f"Período grande demais (mais de {MAX_EXPORT} registros): reduza o intervalo.")
+    itens = [
+        {
+            "id": a.id,
+            "created_at": a.created_at.isoformat(),
+            "user_id": a.user_id,
+            "perfil": perfil,
+            "action": a.action,
+            "entity": a.entity,
+            "entity_id": a.entity_id,
+            "payload": a.payload_json,
+            "prev_hash": a.prev_hash,
+            "hash": a.hash,
+        }
+        for a, perfil in rows
+    ]
+    periodo = {"inicio": start.isoformat(), "fim": end.isoformat()}
+    if formato == "csv":
+        out = io.StringIO()
+        writer = csv.writer(out, delimiter=";")
+        writer.writerow(CSV_COLUNAS)
+        for i in itens:
+            writer.writerow(
+                [_celula(json.dumps(i[c], ensure_ascii=False) if c == "payload" else i[c]) for c in CSV_COLUNAS]
+            )
+        body = ("﻿" + out.getvalue()).encode("utf-8")
+        media, ext = "text/csv; charset=utf-8", "csv"
+    else:
+        conteudo = json.dumps(itens, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        sha = hashlib.sha256(conteudo).hexdigest()
+        doc = {
+            "organizacao": user.organization_id,
+            "periodo": periodo,
+            "gerado_em": clock.now().isoformat(),
+            "total": len(itens),
+            "itens": itens,
+            "conteudo_sha256": sha,
+            "assinatura_hmac": hmac.new(chain.chave(), sha.encode(), hashlib.sha256).hexdigest(),
+            "como_conferir": "SHA-256 de json.dumps(itens, sort_keys=True, separators=(',', ':'), ensure_ascii=False).",
+            "cadeia": {k: v for k, v in chain.verificar(db, user.organization_id).items() if k != "limite"},
+        }
+        body = json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8")
+        media, ext = "application/json", "json"
+    sha_arquivo = hashlib.sha256(body).hexdigest()
+    log_action(
+        db,
+        user,
+        "audit.exportado",
+        "audit_log",
+        None,
+        {"formato": formato, "linhas": len(itens), "periodo": periodo, "arquivo_sha256": sha_arquivo},
+    )
+    return Response(
+        body,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'attachment; filename="auditoria-housia.{ext}"',
+            "X-Conteudo-SHA256": sha_arquivo,
+            "X-Assinatura": hmac.new(chain.chave(), sha_arquivo.encode(), hashlib.sha256).hexdigest(),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 def _entry(a: AuditLog, u: User | None) -> dict:

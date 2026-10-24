@@ -10,10 +10,12 @@ from app.alerts.router import router as alerts_router
 from app.audit.router import router as audit_router
 from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
+from app.compliance.router import router as compliance_router
 from app.config import get_settings
 from app.consult import privacidade
 from app.consult import service as consult_service
 from app.consult.router import router as consult_router
+from app.consult.router import ws_router as consult_ws_router
 from app.db import (
     crypto,
     rekey,
@@ -113,8 +115,10 @@ def create_app() -> FastAPI:
     app.include_router(medrec_router)
     app.include_router(discharge_router)
     app.include_router(audit_router)
+    app.include_router(compliance_router)
     app.include_router(feedback_router)
     app.include_router(consult_router)
+    app.include_router(consult_ws_router)
     app.include_router(journey_router)
     app.include_router(orgs_router)
     app.include_router(public_router)

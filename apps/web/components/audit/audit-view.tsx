@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { FileClock, Filter, OctagonAlert, RefreshCw, ShieldOff } from "lucide-react";
+import { Download, FileClock, Filter, OctagonAlert, RefreshCw, ShieldCheck, ShieldOff } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AuditEntry, AuditMetrics, BedRow } from "@/lib/api";
+import { api, downloadFile, type ChainStatus } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { dayOf, fmtDateTime, ROLE_LABEL } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
@@ -106,6 +107,15 @@ const ACTION_LABEL: Record<string, string> = {
   "impacto.linha_de_base": "Linha de base de tempo informada (Impacto)",
   "gestao.resumo_semanal": "Resumo semanal da gestão gerado",
   "gestao.erro_llm": "Erro do LLM no resumo da gestão",
+  "consulta.quebra_de_vidro": "Acesso por quebra de vidro (consulta sem vínculo, com justificativa)",
+  "consulta.acesso_negado": "Acesso à consulta negado (médico sem vínculo)",
+  "consulta.nota_visualizada": "Nota da consulta visualizada",
+  "consulta.documento_visualizado": "Documento da consulta visualizado",
+  "paciente.visualizado": "Paciente aberto",
+  "paciente.timeline_visualizada": "Linha do tempo do paciente visualizada",
+  "audit.cadeia_verificada": "Cadeia de integridade da auditoria verificada",
+  "audit.exportado": "Auditoria exportada (JSON ou CSV assinado)",
+  "compliance.dossie_gerado": "Dossiê de conformidade gerado",
 };
 
 const FILTERS = [
@@ -123,6 +133,9 @@ const FILTERS = [
   { value: "impacto.", label: "Painel Impacto" },
   { value: "gestao.", label: "Painel de gestão" },
   { value: "auth.", label: "Logins" },
+  { value: "paciente.", label: "Leituras de prontuário" },
+  { value: "consulta.quebra_de_vidro", label: "Quebras de vidro" },
+  { value: "audit.", label: "Verificações e exportações da auditoria" },
 ];
 
 const isoDay = (d: Date) => dayOf(d.toISOString()); // data local (America/Sao_Paulo)
@@ -147,6 +160,59 @@ function PercentTile({ label, value, hint }: { label: string; value: number | nu
       <p className="mt-1 text-3xl font-bold leading-none">{value == null ? "—" : `${Math.round(value * 100)}%`}</p>
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+function IntegrityCard({ since, until }: { since: string; until: string }) {
+  const [status, setStatus] = useState<ChainStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha na operação");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck aria-hidden className="size-5 text-primary" /> Integridade e exportação
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Cada registro guarda o hash do anterior. Alterar ou apagar uma linha quebra a cadeia e a verificação aponta a primeira linha afetada.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={busy} onClick={() => void run(async () => setStatus(await api<ChainStatus>("/audit/verify")))}>
+            <ShieldCheck aria-hidden /> Verificar cadeia
+          </Button>
+          <Button variant="outline" disabled={busy} onClick={() => void run(() => downloadFile(`/audit/export?formato=csv&since=${since}&until=${until}`, "auditoria-housia.csv"))}>
+            <Download aria-hidden /> Exportar CSV
+          </Button>
+          <Button variant="outline" disabled={busy} onClick={() => void run(() => downloadFile(`/audit/export?formato=json&since=${since}&until=${until}`, "auditoria-housia.json"))}>
+            <Download aria-hidden /> Exportar JSON assinado
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/conformidade">Dossiê de conformidade</Link>
+          </Button>
+        </div>
+        {error && <Alert variant="critico">{error}</Alert>}
+        {status && (
+          <Alert variant={status.integra ? "ok" : "critico"} role="status">
+            {status.integra
+              ? `Cadeia íntegra: ${status.encadeadas} registro(s) encadeado(s), ${status.anteriores_ao_encadeamento} anterior(es) ao encadeamento.`
+              : `Cadeia QUEBRADA no registro ${status.primeira_quebra?.id}: ${status.primeira_quebra?.motivo}.`}
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -198,6 +264,12 @@ function summarize(e: AuditEntry): string {
       return `${p.momento}: ${(p.antes as { score?: number } | null)?.score ?? "—"} → ${(p.depois as { score?: number }).score} pontos`;
     case "impacto.linha_de_base":
       return `${p.setor}: ${p.minutos_antes} min por atendimento antes do HousIA`;
+    case "consulta.quebra_de_vidro":
+      return `“${p.motivo}” (vale até ${p.valido_ate})`;
+    case "audit.exportado":
+      return `${p.formato} · ${p.linhas} linha(s) · SHA-256 ${String(p.arquivo_sha256 ?? "").slice(0, 12)}…`;
+    case "audit.cadeia_verificada":
+      return p.integra ? `íntegra (${p.total} registros)` : `QUEBRADA no registro ${p.primeira_quebra}`;
     case "alerta.reaberto":
       return `${p.titulo ?? ""} — agora ${p.severidade === "critico" ? "crítico" : p.severidade}`;
     default:
@@ -276,6 +348,8 @@ export function AuditView() {
           </div>
         </CardContent>
       </Card>
+
+      <IntegrityCard since={since} until={until} />
 
       <section aria-label="Métricas do período" className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {!m ? (

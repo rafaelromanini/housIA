@@ -1814,3 +1814,34 @@ export interface PreConsulta {
   modo_resumo: "regras" | "ia" | null;
   aviso: string;
 }
+
+// ---------- Integridade da auditoria e dossiê de conformidade (#53) ----------
+export interface ChainStatus {
+  integra: boolean;
+  total: number;
+  encadeadas: number;
+  anteriores_ao_encadeamento: number;
+  primeira_quebra: { id: number; motivo: string } | null;
+  cabeca: string | null;
+  limite: string;
+}
+
+export interface Dossie {
+  versao: string;
+  atualizado_em: string;
+  aviso: string;
+  ropa: { id: string; operacao: string; dados: string; finalidade: string; base_legal: string; retencao: string; operadores: string[]; revisao_juridica?: boolean }[];
+  ripd: { escopo: string; fluxo: string; riscos: { risco: string; medida: string; residual: string }[]; pendencias: string[] };
+  matriz: { norma: string; artigo: string; exigencia: string; controle: string; status: "implementado" | "parcial" | "nao_implementado"; codigo: string[]; testes: string[]; revisao_juridica?: boolean }[];
+  resumo_matriz: Record<string, number>;
+  precisa_revisao_juridica: string[];
+  calculado: {
+    gerado_em: string;
+    retencao: { configurada: boolean; transcricao_dias_por_tipo: Record<string, number | null>; audit_log: string };
+    cadeia_audit_log: { integra: boolean; total: number; encadeadas: number; anteriores_ao_encadeamento: number; primeira_quebra: { id: number; motivo: string } | null };
+    acessos_quebra_de_vidro: { total: number; ultimos_90_dias: number };
+    criptografia_de_campo: boolean;
+    provedor_de_llm: { modo: string; provedor: string | null; modelo: string | null; regiao: string | null };
+    suboperadores_ativos: string[];
+  };
+}

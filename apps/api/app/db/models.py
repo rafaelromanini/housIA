@@ -217,6 +217,10 @@ class AuditLog(Tenant, Base):
     entity_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     payload_json: Mapped[dict] = mapped_column(JsonType, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    # Cadeia à prova de adulteração (#53), uma por organização: hash = HMAC(prev_hash + conteúdo canônico).
+    # Linhas anteriores ao encadeamento ficam com os dois campos vazios (app/audit/chain.py).
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class AIFeedback(Tenant, Base):

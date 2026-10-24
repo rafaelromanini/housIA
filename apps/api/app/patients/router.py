@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.audit.service import log_leitura
 from app.auth.deps import get_current_user, require_roles
 from app.db.models import User
 from app.db.session import get_db
@@ -50,9 +51,10 @@ def get_patient(
     patient_id: str,
     db: Session = Depends(get_db),
     fhir: FhirSource = Depends(get_fhir),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> dict:
     record = load_record(fhir, patient_id)
+    log_leitura(db, user, "paciente.visualizado", "patient", record.id, {"patient_id": record.id})  # #53
     sector = record.current_sector
     ctx = build_context(record)
     return {
@@ -121,10 +123,12 @@ def get_timeline(
     kinds: str | None = Query(None, description=f"Filtro por tipo, separado por vírgula: {', '.join(KINDS)}"),
     since: datetime | None = None,
     fhir: FhirSource = Depends(get_fhir),
-    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[ClinicalEvent]:
     """Eventos em ordem cronológica crescente; cada um traz `source_ref` (recurso FHIR de origem)."""
     record = load_record(fhir, patient_id)
+    log_leitura(db, user, "paciente.timeline_visualizada", "patient", record.id, {"patient_id": record.id})  # #53
     events = build_timeline(record)
     if kinds:
         wanted = {k.strip() for k in kinds.split(",") if k.strip()}
