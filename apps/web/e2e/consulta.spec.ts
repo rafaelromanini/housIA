@@ -65,7 +65,7 @@ test("consulta com IA: transcrição ao vivo, perguntas em tempo real, Smart App
   await expect(page.getByText("Nota da consulta para revisão")).toBeVisible();
   // painel "Fora da nota": cobertura calculada e botão para incluir a fala
   await expect(page.getByTestId("cobertura-nota")).toContainText(/\d+ de \d+ falas clínicas citadas/);
-  await page.getByLabel("Plano").fill("Suspender ibuprofeno e glibenclamida; reduzir metformina; retorno em 2 semanas.");
+  await page.getByRole("textbox", { name: /Plano/ }).fill("Suspender ibuprofeno e glibenclamida; reduzir metformina; retorno em 2 semanas.");
   await approveAndSend(page);
 });
 
