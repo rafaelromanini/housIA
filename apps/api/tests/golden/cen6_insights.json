@@ -561,6 +561,7 @@
    "Nega falta de ar"
   ]
  },
+ "autorizacoes": [],
  "cirurgia": [
   {
    "origem": "regra",
@@ -659,6 +660,7 @@
  ],
  "comunicacao": {
   "falas": 30,
+  "falas_incertas": 0,
   "palavras_paciente_pct": 59,
   "palavras_profissional_pct": 41,
   "perguntas_abertas": 1,
