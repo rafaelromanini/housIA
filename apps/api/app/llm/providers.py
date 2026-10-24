@@ -16,6 +16,7 @@ import ipaddress
 import json
 import re
 import socket
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -106,6 +107,18 @@ def _interno(ip: ipaddress._BaseAddress) -> bool:
     )
 
 
+def _normalizar_host(host: str) -> str:
+    """Forma canônica do host: NFKC (dígitos largos), sem ponto final e com IPv4 abreviado/decimal/hex expandido
+    ("127.1", "2130706433", "0x7f.0.0.1" -> "127.0.0.1"), do jeito que o resolvedor da rede leria."""
+    h = unicodedata.normalize("NFKC", host).lower().rstrip(".")
+    if h and re.fullmatch(r"[0-9a-fx.]+", h) and any(c.isdigit() for c in h):
+        try:
+            return str(ipaddress.IPv4Address(socket.inet_aton(h)))
+        except (OSError, ValueError):
+            pass
+    return h
+
+
 def _analisar_url(url: str) -> tuple[str | None, str | None]:
     """(host, erro). Valida só o que se sabe sem rede."""
     try:
@@ -118,7 +131,7 @@ def _analisar_url(url: str) -> tuple[str | None, str | None]:
         return None, "LLM_BASE_URL precisa começar com http:// ou https://"
     if parts.username or parts.password:
         return None, "LLM_BASE_URL não pode levar usuário e senha (use LLM_API_KEY)"
-    return host.lower(), None
+    return _normalizar_host(host), None
 
 
 def checar_url_estatica(url: str, on_premise: bool) -> str | None:
@@ -136,35 +149,60 @@ def checar_url_estatica(url: str, on_premise: bool) -> str | None:
     # provedor externo: só https e nunca rede interna
     if urlsplit(url).scheme != "https":
         return "provedor externo exige https:// em LLM_BASE_URL (para http use LLM_ON_PREMISE=true em servidor local)"
-    if host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa")):
+    nomes_internos = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".svc", ".cluster.local", ".corp")
+    if host == "localhost" or host.endswith(nomes_internos) or (ip is None and "." not in host):
         return "LLM_BASE_URL aponta para nome interno; com provedor externo isso é bloqueado (SSRF)"
     if ip is not None and _interno(ip):
         return "LLM_BASE_URL aponta para endereço interno; com provedor externo isso é bloqueado (SSRF)"
     return None
 
 
-def checar_destino(url: str, on_premise: bool) -> None:
-    """Na hora da chamada: estática + resolve o nome (DNS para rede interna, ou para fora no local)."""
+def checar_destino(url: str, on_premise: bool) -> list[str]:
+    """Na hora da chamada: estática + resolve o nome (DNS para rede interna, ou para fora no local).
+
+    Devolve os IPs validados do nome (vazio se o host já é IP ou o DNS falhou), para a requisição conectar neles e não
+    resolver de novo (DNS rebinding: o nome não pode responder um IP seguro na checagem e outro na conexão)."""
     erro = checar_url_estatica(url, on_premise)
     if erro:
         raise LLMError(f"Destino da IA recusado: {erro}.")
     host, _ = _analisar_url(url)
     if host is None or _ip(host) is not None:
-        return
+        return []
     try:
-        resolvidos = {i[4][0] for i in socket.getaddrinfo(host, None)}
+        resolvidos = sorted({i[4][0] for i in socket.getaddrinfo(host, None)}, key=lambda x: (":" in x, x))
     except OSError:
-        return  # sem DNS: a própria requisição falha com erro de conexão
+        return []  # sem DNS: a própria requisição falha com erro de conexão
+    validos: list[str] = []
     for r in resolvidos:
         ip = _ip(r.split("%")[0])
         if ip is None:
             continue
+        validos.append(str(ip))
         if str(ip) in _METADADOS:
             raise LLMError("Destino da IA recusado: o nome resolve para metadados de nuvem.")
         if not on_premise and _interno(ip):
             raise LLMError("Destino da IA recusado: o nome resolve para endereço interno (provedor externo).")
         if on_premise and not _interno(ip):
             raise LLMError("Destino da IA recusado: LLM_ON_PREMISE=true, mas o nome resolve para IP público.")
+    return validos
+
+
+def fixar_destino(url: str, ips: list[str]) -> tuple[str, dict[str, str], dict[str, str]]:
+    """(url com o IP validado, cabeçalhos extras, extensões do httpx) para conectar sem nova resolução de DNS.
+    O Host e o SNI continuam com o nome, então o certificado TLS segue sendo conferido contra o nome."""
+    parts = urlsplit(url)
+    host = parts.hostname
+    if not ips or not host or _ip(host) is not None:
+        return url, {}, {}
+    ip = ips[0]
+    netloc = f"[{ip}]" if ":" in ip else ip
+    if parts.port:
+        netloc += f":{parts.port}"
+    return (
+        parts._replace(netloc=netloc).geturl(),
+        {"Host": parts.netloc},
+        {"sni_hostname": host.encode("idna").decode("ascii")},
+    )
 
 
 def problemas_config(s: Settings) -> list[str]:
@@ -229,9 +267,10 @@ class OpenAICompatProvider:
             "prompt": ["prompt"],
         }[s.llm_structured]
         self.modo_usado: str | None = None
+        self._ips: list[str] = []
 
     def complete(self, system: str, messages: list[dict], schema: dict, effort: str | None = None) -> str:
-        checar_destino(self.s.llm_base_url.strip(), self.s.llm_on_premise)
+        self._ips = checar_destino(self.s.llm_base_url.strip(), self.s.llm_on_premise)
         ultimo: Exception | None = None
         for modo in self._modos:
             try:
@@ -263,9 +302,13 @@ class OpenAICompatProvider:
         if s.llm_api_key.strip():
             headers["Authorization"] = f"Bearer {s.llm_api_key.strip()}"
         url = s.llm_base_url.strip().rstrip("/") + "/chat/completions"
+        extensoes: dict[str, str] = {}
+        if self.transport is None:  # em produção conecta no IP já validado (testes injetam o transporte)
+            url, extra_h, extensoes = fixar_destino(url, self._ips)
+            headers |= extra_h
         try:
             with httpx.Client(transport=self.transport, timeout=s.llm_timeout_s, follow_redirects=False) as http:
-                resp = http.post(url, json=corpo, headers=headers)
+                resp = http.post(url, json=corpo, headers=headers, extensions=extensoes)
         except httpx.TimeoutException as exc:
             raise LLMError("A IA demorou demais para responder. Tente novamente.") from exc
         except httpx.HTTPError as exc:

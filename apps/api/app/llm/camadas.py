@@ -83,16 +83,38 @@ _NUMEXT = (
 )
 NUMEXT_RE = rf"{_NUMEXT}(?:\s+e\s+{_NUMEXT})*"
 
+# dígitos ditos por extenso ("meia" = seis): telefone, CPF e CNS ditados número a número
+_DIGITO_EXT = r"(?:zero|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|meia|sete|oito|nove)"
+_ITEM_DIGITADO = rf"(?:{_DIGITO_EXT}|\d)"
+_SEP_DIGITADO = r"(?:\s*(?:,|-|\.|\bponto\b|\btra[cç]o\b|\bh[ií]fen\b)\s*|\s+(?:e\s+)?)"
+_DIGITADO = rf"(?i:\b{_ITEM_DIGITADO}(?:{_SEP_DIGITADO}{_ITEM_DIGITADO}){{6,}}\b)"
+
 _REGEX: list[tuple[str, re.Pattern, int]] = [
     ("EMAIL", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b"), 0),
-    ("CNS", re.compile(r"(?<![\d.-])\d{3}\s?\d{4}\s?\d{4}\s?\d{4}(?![\d-])"), 0),
-    ("CPF", re.compile(r"(?<![\d.-])\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?![\d-])"), 0),
+    # e-mail ofuscado: "joao arroba gmail ponto com", "maria(at)gmail.com", "maria [at] gmail [dot] com"
+    (
+        "EMAIL",
+        re.compile(
+            r"(?i:\b[\w.+-]+\s*(?:\(\s*at\s*\)|\[\s*at\s*\]|\{\s*at\s*\}|\s+arroba\s+|\s+at\s+)\s*[\w-]+"
+            r"(?:\s*(?:\.|\(\s*dot\s*\)|\[\s*dot\s*\]|\s+ponto\s+|\s+dot\s+)\s*[\w-]+)+\b)"
+        ),
+        0,
+    ),
+    ("CNS", re.compile(r"(?<![\w/.-])\d{3}\s?\d{4}\s?\d{4}\s?\d{4}(?![\d-])"), 0),
+    ("CPF", re.compile(r"(?<![\w/.-])\d{3}[.\s]?\d{3}[.\s]?\d{3}[-.\s]?\d{2}(?![\d-])"), 0),
+    ("DOC", re.compile(_DIGITADO), 0),
     ("CEP", re.compile(r"(?i:\bcep\b)[\s:nº.°-]*\d{5}-?\d{3}\b|(?<![\d-])\d{5}-\d{3}(?![\d-])"), 0),
     (
         "TELEFONE",
+        # só formatos de telefone: um "5000 7500" de dose ou um id "1234-5678" de referência FHIR não pode virar token
         re.compile(
-            r"(?<![\d-])(?:\+?55[\s.-]?)?(?:\(?\d{2}\)?[\s.-]?)?9?\d{4}[\s.-]\d{4}(?![\d-])"
-            r"|(?<![\d.-])\(?\d{2}\)?\s?9\d{8}(?!\d)"
+            r"(?<![\w/.-])(?:\+?55[\s.-]?)\(?\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}(?![\d-])"  # com +55
+            r"|(?<![\w/.-])\(\d{2}\)\s?9?\d{4}[\s.-]?\d{4}(?![\d-])"  # (DDD) xxxx-xxxx
+            r"|(?<![\w/.-])\d{2}[\s.-]?9[\s.-]?\d{4}[\s.-]?\d{4}(?![\d-])"  # DDD + celular (também "11 9 8765 4321")
+            r"|(?<![\w/.-])\d{2}[\s.-][2-5]\d{3}[\s.-]\d{4}(?![\d-])"  # DDD + fixo com separador
+            r"|(?<![\w/.-])9?\d{4}-\d{4}(?![\d-])"  # xxxx-xxxx
+            r"|(?<![\w/.-])9\d{4}[\s.]\d{4}(?![\d-])"  # celular sem DDD
+            r"|(?<![\w/.-])\(?\d{2}\)?\s?9\d{8}(?!\d)"
         ),
         0,
     ),
@@ -100,7 +122,8 @@ _REGEX: list[tuple[str, re.Pattern, int]] = [
         "NASC",
         re.compile(
             r"(?i:\b(?:nasc(?:eu|i|ido|ida|imento)?|d\.?\s?n\.?)\b)[\s:,]*(?i:(?:em|de|dia|é|foi)\s+)?"
-            r"(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{1,2}\s+de\s+[a-zç]+\s+de\s+\d{4})",
+            r"(\d{1,2}[/.\-\s]\d{1,2}[/.\-\s]\d{2,4}|\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}|"
+            r"\d{1,2}\s+de\s+[a-zç]+\s+de\s+\d{4}|\d{1,2}\s+de\s+[a-zç]+\s+\d{4})",
             re.IGNORECASE,
         ),
         1,
@@ -115,7 +138,7 @@ _REGEX: list[tuple[str, re.Pattern, int]] = [
     ),
 ]
 _CPF_PURO = re.compile(r"^\d{11}$")
-_PURO11 = re.compile(r"(?<![\d.-])\d{11}(?!\d)")
+_PURO11 = re.compile(r"(?<![\w/.-])\d{11}(?![\w-])")
 
 
 # ---------------- camada 3: regras ----------------
@@ -140,8 +163,11 @@ _STOP_FORTE = {
     "que", "de", "do", "da", "um", "uma", "o", "a", "e", "muito", "bem", "mal", "assim", "isso", "essa", "esse",
     "por", "para", "pra", "com", "sem", "nao", "não", "sim", "ja", "já", "tambem", "também", "mais", "menos",
 }  # fmt: skip
-_FORTE_RE = re.compile(rf"(?i:\b(?:{_FORTES}))\s+(?:(?i:d[aeo]s?)\s+)?({_PALAVRA}{_RESTO_NOME})")
-_FRACO_RE = re.compile(rf"(?i:\b(?:{_FRACOS}))\s+(?:(?i:d[aeo])\s+)?({_PALAVRA}{_RESTO_NOME})")
+# o gatilho captura só a primeira palavra; o fim do nome é decidido por _fim_do_nome sobre o texto original, para que
+# um segundo gatilho logo adiante ("dona Rosa e dona Rosa") não seja engolido pelo primeiro
+_FORTE_RE = re.compile(rf"(?i:\b(?:{_FORTES}))\s+(?:(?i:d[aeo]s?)\s+)?({_PALAVRA})")
+_FRACO_RE = re.compile(rf"(?i:\b(?:{_FRACOS}))\s+(?:(?i:d[aeo])\s+)?({_PALAVRA})")
+_NOME_RE = re.compile(rf"{_PALAVRA}{_RESTO_NOME}")
 
 _VIA = r"(?i:rua|r\.|avenida|av\.?|alameda|travessa|tv\.|pra[çc]a|rodovia|estrada|largo|beco|viela|quadra|bairro)"
 _NUMERO = (
@@ -157,11 +183,16 @@ _PALAVRA_RE = re.compile(_PALAVRA)
 _PARTICULA_SET = {"da", "das", "de", "do", "dos", "e"}
 
 
-def _em_token(texto: str, ini: int, fim: int) -> bool:
-    """A palavra está dentro de um colchete ([PACIENTE], [NOME_1])?"""
-    return (
-        (ini > 0 and texto[ini - 1] == "[") or (fim < len(texto) and texto[fim] in "]_") or texto[ini - 1 : ini] == "_"
-    )
+_TOKEN_ANY = re.compile(r"\[[A-Za-z]{3,12}(?:[_ \-]?\d{1,4})?\]")
+
+
+def _spans_tokens(texto: str) -> list[tuple[int, int]]:
+    return [m.span() for m in _TOKEN_ANY.finditer(texto)]
+
+
+def _em_token(spans: list[tuple[int, int]], ini: int, fim: int) -> bool:
+    """A palavra está DENTRO de um token de verdade ([PACIENTE], [NOME_1])? "[Maria Silva]" não é token."""
+    return any(a <= ini and fim <= b for a, b in spans)
 
 
 class Escudo:
@@ -174,6 +205,7 @@ class Escudo:
         self._n: dict[str, int] = {}
         self.contagem = {"estruturado": 0, "regex": 0, "regras_ner": 0}
         extras = list(nomes_conhecidos or []) + list(nomes_registrados())
+        self._vistos: set[str] = set()
         self._conhecidos = {norm(p) for n in extras for p in n.split() if len(p) >= 3 and norm(p) not in _PARTICULA_SET}
 
     # ---- tokens ----
@@ -237,29 +269,37 @@ class Escudo:
         return palavra[:1].isupper() or n in firmes or n in ambiguos or n in self._conhecidos
 
     def _gatilhos(self, texto: str) -> str:
-        def troca_fn(forte: bool):
-            def troca(m: re.Match) -> str:
-                nome = m.group(1)
-                primeira = _PALAVRA_RE.match(nome)
-                if not primeira or _em_token(texto, m.start(1), m.start(1) + len(primeira.group(0))):
-                    return m.group(0)
-                if not self._valida_nome(primeira.group(0), forte):
-                    return m.group(0)
-                # "seu médico", "dona de casa": palavra comum minúscula fora do dicionário não é nome
-                if (
-                    not forte
-                    and primeira.group(0)[:1].islower()
-                    and norm(primeira.group(0)) not in self._firmes_ou_amb()
-                ):
-                    return m.group(0)
-                fim = self._fim_do_nome(nome)
-                tok = self._token("NOME", nome[:fim], "regras_ner")
-                return m.group(0)[: m.start(1) - m.start()] + tok + nome[fim:]
+        texto = self._varrer(texto, _FORTE_RE, True)
+        return self._varrer(texto, _FRACO_RE, False)
 
-            return troca
+    def _varrer(self, texto: str, rx: re.Pattern, forte: bool) -> str:
+        spans = _spans_tokens(texto)
+        saida: list[str] = []
+        pos = i = 0
+        while (m := rx.search(texto, i)) is not None:
+            ini, fim_primeira = m.span(1)
+            i = m.end()
+            primeira = m.group(1)
+            if _em_token(spans, ini, fim_primeira) or not self._valida_nome(primeira, forte):
+                continue
+            # "seu médico", "dona de casa": palavra comum minúscula fora do dicionário não é nome
+            if not forte and primeira[:1].islower() and norm(primeira) not in self._firmes_ou_amb():
+                continue
+            nome_m = _NOME_RE.match(texto, ini)
+            nome = nome_m.group(0) if nome_m else primeira
+            fim = ini + self._fim_do_nome(nome)
+            saida += [texto[pos:ini], self._token("NOME", texto[ini:fim], "regras_ner")]
+            pos = i = fim
+            self._lembrar(texto[ini:fim])
+        saida.append(texto[pos:])
+        return "".join(saida)
 
-        texto = _FORTE_RE.sub(troca_fn(True), texto)
-        return _FRACO_RE.sub(troca_fn(False), texto)
+    def _lembrar(self, nome: str) -> None:
+        """Nome dito com título vale para as outras menções (sem título) da mesma chamada."""
+        for p in _PALAVRA_RE.findall(nome):
+            n = norm(p)
+            if len(n) >= 3 and n not in _PARTICULA_SET:
+                self._vistos.add(n)
 
     def _fim_do_nome(self, nome: str) -> int:
         """Onde o nome acaba: a primeira palavra vale; as seguintes só se forem capitalizadas ou do dicionário."""
@@ -290,7 +330,8 @@ class Escudo:
 
     def _dicionario(self, texto: str) -> str:
         firmes, ambiguos = dicionario()
-        palavras = [m for m in _PALAVRA_RE.finditer(texto) if not _em_token(texto, m.start(), m.end())]
+        spans = _spans_tokens(texto)
+        palavras = [m for m in _PALAVRA_RE.finditer(texto) if not _em_token(spans, m.start(), m.end())]
 
         def qualifica(m: re.Match) -> int:
             """0 não é nome; 1 nome firme; 2 só vale ao lado de outro nome (ambíguo)."""
@@ -302,6 +343,8 @@ class Escudo:
                 return 1  # conhecido do prontuário vale em qualquer caixa
             if not (w[:1].isupper()):
                 return 0
+            if n in self._vistos:
+                return 1  # já apareceu como nome nesta chamada ("dona Rosa" ... "Rosa disse")
             if n in firmes:
                 return 1
             if n in ambiguos:
@@ -326,6 +369,16 @@ class Escudo:
                     ]
                     if viz:
                         usar[i] = mudou = True
+        # sobrenome fora do dicionário colado a um nome firme ("Ana D'Ávila"): até 2 palavras capitalizadas depois
+        for i, v in enumerate(marcas):
+            if v != 1 or not usar[i]:
+                continue
+            for j in (i + 1, i + 2):
+                if j >= len(palavras) or marcas[j] != 0 or not palavras[j].group(0)[:1].isupper():
+                    break
+                if len(norm(palavras[j].group(0))) < 3 or not self._colado(texto, palavras, j - 1, j):
+                    break
+                usar[j] = True
         # junta runs contíguos
         runs: list[tuple[int, int]] = []
         i = 0

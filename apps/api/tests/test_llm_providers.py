@@ -329,3 +329,129 @@ def test_dossie_mostra_provedor_ativo_e_fluxo_sem_afirmar_conformidade(client, a
     assert "conforme" not in d["pseudonimizacao"].lower().replace("conformidade", "")
     md = client.get("/compliance/dossie", params={"formato": "md"}, headers=auth("gestor")).text
     assert "Fluxo de dados da IA" in md and "openai_compat" in md
+
+
+# ---------- verificação #54 ----------
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://127.1/v1",  # IPv4 abreviado
+        "https://2130706433/v1",  # decimal
+        "https://0x7f.0.0.1/v1",  # hexadecimal
+        "https://017700000001/v1",  # octal
+        "https://１２７.0.0.1/v1",  # dígitos largos (NFKC)
+        "https://localhost./v1",  # ponto final
+        "https://intranet/v1",  # nome de rótulo único
+        "https://kubernetes.default.svc/v1",
+        "https://[64:ff9b::7f00:1]/v1",
+        "https://100.100.100.200/v1",
+    ],
+)
+def test_verificacao_54_hosts_ofuscados_sao_barrados_na_configuracao(cfg, url):
+    monkey = providers.checar_url_estatica(url, False)
+    assert monkey, url
+
+
+def test_verificacao_54_host_numerico_curto_nao_e_local_publico_no_on_premise():
+    assert providers.checar_url_estatica("http://0x08080808:8000/v1", True)  # 8.8.8.8 disfarçado
+    assert providers.checar_url_estatica("http://127.1:8000/v1", True) is None
+
+
+def test_verificacao_54_conexao_fixa_no_ip_validado_contra_dns_rebinding(cfg, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("8.8.4.4", 0))])
+    ips = providers.checar_destino(BASE, False)
+    assert ips == ["8.8.4.4"]
+    url, extra, ext = providers.fixar_destino(BASE + "/chat/completions", ips)
+    assert url == "https://8.8.4.4/v1/chat/completions"
+    assert extra == {"Host": "llm.exemplo.test"} and ext == {"sni_hostname": "llm.exemplo.test"}
+    v6 = providers.fixar_destino("https://llm.exemplo.test:8443/v1/x", ["2606:4700::1111"])
+    assert v6[0] == "https://[2606:4700::1111]:8443/v1/x" and v6[1] == {"Host": "llm.exemplo.test:8443"}
+    # host que já é IP não muda
+    assert providers.fixar_destino("http://10.0.0.5:8000/v1", ["10.0.0.5"]) == ("http://10.0.0.5:8000/v1", {}, {})
+
+
+def test_verificacao_54_redirect_nao_e_seguido_e_chave_nao_vai_para_o_erro(cfg, monkeypatch):
+    srv = servir(monkeypatch, httpx.Response(302, headers={"location": "http://10.0.0.5/steal"}))
+    with pytest.raises(LLMError) as exc:
+        gerar()
+    assert len(srv.pedidos) == 1 and "chave-sintetica" not in str(exc.value)
+    assert "10.0.0.5" not in str(exc.value)
+
+
+def test_verificacao_54_resposta_aninhada_e_reidentificada_e_valida_no_schema(cfg, monkeypatch):
+    corpo = json.dumps(
+        {
+            "frases": [
+                {"texto": '[NOME_1] mora em [ENDERECO_1]; "aspas" e\nquebra', "refs": ["Fala/1", "Observation/9"]},
+                {"texto": "ligar para [TELEFONE_1] ou falar com [NOME_1]", "refs": ["Fala/2"]},
+                {"texto": "[NOME_42] e [cpf 9] viram omitido", "refs": []},
+            ]
+        }
+    )
+    srv = servir(monkeypatch, completion(corpo))
+    vars_ = dict(VARS, pergunta=FALA + " Ligue 11 91234-5678")
+    res = generate_structured("consult_ask", vars_, AskOutput, mock=lambda v: {})
+    f = res.output.frases
+    assert f[0].texto.startswith("Cláudia mora em Rua das Flores") and "\nquebra" in f[0].texto
+    assert f[0].refs == ["Fala/1", "Observation/9"] and f[1].refs == ["Fala/2"]  # citações intactas
+    assert "11 91234-5678" in f[1].texto and "Cláudia" in f[1].texto
+    assert f[2].texto.count("[dado omitido]") == 2
+    enviado = json.dumps(srv.corpo(), ensure_ascii=False)
+    assert "91234" not in enviado and "Cláudia" not in enviado
+
+
+def test_verificacao_54_log_e_mensagem_de_reparo_nao_levam_pii(cfg, monkeypatch, caplog):
+    # o 1º retorno falha no schema com o valor (já reidentificado) no "input" do erro do Pydantic
+    ruim = json.dumps({"frases": [{"texto": ["[NOME_1] mora em [ENDERECO_1]"], "refs": []}]})
+    srv = servir(monkeypatch, completion(ruim), completion(ok_json()))
+    with caplog.at_level("DEBUG"):
+        gerar()
+    log = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Cláudia" not in log and "Flores" not in log
+    reparo = json.dumps(srv.corpo(1), ensure_ascii=False)
+    assert "Cláudia" not in reparo and "Flores" not in reparo
+
+
+def test_verificacao_54_chave_da_api_nao_aparece_no_recibo_nem_no_log(cfg, monkeypatch, caplog):
+    servir(monkeypatch, httpx.Response(500))
+    recibo.iniciar()
+    with caplog.at_level("DEBUG"), pytest.raises(LLMError):
+        gerar()
+    tudo = json.dumps(recibo.ultimo.get(), ensure_ascii=False) + "\n".join(r.getMessage() for r in caplog.records)
+    assert "chave-sintetica" not in tudo and "Cláudia" not in tudo
+
+
+def test_verificacao_54_recibos_nao_vazam_entre_requisicoes_concorrentes(cfg, monkeypatch):
+    import asyncio
+
+    servir(monkeypatch, completion(ok_json()))
+
+    async def requisicao(i: int):
+        recibo.iniciar()
+        fila = recibo._pendentes.get()
+        await asyncio.sleep(0.01 * (3 - i))
+        await asyncio.to_thread(gerar)  # to_thread copia o contexto: a thread grava na fila DESTA requisição
+        await asyncio.sleep(0.01)
+        return fila, recibo._pendentes.get()
+
+    async def main():
+        return await asyncio.gather(*(asyncio.create_task(requisicao(i)) for i in range(3)))
+
+    resultados = asyncio.run(main())
+    filas = [id(f) for f, _ in resultados]
+    assert len(set(filas)) == 3
+    for fila, atual in resultados:
+        assert fila is atual and len(fila) == 1
+
+
+def test_verificacao_54_pool_de_threads_leva_o_contexto_do_recibo(cfg, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.consult.ai import submit_em_contexto
+
+    servir(monkeypatch, completion(ok_json()))
+    recibo.iniciar()
+    fila = recibo._pendentes.get()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        [f.result() for f in [submit_em_contexto(pool, gerar), submit_em_contexto(pool, gerar)]]
+    assert len(fila) == 2

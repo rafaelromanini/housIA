@@ -86,6 +86,8 @@ def _anthropic() -> anthropic.Anthropic:
                 api_key=settings.anthropic_api_key or None,
                 timeout=settings.llm_timeout_s,
                 max_retries=1,
+                # sem redirecionamento: um 3xx do endpoint não pode levar o texto (e a chave) para outro destino
+                http_client=anthropic.DefaultHttpxClient(follow_redirects=False),
                 **extra,
             )
         return _client
@@ -190,7 +192,12 @@ def generate_structured[T: BaseModel](
             estado["resultado"] = "ok"
             return _resultado(out, settings, prompt, prov, escudo, False)
         except ValidationError as first_error:
-            logger.warning("Saída inválida do LLM em %s; tentando reparo: %s", prompt_name, first_error.errors()[:3])
+            # só tipo e caminho do campo: o "input" do erro do Pydantic traz o valor reidentificado (PII)
+            logger.warning(
+                "Saída inválida do LLM em %s; tentando reparo: %s",
+                prompt_name,
+                [{"type": e["type"], "loc": e["loc"]} for e in first_error.errors()[:3]],
+            )
             estado["reparado"] = True
             erros = json.dumps(
                 [{k: v for k, v in e.items() if k in ("type", "loc", "msg")} for e in first_error.errors()[:5]],
@@ -203,7 +210,8 @@ def generate_structured[T: BaseModel](
                     "role": "user",
                     "content": (
                         "A resposta anterior não passou na validação do schema. Erros: "
-                        f"{erros}. Devolva o JSON completo corrigido, sem texto adicional."
+                        f"{escudo.proteger(erros, contar_estruturado=False)}. "
+                        "Devolva o JSON completo corrigido, sem texto adicional."
                     ),
                 },
             ]

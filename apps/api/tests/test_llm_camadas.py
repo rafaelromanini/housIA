@@ -149,3 +149,63 @@ def test_dicionario_e_sintetico_publico_e_sem_colisao_clinica():
     assert not (firmes & palavras), sorted(firmes & palavras)
     linhas = [ln for ln in (raiz / "nomes_br.csv").read_text(encoding="utf-8").splitlines() if not ln.startswith("#")]
     assert [r["tipo"] for r in csv.DictReader(linhas)]  # cabeçalho válido
+
+
+# ---------- verificação #54: entradas adversariais novas ----------
+VERIFICACAO = [
+    # nome entre colchetes ou com sublinhado NÃO é token: não pode escapar da camada
+    ("[Maria Silva] veio com o marido", ["Maria", "Silva"], ["veio com o marido"]),
+    ("Maria_Silva chegou", ["Maria", "Silva"], ["chegou"]),
+    # CPF com espaços e com pontuação mista
+    ("CPF 123 456 789 00 e também 123.456.789.00", ["123 456 789 00", "123.456.789.00"], ["CPF", "e também"]),
+    # telefone com DDD e nono dígito separados
+    ("liga no 11 9 8765 4321 depois das 18h", ["8765 4321"], ["liga no", "depois das 18h"]),
+    # número ditado dígito a dígito ("meia" = seis)
+    ("o telefone é nove oito sete meia cinco quatro três dois um", ["nove oito sete meia"], ["o telefone é"]),
+    # e-mail ofuscado
+    ("escreve pra joao arroba gmail ponto com ou maria(at)gmail.com", ["joao arroba", "maria(at)"], ["escreve pra"]),
+    # data de nascimento em ISO, com espaços e sem o ano por extenso
+    ("data de nascimento: 1950-04-03 e nasci em 3 de abril 1950", ["1950-04-03", "3 de abril 1950"], ["nasci em"]),
+    # o mesmo nome dito com título e depois sem
+    ("a dona Rosa chegou e depois Rosa disse que melhorou", ["Rosa"], ["chegou e depois", "disse que melhorou"]),
+    # dois gatilhos seguidos: o primeiro não pode engolir o segundo
+    ("dona Rosa e dona Lúcia Helena vieram", ["Rosa", "Lúcia", "Helena"], ["vieram"]),
+    # acompanhante dizendo o próprio nome com apóstrofo e hífen
+    ("sou a Ana D'Ávila-Souza, filha dele", ["Ávila", "Souza"], ["filha dele"]),
+    # id FHIR com 11 dígitos ou com hífen não é CPF nem telefone
+    (
+        "veja Observation/12345678901 e MedicationRequest/1234-5678, Fala/3",
+        [],
+        ["Observation/12345678901", "1234-5678"],
+    ),
+]
+
+
+@pytest.mark.parametrize(("entrada", "some", "fica"), VERIFICACAO)
+def test_verificacao_54_entradas_adversariais(entrada, some, fica):
+    e = Escudo()
+    saida = e.proteger(entrada)
+    for trecho in some:
+        assert trecho.lower() not in saida.lower(), (trecho, saida)
+    for trecho in fica:
+        assert trecho in saida, (trecho, saida)
+    assert norm(e.reidentificar_texto(saida)) == norm(entrada)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "tome 5000 7500 UI; dose 1000 2000 mg/dia; 1 2 3 vezes ao dia por seis meses",
+        "Dias após a cirurgia voltou; uma ou duas vezes; três, quatro ou cinco dias; PA 120 80",
+        "enoxaparina 40 mg 12 12 h; CEP não informado; leito 12 quarto 3",
+    ],
+)
+def test_verificacao_54_dose_e_numero_clinico_nao_vira_telefone_nem_cpf(texto):
+    e = Escudo()
+    assert e.proteger(texto) == texto
+
+
+def test_verificacao_54_gatilho_dentro_de_token_real_nao_e_reprocessado():
+    e = Escudo()
+    saida = e.proteger("o [PACIENTE] e o [FAMILIAR] falaram com seu João")
+    assert "[PACIENTE]" in saida and "[FAMILIAR]" in saida and "João" not in saida

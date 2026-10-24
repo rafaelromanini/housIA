@@ -900,3 +900,13 @@ Provedor local (`LLM_ON_PREMISE`) pula a saída externa mas mantém o recibo.
   dos ~20 casos de `tests/test_llm_camadas.py`, recibo baixável por consulta para o DPO e provedor/modelo/região no Provenance da
   nota. Recibos de chamadas fora de requisição HTTP (WebSocket, tarefas) vão só ao log. O `LLM_ON_PREMISE` é declaração da
   instituição (só se barra nome que resolve para IP público).
+- Verificação #54 (cética, privacidade): nome entre colchetes/sublinhado ("[Maria Silva]") escapava da camada (`_em_token` agora só
+  vale para token real); CPF com espaços/pontuação mista, telefone "11 9 8765 4321", e-mail ofuscado (arroba/ponto/(at)), dígitos ditos
+  ("meia nove...") e nascimento ISO vazavam; "dona Rosa e dona Rosa" engolia o 2º gatilho e "Rosa" sem título após "dona Rosa"
+  vazava; sobrenome fora do dicionário colado a nome firme ("Ana D'Ávila") vazava. Falso positivo corrigido: dose "5000 7500" e id
+  FHIR "Observation/12345678901" viravam telefone/CPF.
+- Corrigido também: `run_live` (2 chamadas em ThreadPoolExecutor) perdia o contexto e o recibo `llm.chamada` não ia ao audit_log;
+  log de reparo gravava o "input" reidentificado do Pydantic (PII); SDK Anthropic seguia redirect; host numérico ofuscado
+  ("127.1", decimal, hex, dígitos largos), rótulo único e `.svc` passavam na checagem estática; conexão do openai_compat agora fixa
+  no IP validado (DNS rebinding) com Host/SNI do nome. Pendente: rebinding no caminho Anthropic com `LLM_BASE_URL` (SDK resolve sozinho),
+  ditado por extenso só cobre sequência de 7+ dígitos, tokens aceitam caixa/separador alterados pelo provedor.

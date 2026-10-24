@@ -7,6 +7,7 @@ removidas pela IA.
 
 from __future__ import annotations
 
+import contextvars
 import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
@@ -801,6 +802,12 @@ def reconcile_ai_allergies(engine: Engine, ins: Insights) -> None:
     ]
 
 
+def submit_em_contexto(pool: ThreadPoolExecutor, fn, *args):
+    """pool.submit numa cópia do contexto: o recibo da IA (audit_log) e os nomes do prontuário (#54) viajam com a
+    thread; sem isso a chamada feita no pool some do audit_log e perde o reforço de nomes."""
+    return pool.submit(contextvars.copy_context().run, fn, *args)
+
+
 def run_live(engine: Engine, base: Insights, pseudo: Pseudonymizer, valid: set[str]):
     variables = {
         "tipo": KIND_LABEL.get(engine.kind, engine.kind),
@@ -813,11 +820,11 @@ def run_live(engine: Engine, base: Insights, pseudo: Pseudonymizer, valid: set[s
     # duas chamadas em paralelo: schemas menores (limite da saída estruturada) e resposta mais rápida
     mock = mock_live(base)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        f_conv = pool.submit(
-            generate_structured, "consult_live_conversa", variables, ConversaOutput, lambda _v: mock, "low"
+        f_conv = submit_em_contexto(
+            pool, generate_structured, "consult_live_conversa", variables, ConversaOutput, lambda _v: mock, "low"
         )
-        f_clin = pool.submit(
-            generate_structured, "consult_live_clinica", variables, ClinicaOutput, lambda _v: mock, "low"
+        f_clin = submit_em_contexto(
+            pool, generate_structured, "consult_live_clinica", variables, ClinicaOutput, lambda _v: mock, "low"
         )
         conv, clin = f_conv.result(), f_clin.result()
     clinical = clin.output.model_dump() | {"anamnese": anamnese_from_ai(clin.output.anamnese).model_dump()}
