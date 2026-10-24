@@ -179,6 +179,14 @@ def _validar(fn, valor):
         raise HTTPException(422, str(exc)) from exc
 
 
+def _só_a_minha(org_id: int, mine: Organization) -> Organization:
+    """CNES, CNS e CBO vão para a exportação oficial: só o gestor da própria organização os altera. Nem o
+    administrador da plataforma (que confere conselhos de qualquer organização) mexe no cadastro de outra: 404."""
+    if org_id != mine.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organização não encontrada")
+    return mine
+
+
 @router.put("/orgs/{org_id}/cadastro")
 def cadastro_org(
     org_id: int,
@@ -188,7 +196,7 @@ def cadastro_org(
     db: Session = Depends(get_db),
 ) -> dict:
     """CNES do estabelecimento (#52): vai para o Bundle (perfil BR Core) e para a exportação LEDI."""
-    org = _alvo(db, org_id, user, mine)
+    org = _só_a_minha(org_id, mine)
     org.cnes = _validar(br_ids.validar_cnes, body.cnes)
     db.commit()
     log_action(db, user, "org.cadastro_br", "organization", org.id, {"campo": "cnes", "preenchido": bool(org.cnes)})
@@ -205,12 +213,17 @@ def cadastro_profissional(
     db: Session = Depends(get_db),
 ) -> dict:
     """CNS e CBO do profissional (#52). Validados (dígito verificador do CNS); vazio apaga."""
-    org = _alvo(db, org_id, user, mine)
+    org = _só_a_minha(org_id, mine)
     membro = db.get(User, user_id)
     if membro is None or membro.organization_id != org.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Profissional não encontrado")
-    cns, cbo = _validar(br_ids.validar_cns, body.cns), _validar(br_ids.validar_cbo, body.cbo)
-    membro.cns, membro.cbo = cns, cbo
+    # só muda o que veio no corpo (campo ausente = não mexe; campo vazio = apaga)
+    enviados = body.model_fields_set
+    if "cns" in enviados:
+        membro.cns = _validar(br_ids.validar_cns, body.cns)
+    if "cbo" in enviados:
+        membro.cbo = _validar(br_ids.validar_cbo, body.cbo)
+    cns, cbo = membro.cns, membro.cbo
     db.commit()
     log_action(db, user, "org.cadastro_br", "user", membro.id, {"campo": "cns_cbo", "cns": bool(cns), "cbo": bool(cbo)})
     return {"id": membro.id, "cns": membro.cns, "cbo": membro.cbo}

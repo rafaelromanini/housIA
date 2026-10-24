@@ -827,3 +827,14 @@ reescrita atualizados): `organizations.cnes`, `users.cns`, `users.cbo`. Decisõe
   Patient FHIR; o seed sintético não traz CNS (a exportação cai no CPF).
 - Testes: `tests/test_br_perfis.py` (29: validadores, cadastro, LEDI feliz/CPF/sem cadastro/não finalizada/sem atestação/
   papel/sem login/inexistente, procedimento DEMO e hipótese, Bundle com e sem cadastro).
+
+### Verificação #52 (2026-10-24)
+
+Verificador cético, 20 testes novos em `tests/test_br_perfis.py`. Bugs achados e corrigidos: (1) o administrador da plataforma
+(gestor da organização padrão) podia alterar CNES/CNS/CBO de outra organização via `_alvo`: agora só o gestor da própria
+(404 nos demais); (2) `PUT .../cadastro` do profissional apagava o campo omitido: agora só muda o que veio no corpo;
+(3) LEDI de consulta de sandbox era exportado: 422; (4) a ficha usava o CNS/CBO de quem exporta, não de quem atendeu
+(`created_by`); (5) `cids` nulo ou código não textual quebrava (500) e texto livre entrava no arquivo como CID: só formato
+CID-10 sai, o resto vira pendência; (6) CNS provisório `700000000000000` passava na conta do dígito: recusado; (7) resposta
+do LEDI sem `Cache-Control: no-store`. Sem achado: IDOR de consulta/profissional entre organizações (404), auditoria sem
+CNS/CPF/CNES/CBO. Pendência: o Bundle `/export` ainda usa o cadastro de quem exporta (comportamento anterior ao #52).

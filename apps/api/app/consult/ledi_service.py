@@ -19,11 +19,15 @@ def exportar(db: Session, fhir: FhirSource, user: User, cid: int) -> dict:
     c = service._get(db, cid)
     if c.kind == "cirurgia":
         raise HTTPException(422, "A exportação e-SUS (LEDI) vale para consulta ambulatorial, não para cirurgia.")
+    if c.sandbox:
+        raise HTTPException(422, "Consulta de sandbox (cenário sintético) não é exportada para o e-SUS.")
     service._require_review(c)  # consulta não finalizada, não revisada ou sem atestação: 409
     service._require_not_purged(c)
     service._gate_clinical_export(c)
     record = load_record(fhir, c.patient_id)
-    cns_prof, cbo, cnes, _ = cadastro.do_profissional(db, user)
+    # quem atendeu (autor da consulta) é o profissional da ficha; outro colega da organização só exporta
+    autor = db.get(User, c.created_by) if c.created_by and c.created_by != user.id else None
+    cns_prof, cbo, cnes, _ = cadastro.do_profissional(db, autor or user)
     paciente = ids.do_paciente(record.patient)
     faltas = []
     if not cnes:

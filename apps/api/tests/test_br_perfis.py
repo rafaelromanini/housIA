@@ -292,3 +292,179 @@ def test_bundle_sem_cadastro_so_declara_perfil_sem_inventar_identificador(client
     assert "Organization" not in tipos and "PractitionerRole" not in tipos
     prac = next(e["resource"] for e in bundle["entry"] if e["resource"]["resourceType"] == "Practitioner")
     assert all(i["system"] != ids.CNS_SYSTEM for i in prac["identifier"])
+
+
+# ---------- verificação adversarial (#52) ----------
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "700000000000000",  # passa na conta do dígito, mas é só zeros
+        "888888888888888",
+        "000000000000000",
+        "111111111111111",
+        "١٢٣٤٥٦٧٨٩٠١٢٣٤٥",  # dígitos árabes: isdigit() é verdadeiro, mas não é número de CNS
+        "1000000000010001\n",
+        "<script>alert(1)</script>",
+    ],
+)
+def test_cns_adversarial_nao_passa(valor):
+    with pytest.raises(ValueError):
+        ids.validar_cns(valor)
+
+
+@pytest.mark.parametrize(
+    "valor", ["000.000.000-00", "99999999999", "52998224725; DROP TABLE users", "５２９９８２２４７２５"]
+)
+def test_cpf_adversarial_nao_passa(valor):
+    with pytest.raises(ValueError):
+        ids.validar_cpf(valor)
+
+
+def test_cnes_e_cbo_com_injecao_ou_unicode_nao_passam():
+    for fn, v in (
+        (ids.validar_cnes, "2269481; DROP TABLE"),
+        (ids.validar_cnes, "２２６９４８１"),
+        (ids.validar_cbo, "225125\x00"),
+        (ids.validar_cbo, "<b>225125</b>"),
+    ):
+        with pytest.raises(ValueError):
+            fn(v)
+
+
+def test_cadastro_com_injecao_e_tipos_errados_e_422_e_nada_grava(client, auth):
+    gestor = auth("gestor")
+    org, uid = ids_do(client, auth("medico"))
+    for corpo in ({"cnes": "2269481'; DROP TABLE organizations;--"}, {"cnes": 2269481}, {"cnes": ["2269481"]}):
+        assert client.put(f"/orgs/{org}/cadastro", json=corpo, headers=gestor).status_code == 422
+    for corpo in ({"cns": "<img src=x onerror=1>"}, {"cbo": 225125}, {"cns": "9" * 31}, {"cbo": {"a": 1}}):
+        assert client.put(f"/orgs/{org}/membros/{uid}/cadastro", json=corpo, headers=gestor).status_code == 422
+    assert not audit("org.cadastro_br")
+
+
+def test_cadastro_parcial_nao_apaga_o_outro_campo(client, auth):
+    cadastrar(client, auth)
+    gestor = auth("gestor")
+    org, uid = ids_do(client, auth("medico"))
+    r = client.put(f"/orgs/{org}/membros/{uid}/cadastro", json={"cbo": "225133"}, headers=gestor)
+    assert r.json() == {"id": uid, "cns": CNS_DEF, "cbo": "225133"}  # CNS continua
+    r = client.put(f"/orgs/{org}/membros/{uid}/cadastro", json={"cns": None}, headers=gestor)
+    assert r.json() == {"id": uid, "cns": None, "cbo": "225133"}  # null explícito apaga
+
+
+def test_gestor_de_outra_organizacao_e_o_admin_da_plataforma_nao_mexem_no_cadastro_alheio(client, auth):
+    from app.db.models import Organization, User
+    from tests.test_multiorg import cadastro_completo
+
+    org_a, uid_a = ids_do(client, auth("medico"))
+    hb, gestor_b = cadastro_completo(
+        client, "gestora@hospital.test", organizacao_tipo="hospital", conselho=None, conselho_numero=None, uf=None
+    )
+    org_b, uid_b = gestor_b["organizacao"]["id"], gestor_b["id"]
+    assert org_a != org_b
+    # gestor B tentando a organização A e o profissional de A
+    assert client.put(f"/orgs/{org_a}/cadastro", json={"cnes": CNES}, headers=hb).status_code == 404
+    assert client.put(f"/orgs/{org_a}/membros/{uid_a}/cadastro", json={"cbo": CBO}, headers=hb).status_code == 404
+    # IDOR com a organização própria na URL e o usuário de A
+    assert client.put(f"/orgs/{org_b}/membros/{uid_a}/cadastro", json={"cbo": CBO}, headers=hb).status_code == 404
+    # o gestor da organização padrão (admin da plataforma) também não altera o cadastro de B
+    admin = auth("gestor")
+    assert client.put(f"/orgs/{org_b}/cadastro", json={"cnes": CNES}, headers=admin).status_code == 404
+    assert client.put(f"/orgs/{org_b}/membros/{uid_b}/cadastro", json={"cbo": CBO}, headers=admin).status_code == 404
+    # o próprio gestor B altera o seu
+    assert client.put(f"/orgs/{org_b}/cadastro", json={"cnes": CNES}, headers=hb).status_code == 200
+    with db_session.SessionLocal() as db:
+        assert db.get(Organization, org_a).cnes is None and db.get(User, uid_a).cbo is None
+        assert db.get(Organization, org_b).cnes == CNES
+
+
+def test_ledi_de_consulta_de_outra_organizacao_e_404_mesmo_com_baixar(client, auth):
+    from tests.test_multiorg import cadastro_completo
+
+    cadastrar(client, auth)
+    paciente_com(cns=CNS_DEF)
+    ha = auth("medico")
+    cid = start(client, ha)["id"]
+    finalizar(client, ha, cid)
+    hb, _ = cadastro_completo(client)  # médica de outra organização
+    for q in ("", "?baixar=true"):
+        r = client.get(f"/consultations/{cid}/export/ledi{q}", headers=hb)
+        assert r.status_code == 404 and CNS_DEF not in r.text and "52998224725" not in r.text
+    assert not audit("consulta.ledi_exportado")
+
+
+def test_ledi_baixar_sem_permissao_e_com_no_store(client, auth):
+    cadastrar(client, auth)
+    paciente_com(cns=CNS_DEF)
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    finalizar(client, h, cid)
+    for h_ruim in ({}, auth("gestor")):
+        r = client.get(f"/consultations/{cid}/export/ledi?baixar=true", headers=h_ruim)
+        assert r.status_code in (401, 403) and CNS_DEF not in r.text
+    ok = client.get(f"/consultations/{cid}/export/ledi?baixar=true", headers=h)
+    assert ok.status_code == 200 and ok.headers["cache-control"] == "no-store"
+    assert client.get(f"/consultations/{cid}/export/ledi", headers=h).headers["cache-control"] == "no-store"
+
+
+def test_ledi_recusa_sandbox_e_cirurgia_sem_gravar_auditoria(client, auth):
+    cadastrar(client, auth)
+    paciente_com(cns=CNS_DEF)
+    h = auth("medico")
+    sb = start(client, h, sandbox=True)["id"]
+    finalizar(client, h, sb)
+    r = client.get(f"/consultations/{sb}/export/ledi", headers=h)
+    assert r.status_code == 422 and "sandbox" in r.json()["detail"]
+    cir = start(client, h, tipo="cirurgia")["id"]
+    r = client.get(f"/consultations/{cir}/export/ledi", headers=h)
+    assert r.status_code == 422 and "cirurgia" in r.json()["detail"]
+    assert not audit("consulta.ledi_exportado")
+
+
+def test_ledi_usa_o_cadastro_de_quem_atendeu_e_nao_de_quem_exporta(client, auth):
+    cadastrar(client, auth)
+    paciente_com(cns=CNS_DEF)
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    finalizar(client, h, cid)
+    enf = auth("enfermagem")  # colega da mesma organização, sem CNS/CBO cadastrados
+    r = client.get(f"/consultations/{cid}/export/ledi", headers=enf)
+    assert r.status_code == 200, r.text
+    assert r.json()["arquivo"]["headerTransport"]["profissionalCNS"] == CNS_DEF
+
+
+def test_ledi_nota_com_campos_nulos_ou_texto_livre_nao_quebra_nem_vaza_para_o_arquivo():
+    quando = datetime(2026, 1, 5, 22, 0)
+    base = {"consulta_id": 3, "quando": quando, "cns_profissional": CNS_DEF, "cbo": CBO, "cnes": CNES}
+    paciente = {"cns": CNS_DEF, "cpf": None, "nascimento": None}
+    for nota in (
+        {},
+        {"cids": None, "relatorio_cirurgico": None},
+        {"cids": [None, 5, "I10", {"tipo": "principal", "codigo": None}, {"tipo": "principal", "codigo": 10}]},
+        {"cids": [{"tipo": "principal", "codigo": "x"}], "relatorio_cirurgico": {"procedimento_sus": "0301010072"}},
+    ):
+        out = ledi.montar(**base, nota=nota, paciente=paciente, sexo=None)
+        at = out["arquivo"]["atendimentosIndividuais"][0]
+        assert at["problemaCondicaoAvaliada"]["cid10"] == [] and at["procedimentosSigtap"] == []
+        assert at["turno"] == 3 and at["dataNascimento"] is None
+    injecao = {"cids": [{"tipo": "principal", "codigo": "I10'); DROP TABLE x;--", "ciap2": "<b>K86</b>"}]}
+    out = ledi.montar(**base, nota=injecao, paciente=paciente, sexo="M")
+    assert out["arquivo"]["atendimentosIndividuais"][0]["problemaCondicaoAvaliada"]["cid10"] == []
+    assert any("formato de CID-10" in p for p in out["pendencias"])
+
+
+def test_nenhuma_auditoria_da_52_guarda_cns_cpf_ou_cadastro(client, auth):
+    cadastrar(client, auth)
+    paciente_com(cns=CNS_DEF)
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    finalizar(client, h, cid)
+    assert client.get(f"/consultations/{cid}/export/ledi", headers=h).status_code == 200
+    with db_session.SessionLocal() as db:
+        linhas = [
+            str(r.payload_json) + str(r.entity_id)
+            for r in db.scalars(
+                select(AuditLog).where(AuditLog.action.in_(["consulta.ledi_exportado", "org.cadastro_br"]))
+            )
+        ]
+    assert linhas
+    assert not any(x in " ".join(linhas) for x in (CNS_DEF, "52998224725", CNES, CBO, "529.982"))

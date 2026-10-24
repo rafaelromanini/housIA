@@ -835,14 +835,17 @@ def export_ledi(
     """Ficha de atendimento individual no formato LEDI do e-SUS APS (#52), da consulta finalizada, revisada e atestada.
     `baixar=true` devolve só o arquivo (anexo); sem ele, o arquivo com as pendências e avisos de conferência."""
     out = ledi_service.exportar(db, fhir, user, cid)
-    if not baixar:
-        return out
     import json
 
+    sem_cache = {"Cache-Control": "no-store"}  # CPF/CNS do cidadão: nada de cache de navegador ou proxy
+    if not baixar:
+        return Response(
+            json.dumps(out, ensure_ascii=False).encode("utf-8"), media_type="application/json", headers=sem_cache
+        )
     return Response(
         json.dumps(out["arquivo"], ensure_ascii=False, indent=2).encode("utf-8"),
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="ledi-consulta-{cid}.json"'},
+        headers=sem_cache | {"Content-Disposition": f'attachment; filename="ledi-consulta-{cid}.json"'},
     )
 
 

@@ -19,6 +19,7 @@ VERSAO_LEDI = "7.3.x (conferir com o e-SUS PEC do município)"
 TIPO_FICHA = "atendimento_individual"
 MAX_PROBLEMAS = 2  # ciaps/cid10 por atendimento na ficha (conferir)
 SIGTAP_OFICIAL = re.compile(r"^\d{10}$")
+CID_FORMATO = re.compile(r"^[A-Z]\d{2,3}$")  # CID-10 sem ponto: A00, I10, E119
 NAMESPACE = uuid.UUID("5b0c1a52-7a3e-4c1e-9d5e-0f6b1d3a7e52")  # fixo: reexportar gera o mesmo uuid (idempotente)
 TURNOS = ((12, 1), (18, 2), (24, 3))  # até 12h manhã, até 18h tarde, resto noite (conferir enumeração do LEDI)
 
@@ -29,7 +30,7 @@ def turno(hora: int) -> int:
 
 def cid_ledi(codigo: str) -> str:
     """ "N17.9" vira "N179" (o LEDI usa o CID-10 sem ponto)."""
-    return (codigo or "").replace(".", "").upper().strip()
+    return (codigo if isinstance(codigo, str) else "").replace(".", "").upper().strip()
 
 
 def ciap_ledi(texto: str) -> str | None:
@@ -39,14 +40,15 @@ def ciap_ledi(texto: str) -> str | None:
 
 
 def _procedimentos(note: dict, pendencias: list[str]) -> list[str]:
-    proc = ((note.get("relatorio_cirurgico") or {}).get("procedimento_sus")) or {}
-    codigo = str(proc.get("codigo") or "").strip()
+    relatorio = note.get("relatorio_cirurgico")
+    proc = relatorio.get("procedimento_sus") if isinstance(relatorio, dict) else None
+    codigo = str(proc.get("codigo") or "").strip() if isinstance(proc, dict) else ""
     if not codigo:
         return []
     if SIGTAP_OFICIAL.match(codigo):
         return [codigo]
     pendencias.append(
-        f"Procedimento SIGTAP {codigo} não é um código oficial (10 dígitos): fica fora do arquivo até haver uma "
+        f"Procedimento SIGTAP {codigo[:30]} não é um código oficial (10 dígitos): fica fora do arquivo até haver uma "
         "competência real da tabela SIGTAP."
     )
     return []
@@ -67,7 +69,19 @@ def montar(
     profissional e CNS ou CPF do paciente) são checados antes, no serviço; aqui eles já chegam validados."""
     pendencias: list[str] = []
     cids, ciaps = [], []
-    confirmados = [c for c in nota.get("cids", []) if c.get("tipo") in ("principal", "secundario") and c.get("codigo")]
+    todos = nota.get("cids")
+    confirmados = [
+        c
+        for c in (todos if isinstance(todos, list) else [])
+        if isinstance(c, dict)
+        and c.get("tipo") in ("principal", "secundario")
+        and isinstance(c.get("codigo"), str)
+        and c["codigo"].strip()
+    ]
+    for c in confirmados[:]:
+        if not CID_FORMATO.match(cid_ledi(c["codigo"])):  # texto livre nunca vai ao arquivo como se fosse CID
+            pendencias.append(f"CID {c['codigo'][:20]!r} não tem formato de CID-10: fica fora do arquivo.")
+            confirmados.remove(c)
     for c in confirmados:
         if len(cids) < MAX_PROBLEMAS:
             cids.append(cid_ledi(c["codigo"]))

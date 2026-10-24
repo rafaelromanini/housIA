@@ -65,6 +65,8 @@ def validar_cns(valor: object) -> str:
         if cns_definitivo(d[:11]) != d:
             raise ValueError("CNS inválido (dígito verificador não confere).")
     elif d[0] in "789":
+        if len(set(d[1:])) == 1:  # 700000000000000, 888888888888888...: passam na conta do dígito, mas não são CNS
+            raise ValueError("CNS provisório inválido (dígitos repetidos).")
         if sum(int(d[i]) * (15 - i) for i in range(15)) % 11 != 0:
             raise ValueError("CNS provisório inválido (dígito verificador não confere).")
     else:
