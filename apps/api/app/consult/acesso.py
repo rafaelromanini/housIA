@@ -10,6 +10,7 @@ Decisão conservadora (o projeto não modela equipe nem CareTeam; só `Consultat
 - Consulta de outra organização continua 404 (o filtro de organização roda antes).
 """
 
+import unicodedata
 from datetime import timedelta
 
 from fastapi import HTTPException
@@ -19,7 +20,6 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.alerts.service import upsert_alert
 from app.audit.service import log_action, log_leitura
-from app.consult import acoes
 from app.db.models import AuditLog, Consultation, User
 
 MOTIVO_MIN = 10
@@ -27,6 +27,21 @@ MOTIVO_MAX = 300
 VALIDADE_H = 8
 ACAO_QUEBRA = "consulta.quebra_de_vidro"
 ACAO_NEGADO = "consulta.acesso_negado"
+# letras "em branco" que a categoria Unicode não pega (Braille vazio, preenchedores de Hangul, vogal Khmer sem som)
+_EM_BRANCO = set("⠀ㅤᅟᅠﾠ឴឵͏")
+MOTIVO_DISTINTOS = 4
+
+
+def _limpo(motivo: str) -> str:
+    """Motivo sem caracteres de controle/formatação (zero width, inversão de texto RLO) e com espaços normalizados."""
+    sem = "".join(
+        " " if ch.isspace() else ch for ch in (motivo or "") if unicodedata.category(ch)[0] != "C" or ch.isspace()
+    )
+    return " ".join(sem.split())
+
+
+def _conta_como_texto(motivo: str) -> str:
+    return "".join(ch for ch in motivo if unicodedata.category(ch)[0] in "LN" and ch not in _EM_BRANCO)
 
 
 def tem_vinculo(user: User, c: Consultation) -> bool:
@@ -51,6 +66,22 @@ def quebra_ativa(db: Session, user: User, cid: int) -> bool:
     )
 
 
+def quebras_ativas(db: Session, user: User) -> set[int]:
+    """Consultas que este usuário tem liberadas por quebra de vidro vigente (uma consulta só, para listagens)."""
+    if user.role != "medico":
+        return set()
+    desde = clock.now() - timedelta(hours=VALIDADE_H)
+    ids = db.scalars(
+        select(AuditLog.entity_id).where(
+            AuditLog.user_id == user.id,
+            AuditLog.action == ACAO_QUEBRA,
+            AuditLog.entity == "consultation",
+            AuditLog.created_at >= desde,
+        )
+    )
+    return {int(i) for i in ids if i and i.isdigit()}
+
+
 def exigir(db: Session, user: User, c: Consultation | None) -> None:
     """403 para o médico sem vínculo e sem quebra de vidro vigente; a tentativa é auditada (sem repetir)."""
     if c is None or tem_vinculo(user, c) or quebra_ativa(db, user, c.id):
@@ -64,11 +95,12 @@ def exigir(db: Session, user: User, c: Consultation | None) -> None:
 
 
 def registrar_quebra(db: Session, user: User, c: Consultation, motivo: str) -> dict:
-    motivo = " ".join((motivo or "").split())
+    motivo = _limpo(motivo)
     if user.role != "medico":
         raise HTTPException(403, "A quebra de vidro é do perfil médico.")
-    if len(acoes.efetivo(motivo)) < MOTIVO_MIN:  # caractere invisível não é justificativa
-        raise HTTPException(422, f"Informe o motivo do acesso (mínimo de {MOTIVO_MIN} caracteres).")
+    texto = _conta_como_texto(motivo)  # só letra e número contam: invisível, pontuação e espaço não são justificativa
+    if len(texto) < MOTIVO_MIN or len(set(texto.casefold())) < MOTIVO_DISTINTOS:
+        raise HTTPException(422, f"Informe o motivo do acesso (mínimo de {MOTIVO_MIN} letras ou números).")
     if len(motivo) > MOTIVO_MAX:
         raise HTTPException(422, f"Motivo longo demais (máximo de {MOTIVO_MAX} caracteres).")
     if tem_vinculo(user, c):

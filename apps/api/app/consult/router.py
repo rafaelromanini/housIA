@@ -5,7 +5,7 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
 from sqlalchemy.orm import Session
 
 from app.audit.service import log_action, log_leitura
@@ -51,14 +51,21 @@ from app.fhir_client.client import FhirSource, get_fhir
 from app.prontidao import ambiente
 
 clinician = require_roles("medico", "enfermagem")
+_INT = TypeAdapter(int)
 
 
 def guarda_consulta(request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
     """Toda rota com {cid} passa pelo vínculo do médico com a consulta (#53), exceto o pedido de quebra de vidro."""
-    cid = request.path_params.get("cid")
-    if cid is None or request.url.path.endswith("/quebra-de-vidro"):
+    bruto = request.path_params.get("cid")
+    if bruto is None or request.url.path.endswith("/quebra-de-vidro"):
         return
-    acesso.exigir(db, user, db.get(Consultation, int(cid)))
+    try:
+        cid = _INT.validate_python(bruto)  # a mesma leitura que o FastAPI faz do parâmetro (1_0, 1.0, +1 ...)
+    except ValidationError:
+        return  # a própria rota responde 422; nenhuma consulta é lida
+    if not 0 < cid < 2**63:
+        raise HTTPException(404, "Consulta não encontrada")
+    acesso.exigir(db, user, db.get(Consultation, cid))
 
 
 router = APIRouter(tags=["consulta com IA"], dependencies=[Depends(guarda_consulta)])
@@ -175,7 +182,7 @@ def search_consultations(
     deslocamento: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     fhir: FhirSource = Depends(get_fhir),
-    _: User = Depends(clinician),
+    user: User = Depends(clinician),
 ) -> dict:
     """Busca global de consultas da organização, com a fila de notas finalizadas e ainda não revisadas."""
     return consultorio.search(
@@ -190,6 +197,7 @@ def search_consultations(
         sandbox=sandbox,
         limit=limite,
         offset=deslocamento,
+        user=user,
     )
 
 

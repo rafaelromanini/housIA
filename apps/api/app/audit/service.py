@@ -52,18 +52,17 @@ def log_leitura(
     db.flush()
     desde = clock.now() - timedelta(seconds=janela_s)
     eid = str(entity_id) if entity_id is not None else None
-    repetida = db.scalar(
-        select(AuditLog.id)
-        .where(
+    recentes = db.scalars(
+        select(AuditLog.payload_json).where(
             AuditLog.user_id == user.id,
             AuditLog.action == action,
             AuditLog.entity == entity,
             AuditLog.entity_id == eid,
             AuditLog.created_at >= desde,
         )
-        .limit(1)
     )
-    if repetida is not None:
+    # só repete quando o conteúdo lido também é o mesmo (ler outro tipo de documento da consulta é outro acesso)
+    if any((p or {}) == (payload or {}) for p in recentes):
         return False
     log_action(db, user, action, entity, entity_id, payload)
     return True

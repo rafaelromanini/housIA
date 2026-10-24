@@ -868,3 +868,17 @@ Branch `claude/p1-restantes`. Migração c304 (sobre c303): `audit_log.prev_hash
   (enfermagem hoje sem trava; listagem global de consultas ainda mostra metadados ao médico); tela web para o médico pedir
   a quebra de vidro (hoje só API; o 403 traz a instrução); `patient_id` em `consulta.audio`; incidente (art. 48) e
   encarregado ficam com a instituição. Testes: pytest direcionado (385 passaram); suíte completa e e2e não rodados.
+
+### Verificação #53 (2026-10-24)
+
+Verificador independente; testes de regressão em `tests/test_verificacao_53.py`. Bugs corrigidos: (1) `/consultations/abc`, `1.0`, `1e0` e ids enormes davam 500 na
+trava (`int()` próprio); agora a trava lê o id como o FastAPI e devolve 422/404, sem grafia que a contorne; (2) `GET /patients/{id}/pre-consulta?consulta=`
+abria a conversa de consulta sem vínculo: agora 403; a busca global `/consultations` mostrava e filtrava o CID de consulta alheia (oráculo do diagnóstico):
+sem vínculo o CID some da linha (`sem_vinculo`) e não entra no filtro; (3) motivo da quebra de vidro com Braille vazio, preenchedor de Hangul, pontuação ou
+uma letra repetida passava: contam só letras/números (mín. 10, 4 distintos) e o texto gravado perde controle/RLO; (4) escritas simultâneas bifurcavam a cadeia
+em SQLite (a leitura da cabeça era anterior ao bloqueio de escrita; Postgres já tinha o lock consultivo): o UPDATE vazio toma o bloqueio antes de ler;
+usuário legado sem organização numa sessão com organização gravava o hash com `o=None` e o flush carimbava outra: a organização é fixada antes do hash;
+a assinatura do export cobria só as linhas, agora cobre organização, período, total e cabeça; (5) dedupe escondia a leitura de outro tipo de documento da
+mesma consulta (compara o payload); `verify` passou a ler em lotes. Dossiê sem PII/segredos; texto da matriz agora declara limites (cauda, chave, c304, DATA_ENCRYPTION_KEY).
+Pendências: enfermagem e `GET /patients/{id}/consultations` (metadados) e as pendências da última nota em `pre-consulta` seguem sem trava; trigger Postgres
+revisado só por leitura (sem Postgres local); migrações futuras que façam UPDATE em audit_log precisarão desabilitar o gatilho; tela web ainda ignora `sem_vinculo`.

@@ -149,16 +149,25 @@ def export_audit(
     else:
         conteudo = json.dumps(itens, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         sha = hashlib.sha256(conteudo).hexdigest()
-        doc = {
+        cadeia = {k: v for k, v in chain.verificar(db, user.organization_id).items() if k != "limite"}
+        # a assinatura cobre também organização, período, total e a cabeça da cadeia (não só as linhas)
+        selado = {
             "organizacao": user.organization_id,
             "periodo": periodo,
-            "gerado_em": clock.now().isoformat(),
             "total": len(itens),
-            "itens": itens,
             "conteudo_sha256": sha,
-            "assinatura_hmac": hmac.new(chain.chave(), sha.encode(), hashlib.sha256).hexdigest(),
-            "como_conferir": "SHA-256 de json.dumps(itens, sort_keys=True, separators=(',', ':'), ensure_ascii=False).",
-            "cadeia": {k: v for k, v in chain.verificar(db, user.organization_id).items() if k != "limite"},
+            "cabeca": cadeia["cabeca"],
+        }
+        doc = {
+            **selado,
+            "gerado_em": clock.now().isoformat(),
+            "itens": itens,
+            "assinatura_hmac": hmac.new(chain.chave(), chain.canonico_simples(selado), hashlib.sha256).hexdigest(),
+            "como_conferir": (
+                "SHA-256 de json.dumps(itens, sort_keys=True, separators=(',', ':'), ensure_ascii=False); a assinatura "
+                "é o HMAC-SHA256 do mesmo json.dumps de {organizacao, periodo, total, conteudo_sha256, cabeca}."
+            ),
+            "cadeia": cadeia,
         }
         body = json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8")
         media, ext = "application/json", "json"

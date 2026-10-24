@@ -135,7 +135,7 @@ matriz:
   - norma: LGPD
     artigo: "art. 6º, X e art. 46"
     exigencia: Prestação de contas e medidas de segurança contra adulteração
-    controle: audit_log com hash encadeado, verificação de cadeia, bloqueio de UPDATE/DELETE (app e banco), exportação assinada.
+    controle: 'audit_log com hash encadeado, verificação de cadeia, bloqueio de UPDATE/DELETE (app e, após a migração c304, banco), exportação assinada. Limites: apagar só as últimas linhas exige comparar a cabeça guardada fora do banco; quem tem a chave e o banco refaz a cadeia.'
     status: implementado
     codigo: [apps/api/app/audit/chain.py, apps/api/app/audit/router.py, apps/api/app/audit/trigger.py]
     testes:
@@ -145,7 +145,7 @@ matriz:
   - norma: LGPD
     artigo: "art. 46 e art. 6º, VII"
     exigencia: Controle de acesso ao dado de saúde
-    controle: Médico só abre consulta própria; demais casos exigem quebra de vidro auditada com aviso ao gestor.
+    controle: Médico só abre consulta própria (e não vê o CID das demais na busca); demais casos exigem quebra de vidro auditada com aviso ao gestor. Enfermagem e a listagem por paciente (metadados) não têm essa trava.
     status: parcial
     codigo: [apps/api/app/consult/acesso.py, apps/api/app/consult/router.py]
     testes:
@@ -154,7 +154,7 @@ matriz:
   - norma: LGPD
     artigo: "art. 46"
     exigencia: Criptografia de dados em repouso
-    controle: Criptografia de campo AES-GCM nas colunas clínicas da consulta, com rotação de chave.
+    controle: 'Criptografia de campo AES-GCM nas colunas clínicas da consulta, com rotação de chave; só vale com DATA_ENCRYPTION_KEY definida (o estado atual está em "Estado do sistema").'
     status: implementado
     codigo: [apps/api/app/db/crypto.py, apps/api/app/db/rekey.py]
     testes:

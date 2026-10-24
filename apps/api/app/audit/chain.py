@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import AuditLog
+from app.db.tenancy import current_org
 
 
 class AuditoriaImutavel(RuntimeError):
@@ -57,6 +58,10 @@ def canonico(a: AuditLog, prev_hash: str | None) -> str:
     )
 
 
+def canonico_simples(dados: dict[str, Any]) -> bytes:
+    return json.dumps(dados, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
 def calcular(a: AuditLog, prev_hash: str | None) -> str:
     return hmac.new(chave(), canonico(a, prev_hash).encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -69,8 +74,13 @@ def _da_org(organization_id: int | None):
 
 def selar(db: Session, entry: AuditLog) -> None:
     """Encadeia a linha nova à última da mesma organização (organização e data já fixas em `log_action`)."""
-    if db.get_bind().dialect.name == "postgresql":  # serializa a cadeia da organização até o fim da transação
+    if entry.organization_id is None:  # o carimbo da organização (tenancy) só vem no flush, depois do hash
+        entry.organization_id = current_org(db)
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":  # serializa a cadeia da organização até o fim da transação
         db.execute(text("select pg_advisory_xact_lock(:a, :b)"), {"a": 5301, "b": entry.organization_id or 0})
+    elif dialect == "sqlite":  # um UPDATE vazio toma o bloqueio de escrita agora: duas escritas não leem a mesma cabeça
+        db.execute(text("UPDATE audit_log SET id = id WHERE 0"))
     db.flush()  # a sessão não faz autoflush: as linhas pendentes precisam entrar na consulta abaixo
     last = db.scalar(select(AuditLog.hash).where(_da_org(entry.organization_id)).order_by(AuditLog.id.desc()).limit(1))
     entry.prev_hash = last
@@ -83,7 +93,9 @@ def verificar(db: Session, organization_id: int | None) -> dict[str, Any]:
     last: str | None = None
     quebra: dict[str, Any] | None = None
     started = False
-    rows = db.scalars(select(AuditLog).where(_da_org(organization_id)).order_by(AuditLog.id))
+    rows = db.scalars(
+        select(AuditLog).where(_da_org(organization_id)).order_by(AuditLog.id).execution_options(yield_per=2000)
+    )
     for a in rows:
         total += 1
         if a.hash is None:
