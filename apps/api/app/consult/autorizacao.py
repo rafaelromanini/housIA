@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 from app.consult import hipoteses, knowledge, protocolos
 from app.consult.autorizacao_regras import Base, Criterio, Regra, achar_operadora
 from app.consult.chart import ChartView, fmt_date
 from app.consult.encaminhamento import CONCORDANCIA, CONDICIONAL, FRASE
+from app.consult.protocolos import OUTRA_PESSOA, TAMBEM_EU
 from app.consult.schemas import (
     Autorizacao,
     DocumentoAutorizacao,
@@ -64,7 +65,12 @@ class Ctx:
 
     @property
     def age(self) -> int | None:
-        return self.chart.r.age
+        """Idade pelo nascimento do cadastro; data ausente, parcial, inválida ou futura não vale (nada é inferido)."""
+        try:
+            idade = self.chart.r.age
+        except (ValueError, TypeError):
+            return None
+        return idade if idade is not None and 0 <= idade <= 130 else None
 
 
 @dataclass
@@ -109,16 +115,57 @@ def _cid_bate(code: str, prefixos: list[str]) -> bool:
     return any(c.startswith(p.replace(".", "").upper()) for p in prefixos if p)
 
 
+# depois do termo, "sem melhora" / "não adiantou" é o resultado do tratamento (que foi feito), não negação do tratamento
+FALHA_DO_TRATAMENTO = {
+    "melhora", "melhorou", "melhorei", "melhorando", "adiantou", "adiantando", "resposta", "resultado", "resultados",
+    "funcionou", "resolveu", "ajudou", "ajuda", "efeito", "alivio", "aliviou", "surtiu", "sucesso", "exito",
+    "controle", "controlou", "controla", "resolve", "adianta", "funciona", "cura", "curou",
+}  # fmt: skip
+NEG_DEPOIS_JANELA = 5  # palavras depois do termo em que um "não"/"nunca" ainda nega ("fisioterapia eu nunca fiz")
+FECHA_NEGACAO = NEG_WORDS | {
+    "ainda",
+    "ate",
+    "hoje",
+    "agora",
+    "doutor",
+    "doutora",
+    "fiz",
+    "fez",
+    "tive",
+    "tenho",
+    "tomei",
+}
+
+
+def _negado_depois(clause: str, fim: int, proxima: str | None) -> bool:
+    """Negação que vem DEPOIS do termo: "fisioterapia eu nunca fiz" ou "fisioterapia, não" (a oração seguinte é só o
+    não). "Sem melhora"/"não adiantou" descreve o resultado do tratamento e não o nega."""
+    tail = clause[fim:].split()
+    for i, w in enumerate(tail[:NEG_DEPOIS_JANELA]):
+        if w in NEG_WORDS:
+            return not (i + 1 < len(tail) and tail[i + 1] in FALHA_DO_TRATAMENTO)
+    if proxima is not None:
+        palavras = proxima.split()
+        return bool(palavras) and all(w in FECHA_NEGACAO for w in palavras) and any(w in NEG_WORDS for w in palavras)
+    return False
+
+
 def _afirma(sentence: str, termos: list[str], *, plano_vale: bool) -> bool:
     """A frase (normalizada) cita algum termo de forma afirmativa: sem pergunta, sem negação antes do termo na mesma
-    oração e (se `plano_vale` for falso) sem intenção futura ("vou pedir fisioterapia" não é tratamento já feito)."""
-    for clause in clauses(sentence):
+    oração nem logo depois dele, sem ser de outra pessoa ("minha mãe fez fisioterapia") e (se `plano_vale` for falso)
+    sem intenção futura ("vou pedir fisioterapia" não é tratamento já feito)."""
+    partes = clauses(sentence)
+    for i, clause in enumerate(partes):
         hit = find(clause, tuple(termos))
         if hit is None:
             continue
         antes = clause[: hit[1]].split()
         if any(w in NEG_WORDS for w in antes):
             continue
+        if _negado_depois(clause, hit[2], partes[i + 1] if i + 1 < len(partes) else None):
+            continue
+        if OUTRA_PESSOA.search(clause) and not TAMBEM_EU.search(clause):
+            continue  # relato sobre a mãe, o marido, o vizinho: não é o paciente desta consulta
         if not plano_vale and FUTURO.search(clause):
             continue
         return True
@@ -141,7 +188,9 @@ def _falas_validas(ctx: Ctx, termos: list[str]) -> list[Segment]:
     """Falas (do paciente ou do profissional) que afirmam o termo: negado, perguntado ou só planejado não conta."""
     out = []
     for s in ctx.segments:
-        if s.marco or s.expurgada:
+        if (
+            s.marco or s.expurgada or s.falante_incerto
+        ):  # falante incerto (#40): vale só depois de o profissional conferir
             continue
         if any(not protocolos.ADIADO.search(f) and _afirma(f, termos, plano_vale=False) for f in _frases(s.texto)):
             out.append(s)
@@ -215,7 +264,12 @@ def avaliar_regra(regra: str, ctx: Ctx, rotulo: str = "") -> Resultado:
     m = re.match(r"^lab:(\w+)([<>])(\d+(?:\.\d+)?)$", regra)
     if m:
         key, op, lim = m.group(1), m.group(2), float(m.group(3))
-        ev = ctx.chart.latest_lab(key, max_days=3650)
+        validos = [  # exame com data futura não é evidência
+            e
+            for e in ctx.chart.labs.get(key, [])
+            if timedelta(0) <= ctx.chart.now - e.timestamp <= timedelta(days=3650)
+        ]
+        ev = validos[-1] if validos else None
         if ev is None:
             return Resultado(False, f"Sem {codes_label(key)} no prontuário.")
         valor = float(ev.value["valor"])
@@ -280,7 +334,7 @@ def detectar(base: Base, ctx: Ctx, drafts: list[OrderDraft]) -> list[Gatilho]:
         termos = list(regra.termos)
         refs: list[str] = []
         for s in ctx.segments:
-            if s.falante not in FALANTES_GATILHO or s.marco or s.expurgada:
+            if s.falante not in FALANTES_GATILHO or s.marco or s.expurgada or s.falante_incerto:
                 continue
             for sentence in _frases(s.texto):
                 if PASSADO.search(sentence) or CONDICIONAL.search(sentence):
@@ -501,24 +555,45 @@ def problemas_frases(frases: list[dict], validas: set[str]) -> list[dict]:
 
 
 _NUM = re.compile(r"\d+(?:[.,]\d+)?")
+_CID = re.compile(r"[A-Z]\d{2}(?:\.\d)?")
+_PALAVRA = re.compile(r"[a-z]{4,}")
+# palavras de redação que uma reescrita pode usar sem criar fato clínico; qualquer outra palavra de 4+ letras precisa
+# existir (pelo radical de 5 letras) nas frases das regras, senão a reescrita é descartada
+PALAVRAS_DE_REDACAO = frozenset(
+    "paciente pacientes devido conforme portanto dessa desse nesta neste consulta registro registrado registrada "
+    "documentado documentada relatado relatada informado informada apresenta apresentou encontra historia quadro "
+    "clinico clinica indicacao justifica justificada necessario necessaria pedido solicito solicitamos solicitar "
+    "autorizacao previa previo exame procedimento segundo desde entre sobre como para pela pelo tendo apos ainda "
+    "tambem possui consta constam atualmente houve com sem anos meses dias".split()
+)
 
 
 def reescrita_segura(originais: list[dict], novas: list[dict]) -> list[dict] | None:
-    """Aceita a reescrita da IA só se nenhuma frase ganhou ref de fora, nem número, CID ou afirmação nova; senão None
-    (a justificativa fica com as frases das regras). A IA só reescreve, não acrescenta fato."""
-    if not novas or len(novas) > MAX_FRASES:
+    """Aceita a reescrita da IA só se nenhuma frase ganhou ref de fora, número, CID, negação ou palavra clínica nova,
+    nem a lista cresceu; senão None (a justificativa fica com as frases das regras). A IA só reescreve, não acrescenta
+    fato: o texto da fala pode trazer instrução disfarçada de dado e a IA a obedecer, então o que muda de sentido
+    não passa."""
+    if not novas or len(novas) > min(MAX_FRASES, len(originais)):
         return None
     permitidas = {r for f in originais for r in f.get("refs", [])}
     corpus = " ".join(f["texto"] for f in originais)
     numeros = set(_NUM.findall(corpus))
-    codigos = set(re.findall(r"\b[A-Z]\d{2}(?:\.\d)?\b", corpus))
+    codigos = set(_CID.findall(corpus))
+    base = norm(corpus)
+    radicais = {w[:5] for w in _PALAVRA.findall(base)}
+    negacoes = {w for w in base.split() if w in NEG_WORDS}
     out = []
     for f in novas:
         texto = (f.get("texto") or "").strip()
         refs = [r for r in (f.get("refs") or []) if r in permitidas]
         if not texto or len(texto) > MAX_FRASE or not refs or len(refs) != len(f.get("refs") or []):
             return None
-        if set(_NUM.findall(texto)) - numeros or set(re.findall(r"\b[A-Z]\d{2}(?:\.\d)?\b", texto)) - codigos:
+        if set(_NUM.findall(texto)) - numeros or set(_CID.findall(texto)) - codigos:
+            return None
+        plano = norm(texto)
+        if {w for w in plano.split() if w in NEG_WORDS} - negacoes:
+            return None
+        if any(w not in PALAVRAS_DE_REDACAO and w[:5] not in radicais for w in _PALAVRA.findall(plano)):
             return None
         out.append({"texto": texto, "refs": refs, "origem": "ia"})
     return out

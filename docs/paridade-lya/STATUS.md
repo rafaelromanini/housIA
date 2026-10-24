@@ -1001,3 +1001,17 @@ Branch `claude/p1-restantes`. Migração c306 (sobre c305): tabela `autorizacoes
   humana antes de qualquer uso. Os critérios dependem de a conversa citar o fato (Fala/N) ou do prontuário; "exame prévio" é busca por palavra em evolução/procedimento (não lê o laudo anexado, só laudos #48 com valor); a
   leitura de passado/negação/futuro é por regras e erra em frases incomuns. Não há integração TISS/envio à operadora (envio é manual; só registramos o andamento). Pendente do item: o "Waze da alta" não recebe a pendência
   de autorização pós-alta (critério 3 do backlog) e não há Task FHIR (#47) para a pendência; marcar a regra como `conferido` hoje é editar o CSV; atestado manual de critério pelo profissional (critério `manual`) não existe.
+- **Verificação do #56 (2026-10-24, cético, ~35 entradas adversariais novas em `tests/test_autorizacao_verificacao.py`).** Corrigido: critério e pedido
+  aceitavam negação DEPOIS do termo ("fisioterapia eu nunca fiz", "fisioterapia, não", "ressonância eu não vou pedir"), relato sobre terceiros ("minha mãe
+  fez fisioterapia") e fala de falante incerto (#40) como evidência ou gatilho; nascimento futuro/parcial/inválido dava idade negativa (`idade<=65` virava
+  atendido) ou derrubava a avaliação; exame com data futura valia; a reescrita da IA só barrava ref, número e CID novos (agora também palavra clínica,
+  negação e frase a mais, para a injeção vinda da fala não passar); Fala/N de marco ou fala expurgada servia de fonte; editar o texto de uma fala citada
+  depois da aprovação não derrubava a aprovação (o hash agora inclui o texto das falas citadas); "enviado" não revalidava as fontes; duas mudanças
+  simultâneas passavam pelo mesmo estado antigo (linha travada com FOR UPDATE, 409 na geração duplicada); exportação de sandbox sem aviso; o script
+  de importação quebrava com CSV fora de UTF-8.
+- Verificado sem bug: CID refutado/provisório/erro de entrada, CSV com fórmula/BOM/CRLF/colunas extras/duplicada/vigência invertida/gigante/binário, origem
+  "oficial" forjada (sempre importado e pendente), endpoint só do gestor, nome do arquivo gravado pelo script fixo (sem path traversal), todas as rotas
+  `{cid}/{aid}` (403 sem vínculo, 404 de outra organização/consulta/pedido), estados inválidos, consulta finalizada, PDF com texto exótico, auditoria sem texto,
+  protocolo, operadora ou nome, migração c306 sobe e desce. Pendente: a reescrita da IA agora é conservadora (descarta paráfrases com palavra fora do
+  vocabulário das regras); a operadora digitada livremente fica em coluna sem cifra; o pacote não reavalia se um CID citado foi refutado depois da aprovação;
+  o painel web continua sem validação em navegador real.

@@ -15,12 +15,13 @@ import unicodedata
 from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import clock
 from app.audit.service import log_action
 from app.consult import autorizacao, autorizacao_regras, consentimento, pdf, service
-from app.consult.schemas import Autorizacao
+from app.consult.schemas import Autorizacao, fala_ref
 from app.db.models import AutorizacaoPrevia, Consultation, User
 from app.fhir_client.client import FhirSource
 from app.llm.client import LLMError, generate_structured
@@ -63,8 +64,24 @@ def _limpar_texto(valor: str, maximo: int) -> str:
 
 
 # ---------- leitura ----------
-def _pedido(db: Session, c: Consultation, aid: int) -> AutorizacaoPrevia:
-    p = db.get(AutorizacaoPrevia, aid)  # a sessão já filtra pela organização: de outra org é 404
+class Validas(set):
+    """Refs que podem sustentar uma frase (desta consulta e deste paciente) + o resumo do texto de cada Fala/N citável,
+    para a aprovação cair se a fala citada for editada depois."""
+
+    falas: dict[str, str]
+
+    def __init__(self, refs=(), falas: dict[str, str] | None = None):
+        super().__init__(refs)
+        self.falas = falas or {}
+
+
+def _pedido(db: Session, c: Consultation, aid: int, travar: bool = False) -> AutorizacaoPrevia:
+    """O pedido desta consulta. `travar`: bloqueia a linha até o commit, para duas mudanças simultâneas (duas decisões,
+    aprovar e enviar) não passarem pelo mesmo estado antigo."""
+    consulta = select(AutorizacaoPrevia).where(AutorizacaoPrevia.id == aid)  # a sessão filtra pela organização
+    if travar:
+        consulta = consulta.with_for_update().execution_options(populate_existing=True)
+    p = db.scalar(consulta)
     if p is None or p.consultation_id != c.id:
         raise HTTPException(404, "Pedido de autorização não encontrado")
     return p
@@ -74,16 +91,31 @@ def _contexto(db: Session, fhir: FhirSource, c: Consultation):
     record, events, ctx = service._chart(fhir, c.patient_id)
     segments = service._segments(c)
     valid = service._valid_refs(record, events, ctx, segments, c.extra_json) | {f"Patient/{c.patient_id}"}
-    return record, events, ctx, segments, valid
+    falas: dict[str, str] = {}
+    for s in segments:
+        ref = fala_ref(s.n)
+        if s.marco or s.expurgada:  # marco de privacidade não é fala e fala expurgada não tem mais texto: não são fonte
+            valid.discard(ref)
+        else:
+            falas[ref] = hashlib.sha256((s.texto or "").encode()).hexdigest()
+    return record, events, ctx, segments, Validas(valid, falas)
 
 
-def _hash(p: AutorizacaoPrevia) -> str:
+def _hash(p: AutorizacaoPrevia, falas: dict[str, str] | None = None) -> str:
     pacote = p.pacote_json or {}
+    falas = falas or {}
     corpo = {
         "regra": p.regra_id,
         "versao": p.regra_versao,
         "operadora": p.operadora,
         "frases": [[f.get("texto", ""), sorted(f.get("refs") or [])] for f in pacote.get("frases") or []],
+        # o texto das falas citadas entra na aprovação: se a fala for editada depois, o médico revisa de novo
+        "falas": {
+            r: falas.get(r, "")
+            for f in pacote.get("frases") or []
+            for r in f.get("refs") or []
+            if r.startswith("Fala/")
+        },
     }
     return hashlib.sha256(json.dumps(corpo, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
@@ -101,7 +133,7 @@ def _publico(db: Session, p: AutorizacaoPrevia, valid: set[str] | None = None) -
         "operadora": p.operadora,
         "status": p.status,
         "pacote": pacote,
-        "revisado": p.revisado_em is not None and p.pacote_hash == _hash(p),
+        "revisado": p.revisado_em is not None and p.pacote_hash == _hash(p, getattr(valid, "falas", None)),
         "revisado_por": revisor.name if revisor else None,
         "revisado_em": p.revisado_em.isoformat() if p.revisado_em else None,
         "protocolo": p.protocolo,
@@ -197,9 +229,10 @@ def gerar(db: Session, fhir: FhirSource, user: User, cid: int, regra_id: str) ->
     if a.situacao == "regra_vencida":
         raise HTTPException(409, "A regra está fora de vigência: atualize a tabela do Rol/DUT antes de gerar o pacote.")
     existente = db.scalar(
-        select(AutorizacaoPrevia).where(
-            AutorizacaoPrevia.consultation_id == c.id, AutorizacaoPrevia.regra_id == regra_id
-        )
+        select(AutorizacaoPrevia)
+        .where(AutorizacaoPrevia.consultation_id == c.id, AutorizacaoPrevia.regra_id == regra_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if existente is not None and existente.status != "rascunho":
         raise HTTPException(409, f"Pedido já {existente.status}: não pode ser refeito.")
@@ -231,7 +264,11 @@ def gerar(db: Session, fhir: FhirSource, user: User, cid: int, regra_id: str) ->
     p.pacote_hash, p.revisado_por, p.revisado_em = "", None, None  # refazer o pacote tira a aprovação
     if novo:
         db.add(p)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:  # duas gerações simultâneas da mesma regra: a outra já criou o pedido
+        db.rollback()
+        raise HTTPException(409, "O pacote desta autorização acabou de ser criado: recarregue.") from None
     log_action(
         db,
         user,
@@ -263,7 +300,7 @@ def _editavel(p: AutorizacaoPrevia) -> None:
 def editar(db: Session, fhir: FhirSource, user: User, cid: int, aid: int, frases: list[dict]) -> dict:
     """O profissional ajusta as frases (cada uma com a evidência). Editar tira a aprovação."""
     c = service._get(db, cid)
-    p = _pedido(db, c, aid)
+    p = _pedido(db, c, aid, travar=True)
     _editavel(p)
     *_, valid = _contexto(db, fhir, c)
     limpas = [
@@ -302,7 +339,7 @@ def aprovar(db: Session, fhir: FhirSource, user: User, cid: int, aid: int) -> di
     if user.role != "medico":
         raise HTTPException(403, "Só o médico revisa e aprova o pacote de justificativa.")
     c = service._get(db, cid)
-    p = _pedido(db, c, aid)
+    p = _pedido(db, c, aid, travar=True)
     _editavel(p)
     *_, valid = _contexto(db, fhir, c)
     erros = autorizacao.problemas_frases((p.pacote_json or {}).get("frases") or [], valid)
@@ -324,7 +361,7 @@ def aprovar(db: Session, fhir: FhirSource, user: User, cid: int, aid: int) -> di
             },
         )
     p.revisado_por, p.revisado_em = user.id, clock.now()
-    p.pacote_hash = _hash(p)
+    p.pacote_hash = _hash(p, valid.falas)
     log_action(
         db,
         user,
@@ -338,13 +375,17 @@ def aprovar(db: Session, fhir: FhirSource, user: User, cid: int, aid: int) -> di
 
 def mudar_status(db: Session, fhir: FhirSource, user: User, cid: int, aid: int, novo: str, protocolo: str = "") -> dict:
     c = service._get(db, cid)
-    p = _pedido(db, c, aid)
     if novo not in STATUS:
         raise HTTPException(422, "Status inválido.")
+    p = _pedido(db, c, aid, travar=True)
     if novo not in TRANSICOES[p.status]:
         raise HTTPException(409, f"Pedido {p.status}: não pode passar para {novo}.")
-    if novo == "enviado" and not (p.revisado_em is not None and p.pacote_hash == _hash(p)):
-        raise HTTPException(409, "O médico precisa revisar e aprovar o pacote antes de enviar.")
+    *_, valid = _contexto(db, fhir, c)
+    if novo == "enviado":
+        if not (p.revisado_em is not None and p.pacote_hash == _hash(p, valid.falas)):
+            raise HTTPException(409, "O médico precisa revisar e aprovar o pacote antes de enviar.")
+        if autorizacao.problemas_frases((p.pacote_json or {}).get("frases") or [], valid):
+            raise HTTPException(409, "O pacote tem afirmação sem evidência válida: refaça e aprove de novo.")
     antes = p.status
     agora = clock.now()
     p.status = novo
@@ -365,7 +406,6 @@ def mudar_status(db: Session, fhir: FhirSource, user: User, cid: int, aid: int, 
         c.id,
         {"patient_id": c.patient_id, "pedido": p.id, "regra": p.regra_id, "de": antes, "para": novo},
     )
-    *_, valid = _contexto(db, fhir, c)
     return _publico(db, p, valid)
 
 
@@ -394,10 +434,17 @@ def exportar_json(db: Session, fhir: FhirSource, user: User, cid: int, aid: int)
         {"patient_id": c.patient_id, "pedido": p.id, "regra": p.regra_id, "formato": "json"},
     )
     return {
-        "aviso": AVISO_EXEMPLO if _de_exemplo(pub) else "",
+        "aviso": _aviso(pub, c),
         "pedido": {k: v for k, v in pub.items() if k not in ("problemas", "editavel")},
         "bundle": bundle,
     }
+
+
+AVISO_SANDBOX = "Consulta de SANDBOX (cenário sintético): pacote de teste, não use com uma operadora."
+
+
+def _aviso(pub: dict, c: Consultation) -> str:
+    return " ".join(x for x in (AVISO_SANDBOX if c.sandbox else "", AVISO_EXEMPLO if _de_exemplo(pub) else "") if x)
 
 
 def _de_exemplo(pub: dict) -> bool:
@@ -409,7 +456,7 @@ def exportar_pdf(db: Session, fhir: FhirSource, user: User, cid: int, aid: int) 
     c = service._get(db, cid)
     p, pub = _liberado(db, fhir, c, aid)
     record, *_ = _contexto(db, fhir, c)
-    texto = autorizacao.texto_pdf(pub, record.name, record.age, AVISO_EXEMPLO if _de_exemplo(pub) else "")
+    texto = autorizacao.texto_pdf(pub, record.name, record.age, _aviso(pub, c))
     log_action(
         db,
         user,

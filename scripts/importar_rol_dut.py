@@ -30,7 +30,16 @@ def main() -> int:
     for tabela, origem, nome in (("regras", args.regras, "rol_dut_importado.csv"), ("operadoras", args.operadoras, "operadoras_importado.csv")):
         if not origem:
             continue
-        texto = origem.read_text(encoding="utf-8-sig")
+        try:
+            texto = origem.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            print(f"{tabela}: o arquivo {origem.name} não está em UTF-8; salve o CSV como UTF-8 e tente de novo (nada gravado)")
+            falhou = True
+            continue
+        except OSError as exc:
+            print(f"{tabela}: não consegui ler {origem.name} ({type(exc).__name__})")
+            falhou = True
+            continue
         rel = regras.validar_regras(texto) if tabela == "regras" else regras.validar_operadoras(texto)
         print(f"{tabela}: {rel.linhas} linha(s), {rel.aceitas} aceita(s), {len(rel.erros)} erro(s)")
         for e in rel.erros[: regras.MAX_ERROS]:
