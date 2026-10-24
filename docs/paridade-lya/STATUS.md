@@ -882,3 +882,21 @@ a assinatura do export cobria só as linhas, agora cobre organização, período
 mesma consulta (compara o payload); `verify` passou a ler em lotes. Dossiê sem PII/segredos; texto da matriz agora declara limites (cauda, chave, c304, DATA_ENCRYPTION_KEY).
 Pendências: enfermagem e `GET /patients/{id}/consultations` (metadados) e as pendências da última nota em `pre-consulta` seguem sem trava; trigger Postgres
 revisado só por leitura (sem Postgres local); migrações futuras que façam UPDATE em audit_log precisarão desabilitar o gatilho; tela web ainda ignora `sem_vinculo`.
+
+## #54 IA externa substituível e pseudonimização em camadas (2026-10-24)
+
+Sem migração. `LLM_PROVIDER=anthropic` (padrão) ou `openai_compat` (vLLM/Ollama/gateway, `LLM_BASE_URL`, `LLM_API_KEY`,
+`LLM_ON_PREMISE`, `LLM_STRUCTURED`); `LLM_ALLOWED_REGIONS` bloqueia a chamada fora da região. Código: `app/llm/providers.py`
+(config na subida, SSRF, openai_compat com json_schema -> json_object -> instrução, sempre revalidado com Pydantic e 1 reparo),
+`app/llm/camadas.py` (regex + regras de nomes/endereços + `data/reference/nomes_br.csv`, tokens `[NOME_1]` por chamada, mapa só em
+memória, token inventado vira `[dado omitido]`), `app/llm/recibo.py` (ação `llm.chamada` no audit_log: provedor, modelo, região,
+contagem por camada, sem texto; gravada ao fim da requisição em `get_db`). Dossiê mostra provedor ativo e fluxo.
+Provedor local (`LLM_ON_PREMISE`) pula a saída externa mas mantém o recibo.
+- NÃO cobre (regras, não modelo): nome comum em minúsculas sem título/parentesco, nome raro/estrangeiro fora do dicionário,
+  apelido, cidade e estabelecimento, endereço sem tipo de logradouro, telefone ditado por extenso, identificação por contexto.
+  Texto pseudonimizado continua sendo dado pessoal (LGPD art. 12). Nomes ambíguos (Rosa, Dias, Costa) só valem com título ou ao
+  lado de outro nome. A cobertura nunca foi medida com fala real.
+- Pendências do item: spaCy pt (NER estatístico), deslocamento de datas, adaptadores Bedrock/Vertex, corpus de vazamento no CI além
+  dos ~20 casos de `tests/test_llm_camadas.py`, recibo baixável por consulta para o DPO e provedor/modelo/região no Provenance da
+  nota. Recibos de chamadas fora de requisição HTTP (WebSocket, tarefas) vão só ao log. O `LLM_ON_PREMISE` é declaração da
+  instituição (só se barra nome que resolve para IP público).

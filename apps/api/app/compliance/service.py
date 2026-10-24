@@ -17,6 +17,7 @@ from app.audit import chain
 from app.config import get_settings
 from app.consult import acesso, privacidade
 from app.db.models import AuditLog, User
+from app.llm import providers
 
 STATUS_ROTULO = {"implementado": "implementado", "parcial": "parcial", "nao_implementado": "NÃO implementado"}
 
@@ -33,11 +34,30 @@ def _quebras(db: Session, desde: datetime | None = None) -> int:
     return db.scalar(select(func.count()).select_from(AuditLog).where(*conds)) or 0
 
 
+def _fluxo(pv: providers.ProviderInfo) -> str:
+    """Descreve o fluxo de dados da IA sem afirmar conformidade: é o que o código faz, não um parecer."""
+    if pv.modo != "real":
+        return "Modo mock: nenhum texto sai do servidor."
+    if pv.local:
+        return (
+            "Provedor local declarado (LLM_ON_PREMISE): o texto não deixa a rede da instituição; a pseudonimização de "
+            "saída fica desligada e cada chamada continua auditada. A declaração de local é da instituição; o sistema "
+            "só recusa nomes que resolvem para IP público."
+        )
+    return (
+        "Provedor externo: o texto sai da rede da instituição depois de pseudonimização em camadas (identificadores "
+        "FHIR, regex, regras de nomes e endereços); a resposta é reidentificada localmente. A camada de regras não "
+        "cobre tudo (nome comum em minúsculas sem título, nome raro, apelido, local que identifica por contexto), "
+        "portanto o envio continua condicionado ao consentimento e ao contrato com o provedor."
+    )
+
+
 def calculado(db: Session, user: User) -> dict:
     s = get_settings()
     agora = clock.now()
     cadeia = chain.verificar(db, user.organization_id)
     real = s.llm_mode == "real"
+    pv = providers.info(s)
     dias = privacidade.retention_days()
     return {
         "gerado_em": agora.isoformat(),
@@ -55,13 +75,12 @@ def calculado(db: Session, user: User) -> dict:
         },
         "criptografia_de_campo": bool(s.data_encryption_key),
         "provedor_de_llm": {
-            "modo": s.llm_mode,
-            "provedor": "Anthropic" if real else None,
-            "modelo": s.llm_model if real else None,
-            "regiao": (s.llm_region or "não informada") if real else None,
+            **pv.como_dict(),
+            "politica_de_regioes": providers.regioes_permitidas(s) or None,
+            "pseudonimizacao": _fluxo(pv),
         },
         "suboperadores_ativos": [
-            *(["Provedor de LLM (Anthropic)"] if real else []),
+            *([f"Provedor de LLM ({pv.provedor})"] if real and pv.externo else []),
             *(["Servidor de transcrição (STT_URL)"] if s.stt_url else []),
             *(["Sistema de prontuário (escrita FHIR)"] if s.ehr_writeback else []),
             *(["Servidor SMTP"] if s.smtp_host else []),
@@ -117,7 +136,13 @@ def markdown(d: dict) -> str:
         f"- Retenção da transcrição: {c['retencao']['transcricao_dias_por_tipo']}",
         f"- Retenção do audit_log: {c['retencao']['audit_log']}",
         f"- Criptografia de campo: {'ligada' if c['criptografia_de_campo'] else 'DESLIGADA'}",
-        f"- Provedor de LLM: {llm['provedor'] or 'nenhum (modo ' + llm['modo'] + ')'}",
+        f"- Provedor de LLM: {llm['provedor'] or 'nenhum (modo ' + llm['modo'] + ')'}"
+        + (
+            f", modelo {llm['modelo']}, região {llm['regiao']}, {'externo' if llm['externo'] else 'local'}"
+            if llm["provedor"]
+            else ""
+        ),
+        f"- Fluxo de dados da IA: {llm['pseudonimizacao']}",
         f"- Suboperadores ativos: {_lista(c['suboperadores_ativos'])}",
         "",
         "## RoPA — operações de tratamento (LGPD art. 37)",

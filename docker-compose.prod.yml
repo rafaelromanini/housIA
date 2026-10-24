@@ -54,6 +54,11 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
       LLM_REGION: ${LLM_REGION:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_ON_PREMISE: ${LLM_ON_PREMISE:-false}
+      LLM_ALLOWED_REGIONS: ${LLM_ALLOWED_REGIONS:-}
       FHIR_MODE: hapi
       FHIR_BASE_URL: ${FHIR_BASE_URL:-http://fhir:8080/fhir}
       CORS_ORIGINS: https://${HOUSIA_DOMAIN:?defina HOUSIA_DOMAIN}

@@ -39,7 +39,13 @@ def problemas(s: Settings) -> list[str]:
 
 
 def exigir_producao_segura(s: Settings | None = None) -> None:
-    ruins = problemas(s or get_settings())
+    s = s or get_settings()
+    from app.llm import providers
+
+    config_ia = providers.problemas_config(s)  # vale em qualquer ambiente: URL/chave/região errada não sobe (#54)
+    if config_ia:
+        raise ConfiguracaoInsegura("Configuração do provedor de IA inválida: " + "; ".join(config_ia))
+    ruins = problemas(s)
     if ruins:
         raise ConfiguracaoInsegura("Configuração insegura para ENV=production: " + "; ".join(ruins))
 
@@ -63,11 +69,21 @@ def checklist(s: Settings | None = None) -> list[dict]:
     else:
         transcricao = ("ok", "Sem captura de voz: só digitar ou simular; nenhum áudio sai do hospital.")
     if s.llm_mode == "real":
-        ia = (
-            "atencao",
-            f"IA externa: provedor Anthropic, modelo {s.llm_model}, região {s.llm_region or 'não informada'}. "
-            "Só com consentimento e texto pseudonimizado.",
-        )
+        from app.llm import providers
+
+        pv = providers.info(s)
+        if pv.externo:
+            ia = (
+                "atencao",
+                f"IA externa: provedor {pv.provedor}, modelo {pv.modelo}, região {pv.regiao}. "
+                "Só com consentimento e texto pseudonimizado em camadas (estruturado, regex e regras de nomes).",
+            )
+        else:
+            ia = (
+                "ok",
+                f"IA local (on-premise): provedor {pv.provedor}, modelo {pv.modelo}. O texto não sai da rede da "
+                "instituição; a pseudonimização de saída fica desligada e a auditoria continua.",
+            )
     else:
         ia = ("ok", "IA em modo mock: só regras locais; nenhum texto sai do servidor.")
     prontuario = (
@@ -105,6 +121,12 @@ def checklist(s: Settings | None = None) -> list[dict]:
     ]
 
 
+def _prov(s: Settings) -> dict:
+    from app.llm import providers
+
+    return providers.info(s).como_dict()
+
+
 def ambiente(s: Settings | None = None) -> dict:
     s = s or get_settings()
     return {
@@ -112,9 +134,10 @@ def ambiente(s: Settings | None = None) -> dict:
         "producao": s.env == "production",
         "llm_mode": s.llm_mode,
         "llm": {
-            "provedor": "Anthropic" if s.llm_mode == "real" else None,
-            "modelo": s.llm_model if s.llm_mode == "real" else None,
+            "provedor": _prov(s)["provedor"],
+            "modelo": _prov(s)["modelo"],
             "regiao": (s.llm_region or None) if s.llm_mode == "real" else None,
+            "externo": _prov(s)["externo"],
         },
         "fhir_mode": s.fhir_mode,
         "checklist": checklist(s),

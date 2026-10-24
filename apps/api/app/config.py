@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     llm_timeout_s: float = 120.0
     llm_max_tokens: int = 16000
     log_prompts: bool = False
+    # Provedor de IA substituível (#54): "anthropic" (padrão) ou "openai_compat" (servidor com /chat/completions,
+    # ex.: vLLM ou Ollama). LLM_BASE_URL troca o endpoint (regional/proxy no Anthropic; obrigatório no openai_compat).
+    llm_provider: Literal["anthropic", "openai_compat"] = "anthropic"
+    llm_base_url: str = ""
+    llm_api_key: str = ""  # chave do openai_compat (a do Anthropic continua em ANTHROPIC_API_KEY)
+    # true: servidor próprio na rede da instituição. Pula a pseudonimização de saída, mantém a auditoria.
+    llm_on_premise: bool = False
+    # Regiões aceitas (lista separada por vírgula). Vazia: sem política. Com valor, LLM_REGION precisa estar na lista.
+    llm_allowed_regions: str = ""
+    # Saída estruturada no openai_compat: auto tenta json_schema, depois json_object, depois só instrução no prompt.
+    llm_structured: Literal["auto", "json_schema", "json_object", "prompt"] = "auto"
 
     # Banco do HousIA
     database_url: str = "sqlite:///./housia.db"

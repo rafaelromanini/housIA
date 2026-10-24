@@ -23,7 +23,7 @@ ropa:
     base_legal: "LGPD art. 11, II, f (tutela da saúde, por profissional de saúde); IA externa condicionada ao consentimento por finalidade (art. 11, I)."
     retencao: "Configurável por tipo de atendimento (TRANSCRIPT_RETENTION_DAYS); a nota revisada segue a guarda do prontuário."
     operadores: [Provedor de LLM (consulta com IA, só com consentimento "ia_externa"), Servidor de STT (opcional, só com consentimento), HousIA]
-    codigo: [apps/api/app/consult/service.py, apps/api/app/consult/consentimento.py, apps/api/app/llm/client.py]
+    codigo: [apps/api/app/consult/service.py, apps/api/app/consult/consentimento.py, apps/api/app/llm/client.py, apps/api/app/llm/providers.py, apps/api/app/llm/camadas.py]
     revisao_juridica: true
   - id: OP-02
     operacao: Consentimento do paciente por finalidade
@@ -102,8 +102,8 @@ ripd:
       medida: Hash encadeado (HMAC), verificação pela API, bloqueio de UPDATE/DELETE na aplicação e no banco, exportação assinada.
       residual: Quem tem a chave e o banco refaz a cadeia; apagar só a cauda exige comparar com a cabeça guardada fora.
     - risco: Envio de dado de saúde a provedor externo de IA
-      medida: Consentimento por finalidade, modo regras quando o paciente recusa, política de sem retenção no provedor a ser confirmada em contrato.
-      residual: Contrato e transferência internacional dependem da instituição e do jurídico.
+      medida: Consentimento por finalidade, modo regras quando o paciente recusa, política de sem retenção no provedor a ser confirmada em contrato. Provedor substituível (Anthropic, servidor compatível com OpenAI ou local on-premise), política de regiões (LLM_ALLOWED_REGIONS) e pseudonimização em camadas antes do envio externo, com recibo por chamada no audit_log (provedor, modelo, região, contagem por camada, sem texto).
+      residual: Contrato e transferência internacional dependem da instituição e do jurídico. A camada de nomes e endereços é por regras e dicionário, não modelo de linguagem; deixa passar nome comum em minúsculas sem título, nome raro, apelido e local que identifica por contexto. Texto pseudonimizado ainda é dado pessoal (LGPD art. 12) e pode reidentificar por contexto clínico.
     - risco: Vazamento por banco ou backup
       medida: Criptografia de campo nas colunas clínicas (chave própria), isolamento por organização, texto de fala fora do audit_log.
       residual: Cifra de campo só vale com DATA_ENCRYPTION_KEY configurada (ver parte calculada).
@@ -111,6 +111,7 @@ ripd:
       medida: Toda afirmação exige fonte; regras de segurança nunca removidas pela IA; revisão e atestação obrigatórias.
       residual: Viés e erro do modelo não são eliminados; monitorar pelo feedback e pela auditoria.
   pendencias:
+    - Medir a cobertura da pseudonimização de nomes e endereços com corpus real anonimizado pela instituição (o corpus do CI é sintético).
     - Parecer do encarregado e do jurídico sobre bases legais e transferência internacional.
     - Relatório de acessos para o paciente (LGPD art. 18) em PDF não implementado.
     - Procedimento de incidente (art. 48) e canal do titular ficam com a instituição.
@@ -142,6 +143,16 @@ matriz:
       - "apps/api/tests/test_audit_integridade.py::test_alterar_uma_linha_faz_o_verify_falhar"
       - "apps/api/tests/test_audit_integridade.py::test_apagar_linha_do_meio_quebra_o_elo_seguinte"
       - "apps/api/tests/test_audit_integridade.py::test_gatilho_do_banco_barra_update_e_delete"
+  - norma: LGPD
+    artigo: "art. 6º, III e art. 46 (minimização no envio ao operador)"
+    exigencia: Limitar o dado pessoal enviado a provedor externo de IA e poder trocar o provedor
+    controle: 'Pseudonimização em camadas (FHIR, regex, regras de nomes/endereços) com reidentificação local; provedor local pula a saída externa; recibo por chamada no audit_log. Limites: regras e dicionário não pegam nome comum em minúsculas sem título, nome raro, apelido nem local por contexto; texto pseudonimizado segue sendo dado pessoal.'
+    status: parcial
+    codigo: [apps/api/app/llm/camadas.py, apps/api/app/llm/providers.py, apps/api/app/llm/client.py, apps/api/app/llm/recibo.py]
+    testes:
+      - "apps/api/tests/test_llm_camadas.py::test_vizinha_claudia_e_a_rua_nao_chegam_ao_provedor"
+      - "apps/api/tests/test_llm_providers.py::test_openai_compat_funciona_contra_servidor_simulado"
+    revisao_juridica: true
   - norma: LGPD
     artigo: "art. 46 e art. 6º, VII"
     exigencia: Controle de acesso ao dado de saúde

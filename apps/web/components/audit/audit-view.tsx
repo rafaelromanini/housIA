@@ -58,6 +58,7 @@ const ACTION_LABEL: Record<string, string> = {
   "consulta.traducao": "Falas traduzidas",
   "consulta.fala_incluida_na_nota": "Fala incluída na nota",
   "consulta.erro_llm": "Erro do LLM na consulta",
+  "llm.chamada": "Chamada ao provedor de IA (provedor, modelo, região e dados pseudonimizados por camada)",
   "consulta.queixa_principal": "Queixa principal fixada",
   "consulta.hipotese": "Hipótese decidida (confirmada, provisória ou descartada)",
   "consulta.insight_acao": "Insight da consulta decidido (aceito, descartado com motivo, feito ou fixado)",

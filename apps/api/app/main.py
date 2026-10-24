@@ -30,6 +30,7 @@ from app.gestao.router import router as gestao_router
 from app.handoff.router import router as handoff_router
 from app.handoff.router import ws_router as handoff_ws_router
 from app.journey.router import router as journey_router
+from app.llm import recibo as llm_recibo
 from app.medrec.router import router as medrec_router
 from app.orgs.public import router as public_router
 from app.orgs.router import router as orgs_router
@@ -62,6 +63,18 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class _RecibosIA:
+    """Abre a fila de recibos de IA de cada requisição HTTP (descarregada em get_db)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            llm_recibo.iniciar()
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     exigir_producao_segura(settings)
@@ -72,6 +85,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         dependencies=[Depends(guard_path_patient)],  # paciente avulso só abre para a organização dona (#34)
     )
+    app.add_middleware(_RecibosIA)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],

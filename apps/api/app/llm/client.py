@@ -4,6 +4,9 @@
 - Saída sempre validada com Pydantic; JSON inválido ganha 1 tentativa de reparo e depois vira erro amigável.
 - LLM_MODE=mock usa geradores determinísticos (fixtures) — roda sem chave, usado no CI.
 - O texto enviado já chega pseudonimizado (app/llm/pseudonymize.py); com LOG_PROMPTS=false nada é logado.
+- Provedor substituível (#54): LLM_PROVIDER=anthropic (padrão) ou openai_compat (app/llm/providers.py). Para provedor
+  externo, uma segunda barreira em camadas (app/llm/camadas.py) troca nomes e endereços ditos por tokens locais e
+  reidentifica a resposta; cada chamada deixa um recibo (app/llm/recibo.py) sem texto clínico.
 """
 
 import json
@@ -20,6 +23,9 @@ import anthropic
 from pydantic import BaseModel, ValidationError
 
 from app.config import get_settings
+from app.llm import providers, recibo
+from app.llm.camadas import Escudo
+from app.llm.errors import LLMError
 from app.llm.schema import strict_schema
 
 logger = logging.getLogger("housia.llm")
@@ -27,10 +33,6 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 # Recusa de classificador de segurança: o servidor tenta outro modelo automaticamente.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
-
-
-class LLMError(RuntimeError):
-    """Erro com mensagem amigável para exibir na interface."""
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,10 @@ class LLMResult:
     prompt_version: str
     mode: str
     repaired: bool = False
+    provider: str = ""
+    region: str = ""
+    external: bool = False
+    entities: dict | None = None  # contagem por camada de pseudonimização (sem PII)
 
 
 @lru_cache
@@ -75,15 +81,33 @@ def _anthropic() -> anthropic.Anthropic:
         if _client is None:
             settings = get_settings()
             # Timeout configurável e 1 retry (o SDK repete 408/409/429/5xx e falhas de conexão)
+            extra = {"base_url": settings.llm_base_url.strip()} if settings.llm_base_url.strip() else {}
             _client = anthropic.Anthropic(
                 api_key=settings.anthropic_api_key or None,
                 timeout=settings.llm_timeout_s,
                 max_retries=1,
+                **extra,
             )
         return _client
 
 
 def _call(system: str, messages: list[dict], schema: dict, effort: str | None = None) -> str:
+    """Despacha para o provedor configurado (LLM_PROVIDER)."""
+    settings = get_settings()
+    if settings.llm_provider == "openai_compat":
+        return providers.OpenAICompatProvider(settings, transport=_http_transport).complete(
+            system, messages, schema, effort
+        )
+    if settings.llm_base_url.strip():
+        providers.checar_destino(settings.llm_base_url.strip(), False)
+    return _call_anthropic(system, messages, schema, effort)
+
+
+# Transporte HTTP injetável (testes usam httpx.MockTransport; produção deixa None)
+_http_transport = None
+
+
+def _call_anthropic(system: str, messages: list[dict], schema: dict, effort: str | None = None) -> str:
     settings = get_settings()
     try:
         response = _anthropic().beta.messages.create(
@@ -145,45 +169,78 @@ def generate_structured[T: BaseModel](
             mode="mock",
         )
 
+    providers.checar_regiao(settings)
+    prov = providers.info(settings)
+    escudo = Escudo(ativo=prov.externo)
     rendered = {
         k: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, indent=1) for k, v in variables.items()
     }
-    user = Template(prompt.user).safe_substitute(rendered)
-    system = Template(prompt.system).safe_substitute(rendered)
+    user = escudo.proteger(Template(prompt.user).safe_substitute(rendered))
+    system = escudo.proteger(Template(prompt.system).safe_substitute(rendered), contar_estruturado=False)
     if settings.log_prompts:
         logger.info("Prompt %s v%s (pseudonimizado):\n%s", prompt_name, prompt.version, user)
 
     json_schema = strict_schema(schema)
     messages: list[dict] = [{"role": "user", "content": user}]
-    text = _call(system, messages, json_schema, effort)
+    estado = {"resultado": "erro", "reparado": False}
     try:
-        return LLMResult(
-            output=schema.model_validate_json(text),
-            model=settings.llm_model,
-            prompt_version=prompt.version,
-            mode="real",
-        )
-    except ValidationError as first_error:
-        logger.warning("Saída inválida do LLM em %s; tentando reparo: %s", prompt_name, first_error.errors()[:3])
-        messages += [
-            {"role": "assistant", "content": text},
-            {
-                "role": "user",
-                "content": (
-                    "A resposta anterior não passou na validação do schema. Erros: "
-                    f"{json.dumps(first_error.errors()[:5], ensure_ascii=False, default=str)}. "
-                    "Devolva o JSON completo corrigido, sem texto adicional."
-                ),
-            },
-        ]
-        repaired = _call(system, messages, json_schema, effort)
+        text = _call(system, messages, json_schema, effort)
         try:
-            return LLMResult(
-                output=schema.model_validate_json(repaired),
-                model=settings.llm_model,
-                prompt_version=prompt.version,
-                mode="real",
-                repaired=True,
+            out = schema.model_validate_json(escudo.reidentificar_json(text))
+            estado["resultado"] = "ok"
+            return _resultado(out, settings, prompt, prov, escudo, False)
+        except ValidationError as first_error:
+            logger.warning("Saída inválida do LLM em %s; tentando reparo: %s", prompt_name, first_error.errors()[:3])
+            estado["reparado"] = True
+            erros = json.dumps(
+                [{k: v for k, v in e.items() if k in ("type", "loc", "msg")} for e in first_error.errors()[:5]],
+                ensure_ascii=False,
+                default=str,
             )
-        except ValidationError as exc:
-            raise LLMError("A IA retornou um formato inválido duas vezes. Tente regenerar.") from exc
+            messages += [
+                {"role": "assistant", "content": text},
+                {
+                    "role": "user",
+                    "content": (
+                        "A resposta anterior não passou na validação do schema. Erros: "
+                        f"{erros}. Devolva o JSON completo corrigido, sem texto adicional."
+                    ),
+                },
+            ]
+            repaired = _call(system, messages, json_schema, effort)
+            try:
+                out = schema.model_validate_json(escudo.reidentificar_json(repaired))
+            except ValidationError as exc:
+                raise LLMError("A IA retornou um formato inválido duas vezes. Tente regenerar.") from exc
+            estado["resultado"] = "ok"
+            return _resultado(out, settings, prompt, prov, escudo, True)
+    finally:
+        recibo.registrar(
+            {
+                "prompt": prompt.name,
+                "prompt_version": prompt.version,
+                "provedor": prov.provedor,
+                "modelo": prov.modelo,
+                "regiao": prov.regiao,
+                "externo": prov.externo,
+                "local": prov.local,
+                "pseudonimizacao_ativa": prov.externo,
+                "entidades": dict(escudo.contagem),
+                "resultado": estado["resultado"],
+                "reparado": estado["reparado"],
+            }
+        )
+
+
+def _resultado(out: BaseModel, settings, prompt: Prompt, prov, escudo: Escudo, repaired: bool) -> LLMResult:
+    return LLMResult(
+        output=out,
+        model=settings.llm_model,
+        prompt_version=prompt.version,
+        mode="real",
+        repaired=repaired,
+        provider=prov.provedor or "",
+        region=prov.regiao or "",
+        external=prov.externo,
+        entities=dict(escudo.contagem),
+    )
