@@ -1,11 +1,14 @@
 // Renderiza quadros da composição como função pura do tempo.
 // uso: node render.mjs stills 1.0 5.5 ...   |   node render.mjs frames
-import { chromium } from "/home/user/housIA/apps/web/node_modules/playwright-core/index.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, "..", "..");
+const { chromium } = await import(pathToFileURL(path.join(ROOT, "apps", "web", "node_modules", "playwright-core", "index.mjs")).href);
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
-const W = "/home/user/housIA/brag-output/work";
+const W = path.join(ROOT, "brag-output", "work");
 const FPS = 30, DURATION = 24;
 const [mode, ...times] = process.argv.slice(2);
 const types = { ".html": "text/html", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png" };

@@ -1051,3 +1051,25 @@ de saída (depois da pseudonimização), sem `LOG_PROMPTS`.
   não pega o limite da gramática); afrouxar `PALAVRAS_DE_REDACAO` com revisão clínica (realizar/realização, plural de siglas) se o produto quiser a reescrita de IA no #56; tradução ao vivo
   (`consult_translate`), pré-consulta, handoff, alta, medrec, gestão e relatório cirúrgico não foram exercitados com o modelo real; o `openai_compat` com `$ref` não foi testado contra
   servidor real; o painel web não foi validado em navegador.
+
+## Fechamento da sessão (2026-10-24)
+
+Na `main`: PR #13 (integração: #11, #12, #38, #41–#48), PR #14 (#52, #53, #54, #40, #56 + correção do LLM real e de dois testes instáveis). PR #15 (tela de conformidade corrigida, polimento no celular, textos e vídeo do pitch).
+Todos com API, Web, Helm e E2E verdes. Cabeça Alembic: **c306**.
+
+Vídeo da demo: gerado com `brag-output/scripts/record-consult.mjs` (ver "Como produzir" em `brag-output/brag-plan.md`); o arquivo fica fora do git.
+
+### Pendências que dependem de gente (não de código)
+- Conferência humana: tabelas oficiais Rol/DUT (ANS), SIGTAP, CBO-2002, CIAP-2; LOINC (#45); URLs dos perfis BR Core; enumerações do LEDI 7.3.x; faixas pediátricas; consentimento em 9 idiomas.
+- Revisão jurídica: RoPA, RIPD e matriz CFM/LGPD do dossiê; base legal da voz de terceiros (#40).
+- Validar com voz real a diarização (#40) e com Safari/iOS real o PWA (#12).
+- Revogar a chave Anthropic colada no chat e gerar outra.
+
+### Pendências de código (próxima sessão)
+- Sonda de schema contra a API real antes de cada release (o limite de gramática só existe na API; o mock não pega). A nota SOAP leva ~44 s com `effort=medium`.
+- Reescrita por IA do pacote de autorização (#56) é sempre descartada com o modelo real (vocabulário estrito): decidir com revisão clínica.
+- Não exercitados com o modelo real: tradução ao vivo, pré-consulta, handoff, alta, medrec, gestão, relatório cirúrgico, laudos (#48) e `openai_compat` contra servidor real.
+- Quebra de vidro e `sem_vinculo` (#53) só na API; faltam as telas. Enfermagem sem trava de vínculo.
+- Contêiner do serviço externo de diarização (ECAPA) no compose/chart; fluxo de exclusão de conta chamando `apagar_do_usuario`.
+- E2E não cobre `/conformidade`, `/perfil-voz` nem o painel de autorização prévia: acrescentar.
+- Fora do piloto, salvo pedido: #39, #49, #50, #51, #55, #57.

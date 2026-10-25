@@ -51,7 +51,7 @@ export function LoginForm() {
           <span className="text-2xl font-bold">HousIA</span>
         </div>
         <CardTitle className="text-lg">Entrar</CardTitle>
-        <CardDescription>Transições de cuidado com segurança: passagem de plantão, alta e reconciliação.</CardDescription>
+        <CardDescription>Consulta com IA com consentimento, transcrição ao vivo e nota SOAP revisada por você, além de passagem de plantão e alta com segurança.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4" noValidate>

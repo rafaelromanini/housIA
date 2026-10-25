@@ -170,7 +170,7 @@ export function VoiceProfileView() {
           {perfil.error && <Alert variant="critico">{perfil.error}</Alert>}
           {p && !p.diarizacao_ativa && (
             <Alert variant="info">
-              A separação de falantes por voz está desligada neste servidor (DIARIZATION_BACKEND). O cadastro fica indisponível.
+              A separação de falantes por voz está desligada neste servidor (recurso não habilitado pela equipe de TI). O cadastro fica indisponível.
             </Alert>
           )}
           {p && p.diarizacao_ativa && !p.cifrado && (

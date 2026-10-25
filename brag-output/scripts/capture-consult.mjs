@@ -1,9 +1,14 @@
 // Captura a Consulta com IA real (cen6, roteiro de demonstração, IA real) para o vídeo.
-import { chromium } from "/home/user/housIA/apps/web/node_modules/playwright-core/index.mjs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, "..", "..");
+const { chromium } = await import(pathToFileURL(path.join(ROOT, "apps", "web", "node_modules", "playwright-core", "index.mjs")).href);
 import fs from "node:fs";
 
-const W = "/home/user/housIA/brag-output/work";
-const BASE = "http://localhost:3000";
+const W = path.join(ROOT, "brag-output", "work");
+for (const d of ["snippets", "shots", "assets"]) fs.mkdirSync(path.join(W, d), { recursive: true });
+const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, locale: "pt-BR", timezoneId: "America/Sao_Paulo" });
 const page = await ctx.newPage();
@@ -44,6 +49,8 @@ if (await finish.isVisible()) {
 }
 await start.waitFor();
 await save("consult-start", page.locator("main"));
+await page.getByLabel("Li o aviso ao paciente e registrei a decisão dele").check();
+await page.waitForTimeout(500);
 await start.click();
 await card("Sugestão de perguntas").waitFor();
 await page.waitForTimeout(800);
@@ -98,7 +105,15 @@ await page.getByText("Nota da consulta para revisão").waitFor({ timeout: 300000
 await page.waitForTimeout(1000);
 const note = page.locator("div.rounded-lg.border").filter({ has: page.getByText("Nota da consulta para revisão") }).last();
 await save("consult-note", note);
+await page.getByLabel(/Revisei e assumo a responsabilidade/).check();
+await page.waitForTimeout(1500);
 await page.getByRole("button", { name: /Aprovar e (enviar ao prontuário|exportar)/ }).click();
+const justificativa = page.getByLabel(/Justificativa do envio com pendência crítica/);
+await justificativa.or(page.getByText(/Enviado ao prontuário/).first()).waitFor();
+if (await justificativa.isVisible()) {
+  await justificativa.fill("Risco avaliado e discutido com o paciente.");
+  await page.getByRole("button", { name: "Enviar com justificativa" }).click();
+}
 await page.getByText(/Enviado ao prontuário/).first().waitFor({ timeout: 60000 });
 await page.waitForTimeout(800);
 await save("consult-note-sent", note);

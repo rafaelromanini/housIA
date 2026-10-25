@@ -60,12 +60,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-2">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
           <Link href={user.destino} className="flex items-center gap-2 font-bold text-primary text-lg mr-2 min-h-11">
             <Stethoscope aria-hidden className="size-6" />
             HousIA
           </Link>
-          <nav aria-label="Principal" className="flex items-center gap-1">
+          <nav aria-label="Principal" className="order-3 flex w-full items-center gap-1 overflow-x-auto md:order-none md:w-auto md:max-w-full">
             {nav.map(({ href, label, Icon }) => {
               const active = pathname.startsWith(href) || (href === "/leitos" && pathname.startsWith("/pacientes"));
               return (

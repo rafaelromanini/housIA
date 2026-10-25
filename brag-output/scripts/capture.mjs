@@ -1,9 +1,14 @@
 // Captura a UI real do HousIA (com o Claude gerando o conteúdo) para reutilizar no vídeo.
-import { chromium } from "/home/user/housIA/apps/web/node_modules/playwright-core/index.mjs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, "..", "..");
+const { chromium } = await import(pathToFileURL(path.join(ROOT, "apps", "web", "node_modules", "playwright-core", "index.mjs")).href);
 import fs from "node:fs";
 
-const W = "/home/user/housIA/brag-output/work";
-const BASE = "http://localhost:3000";
+const W = path.join(ROOT, "brag-output", "work");
+for (const d of ["snippets", "shots", "assets"]) fs.mkdirSync(path.join(W, d), { recursive: true });
+const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, locale: "pt-BR", timezoneId: "America/Sao_Paulo" });
 const page = await ctx.newPage();

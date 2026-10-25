@@ -16,7 +16,7 @@ const atkinson = Atkinson_Hyperlegible({
 
 export const metadata: Metadata = {
   title: { default: "HousIA", template: "%s · HousIA" },
-  description: "Suporte à decisão em transições de cuidado — ambiente de demonstração com dados sintéticos.",
+  description: "Consulta com IA com consentimento: transcrição ao vivo, perguntas, hipóteses e alertas com fonte e nota SOAP citando as falas, com privacidade. Também apoia passagem de plantão e alta. Demonstração com dados sintéticos.",
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
   appleWebApp: { capable: true, title: "HousIA", statusBarStyle: "default" },

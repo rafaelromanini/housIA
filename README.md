@@ -1,8 +1,9 @@
 # HousIA
 
 Camada inteligente que roda **por cima** do prontuário (via **FHIR R4**) para os momentos mais perigosos do cuidado:
-a **transição** do paciente (troca de turno, mudança de setor e alta) e a própria **consulta**, em que a IA
-transcreve a conversa ao vivo e sugere perguntas em tempo real.
+a **consulta**, em que a IA, com o consentimento do paciente, transcreve a conversa ao vivo e sugere perguntas,
+hipóteses e alertas, cada um com a fonte (a fala ou o registro FHIR), e a **transição** do paciente (troca de turno,
+mudança de setor e alta).
 
 > **AVISO: AMBIENTE DE DEMONSTRAÇÃO, DADOS SINTÉTICOS. O HousIA NÃO é um dispositivo médico.** É uma ferramenta de
 > apoio à decisão, sem registro na ANVISA, e não substitui o julgamento do profissional de saúde. Toda sugestão
@@ -18,7 +19,7 @@ Especificação do MVP em [`HOUSIA_MVP_PLAN.md`](HOUSIA_MVP_PLAN.md). Comparaç�
 | **1. Passagem de plantão por perfil** | Ninguém perde o que importa na troca de turno | Resumo SBAR diferente para médico e enfermagem, riscos das próximas horas, pendências com horário e a fonte (recurso FHIR) em cada item. Confere o relato verbal de quem sai contra o prontuário e aponta omissões e divergências |
 | **2. "Waze" da alta** | Alta segura, sem reinternação evitável | Checklist social pré-preenchido do prontuário, LACE e score social transparentes, sugestões da IA e **trava suave** que só o médico libera com justificativa. Gera sumário SOAP e orientações ao paciente em linguagem simples (pt-BR, es, en) |
 | **3. Auditoria de prescrição na transição** | Erro de medicação na mudança de setor | Compara origem e destino por princípio ativo: omissão, duplicidade, interação, alto alerta e alergia. Hipóteses da IA (efeito adverso, retirada) ficam separadas das regras |
-| **4. Consulta com IA** | Mais atenção ao paciente, menos digitação | Transcrição ao vivo e perguntas sugeridas que saem da lista quando o profissional já as fez, Smart Apps que se atualizam a cada fala e uma nota SOAP + CID revisada e enviada ao prontuário |
+| **4. Consulta com IA** | Mais atenção ao paciente, menos digitação | Consentimento registrado, transcrição ao vivo, perguntas sugeridas que saem da lista quando o profissional já as fez, hipóteses e alertas de segurança com a fonte (`Fala/N` ou FHIR) e nota SOAP que cita as falas, revisada e atestada pelo profissional antes de ir ao prontuário. Apoia a conformidade com um dossiê vivo, auditoria encadeada contra adulteração, IA externa substituível com pseudonimização em camadas, autorização prévia (Rol/DUT e operadora, dados de exemplo) e perfis BR Core/RNDS e e-SUS |
 
 Princípio comum: **fatos duros calculados por regras antes de qualquer LLM**, e **nenhum item da IA sem fonte
 verificável** no prontuário ou na fala.
