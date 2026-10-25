@@ -215,6 +215,8 @@ class Extraction:
 
 
 def _speaker_ok(s: Segment, text: str) -> bool:
+    if s.falante_incerto:  # falante não confirmado (#40): vale como o paciente, a Fala/N deixa conferir
+        return True
     return s.falante == "paciente" or (s.falante == "acompanhante" and bool(THIRD_PERSON.search(text)))
 
 
@@ -265,7 +267,7 @@ def extract_history(segments: list[Segment], chart: ChartView) -> tuple[list[His
         p for p in chart.r.resources.get("Procedure", []) if "cirurg" in norm((p.get("category") or {}).get("text", ""))
     ]
     for s in segments:
-        if s.falante not in PATIENT_SIDE:
+        if s.falante not in PATIENT_SIDE and not s.falante_incerto:  # incerto (#40): não perder o que é segurança
             continue
         text = norm(s.texto)
         if not _speaker_ok(s, text):
@@ -419,7 +421,7 @@ def extract_exams(segments: list[Segment], chart: ChartView) -> list[ExamInfo]:
     pattern, table = _exam_lexicon()
     found: dict[str, ExamInfo] = {}
     for s in segments:
-        if s.falante not in PATIENT_SIDE:
+        if s.falante not in PATIENT_SIDE and not s.falante_incerto:  # incerto (#40): não perder o que é segurança
             continue
         text = norm(s.texto)
         if not _speaker_ok(s, text):

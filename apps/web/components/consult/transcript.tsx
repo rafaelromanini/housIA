@@ -229,6 +229,25 @@ export function Transcript({
                 </Button>
               )}
               {s.falante_auto && <span className="text-muted-foreground">(quem falou: detectado automaticamente)</span>}
+              {s.falante_incerto && (
+                <span
+                  className="inline-flex items-center gap-1 rounded border border-atencao-border bg-atencao-bg px-1.5 text-atencao"
+                  title="A voz não bateu com clareza: confira quem falou. Enquanto não confirmar, esta fala fica fora das métricas de comunicação."
+                  data-testid={`falante-incerto-${s.n}`}
+                >
+                  falante incerto
+                  {onEdit && (
+                    <button
+                      type="button"
+                      className="font-semibold underline min-h-6"
+                      aria-label={`Confirmar que a fala ${s.n} é de ${speakerLabel(s.falante, proLabel)}`}
+                      onClick={() => void onEdit(s.n, { falante: s.falante })}
+                    >
+                      confirmar
+                    </button>
+                  )}
+                </span>
+              )}
               {(s.relevancia === "social" || s.relevancia === "administrativa") && (
                 <span className="rounded border px-1.5 text-muted-foreground">
                   {s.relevancia === "social" ? "social" : "administrativa"}

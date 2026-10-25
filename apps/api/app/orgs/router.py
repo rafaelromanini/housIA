@@ -11,6 +11,7 @@ from app.audit.service import log_action
 from app.auth import tokens
 from app.auth.deps import ROLES, get_current_user, get_org, require_roles
 from app.auth.router import UserOut, default_org, to_user_out
+from app.br import identificadores as br_ids
 from app.config import get_settings
 from app.db.models import AuthToken, Consultation, Organization, User
 from app.db.session import get_db
@@ -28,6 +29,15 @@ class InviteIn(BaseModel):
 
 class ConselhoIn(BaseModel):
     verificado: bool = True
+
+
+class CadastroOrgIn(BaseModel):
+    cnes: str | None = Field(default=None, max_length=20)  # None ou vazio apaga
+
+
+class CadastroProfIn(BaseModel):
+    cns: str | None = Field(default=None, max_length=30)
+    cbo: str | None = Field(default=None, max_length=20)
 
 
 class PlanoIn(BaseModel):
@@ -157,6 +167,66 @@ def conferir_conselho(
     db.commit()
     log_action(db, user, "org.conselho", "user", membro.id, {"verificado": body.verificado, "organizacao": org.id})
     return to_user_out(membro, db)
+
+
+def _validar(fn, valor):
+    """Vazio apaga o campo; o resto passa pelo validador brasileiro (erro vira 422 em português)."""
+    if valor is None or (isinstance(valor, str) and not valor.strip()):
+        return None
+    try:
+        return fn(valor)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _só_a_minha(org_id: int, mine: Organization) -> Organization:
+    """CNES, CNS e CBO vão para a exportação oficial: só o gestor da própria organização os altera. Nem o
+    administrador da plataforma (que confere conselhos de qualquer organização) mexe no cadastro de outra: 404."""
+    if org_id != mine.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organização não encontrada")
+    return mine
+
+
+@router.put("/orgs/{org_id}/cadastro")
+def cadastro_org(
+    org_id: int,
+    body: CadastroOrgIn,
+    user: User = Depends(gestor_only),
+    mine: Organization = Depends(get_org),
+    db: Session = Depends(get_db),
+) -> dict:
+    """CNES do estabelecimento (#52): vai para o Bundle (perfil BR Core) e para a exportação LEDI."""
+    org = _só_a_minha(org_id, mine)
+    org.cnes = _validar(br_ids.validar_cnes, body.cnes)
+    db.commit()
+    log_action(db, user, "org.cadastro_br", "organization", org.id, {"campo": "cnes", "preenchido": bool(org.cnes)})
+    return {"id": org.id, "cnes": org.cnes}
+
+
+@router.put("/orgs/{org_id}/membros/{user_id}/cadastro")
+def cadastro_profissional(
+    org_id: int,
+    user_id: int,
+    body: CadastroProfIn,
+    user: User = Depends(gestor_only),
+    mine: Organization = Depends(get_org),
+    db: Session = Depends(get_db),
+) -> dict:
+    """CNS e CBO do profissional (#52). Validados (dígito verificador do CNS); vazio apaga."""
+    org = _só_a_minha(org_id, mine)
+    membro = db.get(User, user_id)
+    if membro is None or membro.organization_id != org.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Profissional não encontrado")
+    # só muda o que veio no corpo (campo ausente = não mexe; campo vazio = apaga)
+    enviados = body.model_fields_set
+    if "cns" in enviados:
+        membro.cns = _validar(br_ids.validar_cns, body.cns)
+    if "cbo" in enviados:
+        membro.cbo = _validar(br_ids.validar_cbo, body.cbo)
+    cns, cbo = membro.cns, membro.cbo
+    db.commit()
+    log_action(db, user, "org.cadastro_br", "user", membro.id, {"campo": "cns_cbo", "cns": bool(cns), "cbo": bool(cbo)})
+    return {"id": membro.id, "cns": membro.cns, "cbo": membro.cbo}
 
 
 @router.get("/orgs/{org_id}/plano")

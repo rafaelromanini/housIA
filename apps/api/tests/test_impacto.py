@@ -27,7 +27,9 @@ from tests.test_surgical import start as start_surgery
 
 SCRIPT = demo_scripts()["cen6_consulta"]["falas"]
 TZ = ZoneInfo("America/Sao_Paulo")
-TODAY = ANCHOR.astimezone(TZ).date()
+_dia = ANCHOR.astimezone(TZ).date()
+# o indicador de expediente é seg-sex: ancora em terça a sexta para que ontem e hoje sejam dias úteis em qualquer data
+TODAY = _dia - timedelta(days=(_dia.weekday() - 4) % 7 if _dia.weekday() in (5, 6, 0) else 0)
 YESTERDAY = TODAY - timedelta(days=1)
 
 

@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.consult import knowledge
+from app.consult import acesso, knowledge
 from app.db.models import Consultation, User
 from app.db.tenancy import current_org
 from app.patients import avulso
@@ -86,8 +86,8 @@ def cids_of(c: Consultation) -> list[dict]:
     return [{"codigo": i.get("codigo", ""), "descricao": i.get("descricao", "")} for i in items if i.get("codigo")]
 
 
-def _haystack(c: Consultation, nome: str, norm) -> str:
-    cids = " ".join(f"{i['codigo']} {i['descricao']}" for i in cids_of(c))
+def _haystack(c: Consultation, nome: str, norm, ver: bool = True) -> str:
+    cids = " ".join(f"{i['codigo']} {i['descricao']}" for i in cids_of(c)) if ver else ""
     return norm(f"{nome} {c.patient_id} {knowledge.SPECIALTIES.get(c.specialty, c.specialty)} {cids}")
 
 
@@ -95,7 +95,7 @@ def _day(dt: datetime) -> date:
     return dt.astimezone(ZoneInfo(get_settings().timezone)).date()
 
 
-def _row(c: Consultation, nome: str, autores: dict[int, str]) -> dict:
+def _row(c: Consultation, nome: str, autores: dict[int, str], ver: bool = True) -> dict:
     return {
         "id": c.id,
         "patient_id": c.patient_id,
@@ -107,7 +107,8 @@ def _row(c: Consultation, nome: str, autores: dict[int, str]) -> dict:
         "revisada": is_reviewed(c),
         "aguardando_revisao": c.status == "finalizada" and not is_reviewed(c),
         "sandbox": bool(c.sandbox),
-        "cids": cids_of(c),
+        "cids": cids_of(c) if ver else [],  # diagnóstico de consulta sem vínculo não aparece na listagem (#53)
+        "sem_vinculo": not ver,
         "falas": len(c.segments_json or []),
         "criado_por": autores.get(c.created_by or 0),
         "created_at": c.created_at.isoformat(),
@@ -128,6 +129,7 @@ def search(
     sandbox: bool | None = None,
     limit: int = 50,
     offset: int = 0,
+    user=None,
 ) -> dict:
     """Busca global da organização. `status` aceita também `aguardando_revisao` (finalizada e não atestada)."""
     from app.consult.text import norm
@@ -150,16 +152,21 @@ def search(
         rows = [c for c in rows if not is_reviewed(c)]
     if revisada is not None:
         rows = [c for c in rows if is_reviewed(c) == revisada]
+    quebras = acesso.quebras_ativas(db, user) if user is not None else set()
+
+    def ver(c: Consultation) -> bool:  # médico só vê o diagnóstico do que é dele ou do que liberou por quebra de vidro
+        return user is None or acesso.tem_vinculo(user, c) or c.id in quebras
+
     wanted = _norm_cid(cid)
     if wanted:
-        rows = [c for c in rows if any(_norm_cid(i["codigo"]).startswith(wanted) for i in cids_of(c))]
+        rows = [c for c in rows if ver(c) and any(_norm_cid(i["codigo"]).startswith(wanted) for i in cids_of(c))]
     names: dict[str, str] = {}
     for pid in {c.patient_id for c in rows}:
         patient = fhir.get("Patient", pid)
         names[pid] = avulso.name_of(patient) if patient else pid
     tokens = norm(q).split()
     if tokens:  # cada palavra da busca precisa aparecer em algum lugar da consulta (nome, id, especialidade, CID)
-        hay = {c.id: _haystack(c, names[c.patient_id], norm) for c in rows}
+        hay = {c.id: _haystack(c, names[c.patient_id], norm, ver(c)) for c in rows}
         rows = [c for c in rows if all(t in hay[c.id] for t in tokens)]
     autores = {u.id: u.name for u in db.scalars(select(User).where(User.organization_id == current_org(db)))}
     limit = max(1, min(limit, MAX_PAGE))
@@ -168,7 +175,7 @@ def search(
         "total": len(rows),
         "limite": limit,
         "deslocamento": offset,
-        "itens": [_row(c, names[c.patient_id], autores) for c in page],
+        "itens": [_row(c, names[c.patient_id], autores, ver(c)) for c in page],
     }
 
 

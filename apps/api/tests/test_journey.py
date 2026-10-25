@@ -495,8 +495,8 @@ def test_alembic_chain_has_single_head_with_journey_tables(tmp_path, monkeypatch
     cfg.set_main_option("script_location", str(root / "app/db/migrations"))
     script = ScriptDirectory.from_config(cfg)
     assert script.get_heads() == [
-        "c302"
-    ]  # #47 (tarefas da consulta) sobre c301 (#46, memória de estilo), e351 (#35), c202 (#17), e341 (#34), e331 (#33)
+        "c306"
+    ]  # #56 (autorização prévia) sobre c305 (#40), c304 (#53), c303 (#52), c302, c301, e351, c202, e341, e331
     assert {"d201", "d402"} <= {r.revision for r in script.walk_revisions()}
     url = f"sqlite:///{tmp_path / 'm.db'}"
     from app.config import get_settings

@@ -798,3 +798,256 @@ nova: `pdfplumber` (núcleo); extra `ocr` (pytesseract + pillow) e tesseract-ocr
 - Front: `components/consult/laudos-panel.tsx` na revisão; `SourceRefs` mostra "laudo N, p. X". Testes:
   `tests/test_consult_laudos.py` (31). Pendências: OCR real (tesseract) não testado aqui; PDF escaneado (sem texto) pede
   foto; PDF com fontes subconjunto/CMap próprio depende do pdfplumber; sem e2e nem upload em duas páginas por foto.
+
+## #52 perfis brasileiros: BR Core/RNDS, CNS/CNES/CBO e exportação e-SUS (LEDI) (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c303 sobre c302 (cabeça única; golden de `test_journey.py` e do teste de
+reescrita atualizados): `organizations.cnes`, `users.cns`, `users.cbo`. Decisões:
+- `app/br/identificadores.py`: CPF (aceita máscara), CNS (definitivo 1/2 e provisório 7/8/9, com dígito verificador),
+  CNES (7 dígitos) e CBO (6 dígitos), mensagens em português. NamingSystems da RNDS para CNS e CNES (mesmo prefixo do CPF).
+- Cadastro só pelo gestor: `PUT /orgs/{id}/cadastro` (CNES) e `PUT /orgs/{id}/membros/{uid}/cadastro` (CNS, CBO);
+  vazio apaga; auditoria `org.cadastro_br`.
+- `app/br/perfis.py`: o Bundle estruturado (/export e /send) declara `meta.profile` em Composition, DocumentReference
+  e Practitioner; com cadastro, junta CNS no Practitioner, Organization (CNES, `Composition.custodian`) e
+  PractitionerRole (CBO). Sem cadastro nada é inventado.
+- `GET /consultations/{cid}/export/ledi[?baixar=true]` (`app/br/ledi.py`, `app/consult/ledi_service.py`): ficha de
+  atendimento individual JSON, só de consulta ambulatorial finalizada, revisada e atestada (mesmas travas do /export),
+  papéis médico e enfermagem, auditoria `consulta.ledi_exportado` só com contagens. Exige CNES, CBO, CNS do
+  profissional e CNS ou CPF válido do paciente (senão 422 com a lista `faltas`). Só CID/CIAP confirmados (hipótese fica
+  fora); procedimento só se for SIGTAP oficial de 10 dígitos (os DEMO-* vão para `pendencias`). Botão "Exportar e-SUS
+  (LEDI)" na revisão da nota.
+- Pendências de conferência humana: (1) URLs dos perfis em `app/br/perfis.py` (BRIndividuo, BRProfissional,
+  BREstabelecimentoSaude, BRLotacaoProfissional, BRRegistroAtendimentoClinico-2.0, BRDocumentoReferencia) e dos
+  NamingSystems/CodeSystem BRCBO foram escritas sem validar contra os pacotes de IG; rodar o validador FHIR antes de
+  produção. (2) Nomes e enumerações do LEDI (versão 7.3.x, `app/br/ledi.py`) sem o dicionário oficial: conferir turno,
+  sexo, limite de 2 problemas e `uuidFicha`; a serialização Thrift que o PEC importa não foi feita. (3) CBO só valida
+  formato, sem a tabela CBO-2002. (4) Sumário de Alta e RAC completos nos perfis oficiais (seções obrigatórias) não
+  foram gerados: só a declaração no Composition atual. (5) INE, local e tipo de atendimento e IBGE do município ficam
+  para o PEC (listados em `pendencias`). (6) Tabela SIGTAP real: seguem os DEMO-*. (7) CNS do paciente é lido do
+  Patient FHIR; o seed sintético não traz CNS (a exportação cai no CPF).
+- Testes: `tests/test_br_perfis.py` (29: validadores, cadastro, LEDI feliz/CPF/sem cadastro/não finalizada/sem atestação/
+  papel/sem login/inexistente, procedimento DEMO e hipótese, Bundle com e sem cadastro).
+
+### Verificação #52 (2026-10-24)
+
+Verificador cético, 20 testes novos em `tests/test_br_perfis.py`. Bugs achados e corrigidos: (1) o administrador da plataforma
+(gestor da organização padrão) podia alterar CNES/CNS/CBO de outra organização via `_alvo`: agora só o gestor da própria
+(404 nos demais); (2) `PUT .../cadastro` do profissional apagava o campo omitido: agora só muda o que veio no corpo;
+(3) LEDI de consulta de sandbox era exportado: 422; (4) a ficha usava o CNS/CBO de quem exporta, não de quem atendeu
+(`created_by`); (5) `cids` nulo ou código não textual quebrava (500) e texto livre entrava no arquivo como CID: só formato
+CID-10 sai, o resto vira pendência; (6) CNS provisório `700000000000000` passava na conta do dígito: recusado; (7) resposta
+do LEDI sem `Cache-Control: no-store`. Sem achado: IDOR de consulta/profissional entre organizações (404), auditoria sem
+CNS/CPF/CNES/CBO. Pendência: o Bundle `/export` ainda usa o cadastro de quem exporta (comportamento anterior ao #52).
+
+## #53 dossiê de conformidade vivo e auditoria à prova de adulteração (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c304 (sobre c303): `audit_log.prev_hash/hash` + gatilhos contra UPDATE/DELETE
+(Postgres, com TRUNCATE; SQLite). Cabeça única c304.
+- Cadeia (`app/audit/chain.py`): HMAC-SHA256 (`AUDIT_CHAIN_KEY`, senão JWT_SECRET) por organização, selada em
+  `log_action` (lock consultivo no Postgres). `GET /audit/verify` aponta a primeira linha quebrada. Linhas sem hash antes
+  da primeira encadeada = "anteriores ao encadeamento" (não quebram); sem hash depois = quebra. UPDATE/DELETE bloqueados
+  no ORM e em massa (`AuditoriaImutavel`) e no banco. Limite assumido: apagar só a cauda exige comparar a `cabeca` guardada
+  fora do banco; quem tem a chave e o banco refaz a cadeia; girar a chave quebra a verificação das linhas antigas.
+- `GET /audit/export?formato=json|csv&since&until` (gestor): SHA-256 do arquivo + HMAC em cabeçalhos (e no corpo do JSON),
+  sem nome/e-mail (só id e perfil), CSV sem injeção de fórmula, teto de 50 mil linhas; a exportação é auditada.
+- Leituras auditadas com deduplicação de 5 min por usuário/recurso (`log_leitura`): `consulta.visualizada` (antes gravava
+  a cada GET), `consulta.nota_visualizada`, `consulta.documento_visualizado`, `paciente.visualizado`,
+  `paciente.timeline_visualizada`. Exportações da consulta já eram auditadas.
+- Acesso (`app/consult/acesso.py`, dependência no router da consulta + `stream_context` do WebSocket): modelo do projeto
+  não tem equipe/CareTeam, então o vínculo do médico é só ser o autor da consulta. Sem vínculo: 403 (tentativa auditada);
+  `POST /consultations/{cid}/quebra-de-vidro` com motivo (10+ caracteres efetivos, invisíveis não contam) libera aquela
+  consulta por 8 h, grava `consulta.quebra_de_vidro` e abre alerta "atencao" ao gestor. Outra organização segue 404.
+- Dossiê: `data/compliance/dossie.yaml` (RoPA de 7 operações, RIPD resumido, matriz de 14 linhas) + parte calculada
+  (retenção, cadeia, quebras de vidro, criptografia, provedor de LLM, suboperadores). `GET /compliance/dossie?formato=json|md`
+  (gestor, auditado); tela `/conformidade`; cartão de integridade/exportação em `/auditoria`.
+  `tests/test_compliance_dossie.py` garante que todo código e teste citado existe e que "não implementado" não cita controle.
+- **Precisa de revisão jurídica humana**: todas as bases legais do RoPA, o texto do RIPD, os artigos da Resolução CFM
+  2.454/2026 (marcados "a confirmar"), CEM art. 73 e CFM 1.821/2007, transferência internacional (provedor de LLM) e prazo
+  de guarda. O dossiê não afirma conformidade.
+- Pendente: relatório de acessos para o paciente em PDF (LGPD art. 18) e FHIR AuditEvent; vínculo por equipe/CareTeam
+  (enfermagem hoje sem trava; listagem global de consultas ainda mostra metadados ao médico); tela web para o médico pedir
+  a quebra de vidro (hoje só API; o 403 traz a instrução); `patient_id` em `consulta.audio`; incidente (art. 48) e
+  encarregado ficam com a instituição. Testes: pytest direcionado (385 passaram); suíte completa e e2e não rodados.
+
+### Verificação #53 (2026-10-24)
+
+Verificador independente; testes de regressão em `tests/test_verificacao_53.py`. Bugs corrigidos: (1) `/consultations/abc`, `1.0`, `1e0` e ids enormes davam 500 na
+trava (`int()` próprio); agora a trava lê o id como o FastAPI e devolve 422/404, sem grafia que a contorne; (2) `GET /patients/{id}/pre-consulta?consulta=`
+abria a conversa de consulta sem vínculo: agora 403; a busca global `/consultations` mostrava e filtrava o CID de consulta alheia (oráculo do diagnóstico):
+sem vínculo o CID some da linha (`sem_vinculo`) e não entra no filtro; (3) motivo da quebra de vidro com Braille vazio, preenchedor de Hangul, pontuação ou
+uma letra repetida passava: contam só letras/números (mín. 10, 4 distintos) e o texto gravado perde controle/RLO; (4) escritas simultâneas bifurcavam a cadeia
+em SQLite (a leitura da cabeça era anterior ao bloqueio de escrita; Postgres já tinha o lock consultivo): o UPDATE vazio toma o bloqueio antes de ler;
+usuário legado sem organização numa sessão com organização gravava o hash com `o=None` e o flush carimbava outra: a organização é fixada antes do hash;
+a assinatura do export cobria só as linhas, agora cobre organização, período, total e cabeça; (5) dedupe escondia a leitura de outro tipo de documento da
+mesma consulta (compara o payload); `verify` passou a ler em lotes. Dossiê sem PII/segredos; texto da matriz agora declara limites (cauda, chave, c304, DATA_ENCRYPTION_KEY).
+Pendências: enfermagem e `GET /patients/{id}/consultations` (metadados) e as pendências da última nota em `pre-consulta` seguem sem trava; trigger Postgres
+revisado só por leitura (sem Postgres local); migrações futuras que façam UPDATE em audit_log precisarão desabilitar o gatilho; tela web ainda ignora `sem_vinculo`.
+
+## #54 IA externa substituível e pseudonimização em camadas (2026-10-24)
+
+Sem migração. `LLM_PROVIDER=anthropic` (padrão) ou `openai_compat` (vLLM/Ollama/gateway, `LLM_BASE_URL`, `LLM_API_KEY`,
+`LLM_ON_PREMISE`, `LLM_STRUCTURED`); `LLM_ALLOWED_REGIONS` bloqueia a chamada fora da região. Código: `app/llm/providers.py`
+(config na subida, SSRF, openai_compat com json_schema -> json_object -> instrução, sempre revalidado com Pydantic e 1 reparo),
+`app/llm/camadas.py` (regex + regras de nomes/endereços + `data/reference/nomes_br.csv`, tokens `[NOME_1]` por chamada, mapa só em
+memória, token inventado vira `[dado omitido]`), `app/llm/recibo.py` (ação `llm.chamada` no audit_log: provedor, modelo, região,
+contagem por camada, sem texto; gravada ao fim da requisição em `get_db`). Dossiê mostra provedor ativo e fluxo.
+Provedor local (`LLM_ON_PREMISE`) pula a saída externa mas mantém o recibo.
+- NÃO cobre (regras, não modelo): nome comum em minúsculas sem título/parentesco, nome raro/estrangeiro fora do dicionário,
+  apelido, cidade e estabelecimento, endereço sem tipo de logradouro, telefone ditado por extenso, identificação por contexto.
+  Texto pseudonimizado continua sendo dado pessoal (LGPD art. 12). Nomes ambíguos (Rosa, Dias, Costa) só valem com título ou ao
+  lado de outro nome. A cobertura nunca foi medida com fala real.
+- Pendências do item: spaCy pt (NER estatístico), deslocamento de datas, adaptadores Bedrock/Vertex, corpus de vazamento no CI além
+  dos ~20 casos de `tests/test_llm_camadas.py`, recibo baixável por consulta para o DPO e provedor/modelo/região no Provenance da
+  nota. Recibos de chamadas fora de requisição HTTP (WebSocket, tarefas) vão só ao log. O `LLM_ON_PREMISE` é declaração da
+  instituição (só se barra nome que resolve para IP público).
+- Verificação #54 (cética, privacidade): nome entre colchetes/sublinhado ("[Maria Silva]") escapava da camada (`_em_token` agora só
+  vale para token real); CPF com espaços/pontuação mista, telefone "11 9 8765 4321", e-mail ofuscado (arroba/ponto/(at)), dígitos ditos
+  ("meia nove...") e nascimento ISO vazavam; "dona Rosa e dona Rosa" engolia o 2º gatilho e "Rosa" sem título após "dona Rosa"
+  vazava; sobrenome fora do dicionário colado a nome firme ("Ana D'Ávila") vazava. Falso positivo corrigido: dose "5000 7500" e id
+  FHIR "Observation/12345678901" viravam telefone/CPF.
+- Corrigido também: `run_live` (2 chamadas em ThreadPoolExecutor) perdia o contexto e o recibo `llm.chamada` não ia ao audit_log;
+  log de reparo gravava o "input" reidentificado do Pydantic (PII); SDK Anthropic seguia redirect; host numérico ofuscado
+  ("127.1", decimal, hex, dígitos largos), rótulo único e `.svc` passavam na checagem estática; conexão do openai_compat agora fixa
+  no IP validado (DNS rebinding) com Host/SNI do nome. Pendente: rebinding no caminho Anthropic com `LLM_BASE_URL` (SDK resolve sozinho),
+  ditado por extenso só cobre sequência de 7+ dígitos, tokens aceitam caixa/separador alterados pelo provedor.
+
+## #40 diarização acústica on-premise com a voz do profissional cadastrada (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c305 (sobre c304): tabela `perfis_voz` (um por usuário, `ON DELETE CASCADE`). Cabeça única c305.
+- Código: `app/consult/diarizacao.py`. `DIARIZATION_BACKEND=off|heuristico|externo` (padrão `off` = comportamento antigo). `externo` chama
+  `DIARIZATION_URL` (POST multipart `file`, resposta `{"segmentos":[{inicio,fim,falante_id,embedding}]}`, validada: tempos, dimensão única,
+  número finito, teto de 500 segmentos e 2 MB) com a mesma checagem anti-SSRF do #54 (`providers.checar_destino`/`fixar_destino`, sem redirect,
+  `DIARIZATION_ON_PREMISE=true` por padrão: o áudio da consulta não sai da rede). `heuristico` não é modelo: turnos por pausa
+  (`DIARIZATION_PAUSA_S`) e vetor de 32 bandas espectrais, só lê WAV/PCM 16 kHz; existe para teste e degradação.
+- Perfil de voz (`GET/PUT/DELETE /consult/perfil-voz`, só medico/enfermagem, só o próprio): o PUT exige o cabeçalho `X-Consentimento-Voz`
+  com a versão do termo (senão 428 e nada gravado), guarda **só o vetor** em `EncryptedJson` (cifrado com `DATA_ENCRYPTION_KEY`; sem a chave
+  fica JSON puro e a tela avisa), rejeita amostra vazia, >5 MB, curta, sem fala ou com mais de uma voz. Audit `consulta.voz_cadastrada`
+  (backend, dim, duração, versão do termo) e `consulta.voz_apagada`, sem vetor. A GET nunca devolve o vetor. `apagar_do_usuario` existe, mas
+  **não há fluxo de exclusão de conta no código para chamá-lo**: hoje vale o `ON DELETE CASCADE` do banco. Dossiê: OP-08, risco no RIPD e linha
+  na matriz (art. 5º, II/11, I), todos `revisao_juridica`.
+- Atribuição (`atribuir`): cosseno entre o vetor do falante (média por duração dos turnos) e o perfil. `>= DIARIZATION_LIMIAR` (0,75): médico.
+  Abaixo de `limiar - DIARIZATION_MARGEM` (0,10): paciente (o 2º falante não profissional vira acompanhante, incerto). Entre os dois:
+  **incerto** (`falante_incerto`, confiança 0,5). Sem perfil utilizável (ou de outro motor/dimensão) e mais de um falante: os turnos se separam,
+  mas tudo é incerto (palpite a partir do botão). Um falante só e sem perfil: nada muda. Papéis de cirurgia (anestesista etc.) não passam pela
+  diarização.
+- Segmento ganha `falante_origem` (`botao|heuristica|diarizacao|correcao`), `falante_confianca`, `falante_incerto` (só valem com origem
+  `servidor`). POST `/audio` (e `X-Client-Id` opcional, até 56 caracteres: o reenvio com o mesmo id não transcreve de novo, e as falas levam
+  `id:0`, `id:1`...) e o WebSocket do #11 (a frase fechada pode virar várias falas, em ordem, uma mensagem `final` com todas em `novos`) usam a
+  atribuição; qualquer falha (serviço fora, lento, lixo, WAV ruim, exceção) volta ao falante do botão com o texto inteiro. O audit
+  (`consulta.audio`, `consulta.audio_stream`) leva só contagens e estado.
+- Correção: `PATCH /segments/{n}` com o mesmo falante confirma o incerto (`falante_confirmado`), com outro falante corrige (`falante_original`
+  guardado, origem `correcao`); as regras rodam de novo como já faziam. Falas incertas ficam **fora** das métricas de comunicação
+  (`CommMetrics.falas_incertas` conta quantas), das emoções por falante e das dúvidas sem resposta (#43) até a confirmação.
+- Front: `/perfil-voz` ("Minha voz": termo, aceite, gravação de 10 a 20 s em PCM 16 kHz -> WAV, apagar) e selo "falante incerto" + "confirmar"
+  no `Transcript`. Não validado em navegador real.
+- Testes: `tests/test_diarizacao.py` (sem consentimento, só vetor/cifrado/auditoria, perfil de outro usuário, apagar remove, amostra
+  vazia/gigante/inválida/silêncio/duas vozes, embedding de dimensão errada/NaN/inf/nulo, serviço externo caindo/lento/500/lixo/NaN/redirect, SSRF,
+  limiar no limite, voz parecida incerta + confirmação + correção, 2 vozes sintéticas com >=90% corretas, sem perfil, perfil incompatível, dedupe,
+  WebSocket com divisão e com diarização quebrada, migração). Pytest direcionado; suíte completa e e2e não rodados.
+- **Limites (leia antes de confiar no rótulo):** não há validação com voz real. O backend heurístico mede timbre sintético (vogais harmônicas); com
+  voz humana ele separa mal e erra com ruído, eco, telefone, duas vozes de mesmo timbre. A taxa de erro de um ECAPA (speechbrain) em fala clínica
+  PT-BR (EER típico de poucos % em áudio limpo, bem pior com ruído de consultório, máscara, sobreposição de fala) **não foi medida aqui** e deve
+  ser medida com áudio real anonimizado da instituição antes de ajustar `DIARIZATION_LIMIAR`. Viés por sotaque, idade, voz rouca e idioma
+  (o paciente pode falar outro idioma) é esperado e não foi avaliado; por isso a faixa incerta e a confirmação pelo profissional. Fala
+  sobreposta não é separada. O vetor de paciente/acompanhante é calculado e descartado (nunca gravado), mas é processamento de biometria de
+  terceiros: base legal a confirmar pelo jurídico. O critério "áudio sintético com 2 vozes >= 90%" vale para o gerador de teste, não para vozes.
+- Pendente: o serviço `externo` real (speechbrain ECAPA + agrupamento) como contêiner no perfil `stt` do compose e do chart (hoje só o
+  contrato), recadastro guiado ao trocar de backend, mudar o falante de uma fala reroda a IA mas não há ainda botão de "reprocessar métricas",
+  exclusão de conta que chame `apagar_do_usuario`, tela do gestor com quem tem perfil (propositalmente não existe), teste e2e.
+
+- Verificação #40 (cética, privacidade e segurança clínica): fala de falante **incerto** sumia da segurança clínica (alergia dita pelo paciente
+  e rotulada "médico incerto" não gerava alergia/alerta; "vou passar X" dito pelo médico rotulado "paciente incerto" não cruzava com
+  alergia): agora a fala incerta conta como possível fala do paciente **e** do profissional para alergias, uso de remédio, histórico, exames,
+  remédio planejado e validação das alergias da IA (continua fora de métricas de comunicação/emoções, e sempre citável por Fala/N).
+- Corrigido: `POST /audio` e `PUT /perfil-voz` liam o corpo inteiro antes de qualquer limite (DoS de memória; agora 413 por Content-Length ou
+  pedaços, 25 MB no áudio, 5 MB na amostra); heurístico sem teto de duração (agora 300 s, acima volta ao botão); `POST /segments` deixava o
+  cliente forjar `falante_origem=diarizacao`/confiança/incerto (zerados no servidor); perfil que não decifra mais (chave de cifra trocada)
+  dava 500 no GET e travava o recadastro (agora vale como sem perfil, "recadastre", e o PUT substitui); resposta do serviço externo era
+  lida inteira antes do teto de 2 MB e sem prazo total (agora em fluxo, corte no limite e prazo de 3x o timeout).
+- Verificado sem bug: consentimento (sem cabeçalho/versão velha = 428 e nada gravado), GET sem vetor, perfil isolado por usuário e por
+  organização, apagar com perfil ilegível, WAV malformado (cabeçalho mentiroso, estéreo, 8 bits, 8 kHz, truncado) volta ao botão, dedupe por
+  `X-Client-Id` (replay com áudio diferente não duplica, ids `id:k` estáveis), PATCH não forja a trilha, resposta externa com NaN/falante_id
+  gigante/JSON aninhado. Pendente: ainda não há como o profissional exportar/ver o consentimento além do `audit_log`; o rótulo de um único
+  falante que contradiz o botão (ex.: botão "médico", voz abaixo do piso) vira "paciente" sem selo de incerto (decisão de produto a validar).
+
+## #56 autorização prévia: Rol da ANS/DUT e exigências da operadora ao vivo, com pacote de justificativa (2026-10-24)
+
+Branch `claude/p1-restantes`. Migração c306 (sobre c305): tabela `autorizacoes_previas` (um pedido por consulta e regra, pacote cifrado). Cabeça única c306.
+- **Base de regras** (`app/consult/autorizacao_regras.py`): `data/reference/rol_dut_exemplo.csv` (15 procedimentos: RM de joelho/coluna/crânio, PET-CT, cintilografia, eco, colonoscopia, EDA, polissonografia, densitometria,
+  mamografia, colecistectomia, artroplastia de joelho, bariátrica, adalimumabe) e `operadoras_exemplo.csv` (2 operadoras FICTÍCIAS). **Tudo é EXEMPLO, não oficial** (`origem=exemplo`, `conferencia=pendente`, fonte marcada
+  "NÃO OFICIAL"); o texto não foi tirado de nenhuma RN. Colunas com fonte, versão e vigência por linha. Importador: `validar_regras`/`validar_operadoras` (relatório por linha/campo: colunas, id, tipo, CID, idade, data,
+  gramática dos critérios, id repetido, CSV de até 1 MB/3000 linhas, **célula começando com = + - @ ou tab é recusada**) e `gravar_importacao` (só grava sem nenhum erro; força `origem=importado` e `conferencia=pendente`,
+  o arquivo não se declara oficial). `scripts/importar_rol_dut.py` e `POST /consult/autorizacao/validar-regras` (gestor, dry-run). `AUTORIZACAO_REGRAS_CSV`/`AUTORIZACAO_OPERADORAS_CSV` apontam para a base da instituição.
+  Linha inválida ao carregar é pulada (não derruba a consulta); `GET /consult/autorizacao/base` mostra aviso e contagem de erros.
+- **Motor ao vivo** (`app/consult/autorizacao.py`, plugado em `engine.run`, `Insights.autorizacoes`): o gatilho é o médico/fala sem dono dizendo que vai pedir o item (afirmativo, sem pergunta, negação, condição ou passado) ou um
+  rascunho de pedido não recusado. Cada critério vira `atendido` (com `Fala/N` ou recurso FHIR), `faltando` (com o que perguntar) ou `nao_aplicavel` (condição `aplica`). **Sem evidência = faltando; nada é inferido**: CID só
+  vale confirmado (Condition ativa sem verificationStatus provisório/não confirmado, ou hipótese confirmada pelo médico com ref); hipótese pendente/provisória não vale; idade exige nascimento e vale no limite (>= mínimo,
+  <= máximo); tratamento negado, perguntado ou só planejado ("vou pedir fisioterapia") não conta; exame vem do prontuário/laudo #48, com validade em dias. Perguntas que faltam entram em `perguntas` (RM de joelho sugere
+  "já fez tratamento conservador?"). Operadora: campo por consulta (`PUT /autorizacao/operadora`, o cadastro não guarda convênio); desconhecida/ausente = só a DUT é conferida, com aviso; exigências da operadora (documentos,
+  prazo) só dentro da vigência. Regra com vigência vencida: nenhuma checagem, situação `regra_vencida`, pacote não gera.
+- **Pacote** (`autorizacao_service.py`): `POST /autorizacoes` gera as frases das regras (só o que está atendido, cada uma com refs) + anexos (exames citados e laudos #48) + pendências (não afirmadas) + documentos; a IA é
+  opcional e SÓ reescreve (`generate_structured` com a pseudonimização do #54; `rules_only` sem consentimento; em mock devolve as frases das regras); a reescrita é descartada se ganhar ref de fora, número ou CID novo.
+  O médico edita (`PUT .../justificativa`, cada frase precisa de ref real desta consulta/paciente: Fala/N existente, recurso do prontuário do paciente; senão 422) e **aprova** (`POST .../aprovar`, só médico, revalida tudo e
+  grava hash do conteúdo). PDF e JSON (Bundle FHIR `ServiceRequest` draft + `Claim` use=preauthorization draft) só saem aprovados (senão 409) e levam o aviso quando a regra é de exemplo. Status
+  rascunho -> enviado (exige aprovação com hash íntegro) -> aprovado | negado; negado volta a rascunho (recurso, nova revisão); aprovado/enviado não mudam (409). Enfermagem registra andamento, não aprova.
+  Audit (`consulta.autorizacao_*`, 7 ações, rótulos em `audit-view.tsx`): ids, regra/versão, estados e contagens, sem texto, sem nome, sem protocolo. Todas as rotas passam pela trava de vínculo do #53 (403) e de organização (404).
+- Front: `AuthorizationPanel` na revisão da nota (checklist, perguntas, documentos, gerar/refazer, aprovar, baixar PDF/JSON, andamento). Não validado em navegador real; lint e typecheck limpos.
+- Dossiê: OP-09, pendência de RIPD sobre regras de exemplo.
+- Testes: `tests/test_autorizacao_previa.py` (25: regra sem evidência, CID só hipótese/provisório, tratamento negado/planejado/perguntado, só o pedido do profissional abre, idade no limite, operadora desconhecida e conhecida,
+  tabela malformada, CSV com fórmula, importação sempre pendente, vigência vencida, pacote com Fala/N e saída só aprovada, FHIR válido, afirmação sem fonte/de outro paciente/adulterada no banco, pedido aprovado/enviado
+  imutável, só médico aprova, audit sem PII, consulta sem vínculo 403, outra organização 404, pedido de outra consulta, evidência de outro paciente/consulta, reescrita da IA com fato novo, migração). Pytest direcionado;
+  suíte completa e e2e não rodados.
+- **Limites e pendências:** as tabelas OFICIAIS do Rol/DUT (RN vigente da ANS) e de operadoras reais NÃO foram importadas nem conferidas; o conjunto de exemplo serve só para estrutura e demonstração e exige conferência
+  humana antes de qualquer uso. Os critérios dependem de a conversa citar o fato (Fala/N) ou do prontuário; "exame prévio" é busca por palavra em evolução/procedimento (não lê o laudo anexado, só laudos #48 com valor); a
+  leitura de passado/negação/futuro é por regras e erra em frases incomuns. Não há integração TISS/envio à operadora (envio é manual; só registramos o andamento). Pendente do item: o "Waze da alta" não recebe a pendência
+  de autorização pós-alta (critério 3 do backlog) e não há Task FHIR (#47) para a pendência; marcar a regra como `conferido` hoje é editar o CSV; atestado manual de critério pelo profissional (critério `manual`) não existe.
+- **Verificação do #56 (2026-10-24, cético, ~35 entradas adversariais novas em `tests/test_autorizacao_verificacao.py`).** Corrigido: critério e pedido
+  aceitavam negação DEPOIS do termo ("fisioterapia eu nunca fiz", "fisioterapia, não", "ressonância eu não vou pedir"), relato sobre terceiros ("minha mãe
+  fez fisioterapia") e fala de falante incerto (#40) como evidência ou gatilho; nascimento futuro/parcial/inválido dava idade negativa (`idade<=65` virava
+  atendido) ou derrubava a avaliação; exame com data futura valia; a reescrita da IA só barrava ref, número e CID novos (agora também palavra clínica,
+  negação e frase a mais, para a injeção vinda da fala não passar); Fala/N de marco ou fala expurgada servia de fonte; editar o texto de uma fala citada
+  depois da aprovação não derrubava a aprovação (o hash agora inclui o texto das falas citadas); "enviado" não revalidava as fontes; duas mudanças
+  simultâneas passavam pelo mesmo estado antigo (linha travada com FOR UPDATE, 409 na geração duplicada); exportação de sandbox sem aviso; o script
+  de importação quebrava com CSV fora de UTF-8.
+- Verificado sem bug: CID refutado/provisório/erro de entrada, CSV com fórmula/BOM/CRLF/colunas extras/duplicada/vigência invertida/gigante/binário, origem
+  "oficial" forjada (sempre importado e pendente), endpoint só do gestor, nome do arquivo gravado pelo script fixo (sem path traversal), todas as rotas
+  `{cid}/{aid}` (403 sem vínculo, 404 de outra organização/consulta/pedido), estados inválidos, consulta finalizada, PDF com texto exótico, auditoria sem texto,
+  protocolo, operadora ou nome, migração c306 sobe e desce. Pendente: a reescrita da IA agora é conservadora (descarta paráfrases com palavra fora do
+  vocabulário das regras); a operadora digitada livremente fica em coluna sem cifra; o pacote não reavalia se um CID citado foi refutado depois da aprovação;
+  o painel web continua sem validação em navegador real.
+
+## Validação com LLM real (2026-10-24)
+
+Smoke com `LLM_MODE=real` (Anthropic, `claude-sonnet-5-5`, `LLM_EFFORT=medium`), `TestClient` em processo, banco SQLite descartável, FHIR local, só dados sintéticos
+(cen6 e um paciente de teste). Cerca de 15 chamadas de produto e ~25 sondas de schema de 64 tokens; custo estimado abaixo de US$ 1. Prompts conferidos no ponto
+de saída (depois da pseudonimização), sem `LOG_PROMPTS`.
+
+- **Achado principal (corrigido): a IA da consulta não funcionava com o modelo real.** A API respondeu `400 "The compiled grammar is too large"` para
+  `consult_live_clinica` (`ClinicaOutput`) e `consult_note` (`ConsultNote`). Efeito: `POST /insights` dava 502 e a nota SOAP caía em `regras_fallback`.
+  Os testes em mock nunca exercitaram a gramática (o limite só existe na API). Diagnóstico por sondas (uma chamada de 64 tokens por variante):
+  1. `strict_schema` copiava cada submodelo no ponto de uso (9 `NoteSection` na nota). Com `$defs`/`$ref` a nota passa. `strict_schema(model, usar_defs=True)` é usado
+     só no provedor Anthropic; o `openai_compat` segue recebendo o schema sem `$ref` (contrato do `test_handoff`).
+  2. Mesmo com `$defs`, `ClinicaOutput` (hipóteses, medicamentos, cirurgia, histórico, anamnese, alergias, pedidos) estourava; cada campo sozinho passa, anamnese+hipóteses+
+     medicamentos é o teto (mais um campo estoura). Dividido em `ClinicaOutput` (hipóteses, medicamentos, cirurgia, alergias relatadas) e `AnamneseOutput` (anamnese,
+     histórico relatado, posologia dos pedidos), 3 chamadas em paralelo (`max_workers=3`), mesmo prompt `consult_live_clinica` (1.5.1, com a linha "preencha só os campos do
+     schema recebido"). Regressão em mock: `test_live_analysis_runs_three_small_schemas_that_cover_the_union` e `test_strict_schema_can_keep_defs_to_shrink_the_grammar`.
+  3. Margem pequena: acrescentar campos a esses schemas pode estourar de novo; vale uma sonda real a cada mudança de schema (ver pendências).
+- **Fluxo 1, consulta cen6 (roteiro demo, 28 falas): passou depois do ajuste.** Análise ao vivo: 3 chamadas em paralelo, ~14 s, `modo: ia`, 16 perguntas, 10 hipóteses
+  (CID-10 válidos, hipoglicemia por sulfonilureia, hipotensão ortostática, piora renal por AINE, hiponatremia), 12 sugestões de medicamento. Nota SOAP: 1 chamada, ~44 s, sem erro
+  de schema nem reparo. Refs: ~1000 conferidas, nenhuma `Fala/N` fora de 1..28, nenhum recurso FHIR inexistente. Sem alucinação óbvia; a avaliação repete "hipoglicemia
+  por sulfonilureia" em duas frases (redundância, não erro).
+- **Fluxo 2, documentos (#45) e reescrita (#46): passou.** Receita e atestado são determinísticos (sem LLM); o atestado saiu, a receita exige pedido assinado e consulta
+  finalizada (conferido: amoxicilina para paciente alérgica a penicilina pede justificativa, 409 correto). A única chamada de IA dos documentos é a tradução do resumo ao paciente:
+  `en`, ~8 s, 1 item voltou em português por divergir na conferência por regra (comportamento previsto), 8 sem fonte ficaram de fora. Reescrita da seção Avaliação ("resuma, mais direta"):
+  ~3 s, 78 para 81 palavras (não encurtou, mas manteve refs e frases). Memória de estilo (#42/#46) não tem chamada de IA própria.
+- **Fluxo 3, laudo em texto (#48): não há caminho via LLM** (leitura por OCR/metadado); sem validação.
+- **Fluxo 4, autorização prévia (#56), pacote com reescrita por IA: schema válido, mas a reescrita é descartada.** O modelo devolve 3 frases, só com refs recebidas, sem número/CID novo,
+  porém com "realização", "realizou", "CIDs" fora do vocabulário das regras; `reescrita_segura` (deliberadamente estrita, ver verificação do #56) rejeita e o pacote sai com as frases das
+  regras e o aviso. Resultado: seguro, mas a IA praticamente nunca entra. Não alterei (é decisão de segurança); ver pendências.
+- **Fluxo 5, pseudonimização (#54): passou.** 7 recibos `llm.chamada` no `audit_log` (prompt, versão, provedor, modelo, contagens por camada, resultado), sem nenhum nome do paciente
+  ou familiar; nos prompts enviados (7 de 7) não aparecem nome, sobrenome nem CPF dos pacientes (o único "Lima" encontrado era a palavra "clima" dentro do prompt). Contagens de entidades > 0
+  nas chamadas com conversa, 0 nas demais (sem PII na entrada).
+- **Pendências:** a nota SOAP leva ~44 s (o `effort=medium`; considerar `low` ou streaming na tela); sonda real de schema no CI ou antes de release (cada chamada custa centavos; o teste em mock
+  não pega o limite da gramática); afrouxar `PALAVRAS_DE_REDACAO` com revisão clínica (realizar/realização, plural de siglas) se o produto quiser a reescrita de IA no #56; tradução ao vivo
+  (`consult_translate`), pré-consulta, handoff, alta, medrec, gestão e relatório cirúrgico não foram exercitados com o modelo real; o `openai_compat` com `$ref` não foi testado contra
+  servidor real; o painel web não foi validado em navegador.

@@ -17,7 +17,8 @@ import io
 import math
 import wave
 from array import array
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from app.config import get_settings
@@ -199,10 +200,19 @@ class Evento:
     fim: float = 0.0
     palavras: tuple[tuple[str, float | None], ...] = ()  # (palavra, probabilidade) do motor
     avg_logprob: float | None = None
+    # diarização (#40): palavras com tempo absoluto (texto, prob, início, fim) e os trechos por falante do mesmo eixo
+    tempos: tuple[tuple[str, float | None, float, float], ...] = ()
+    trechos: tuple = ()
 
 
 class Sessao:
-    def __init__(self, engine: Motor, idioma: str = "pt-BR", vocabulario: str = "") -> None:
+    def __init__(
+        self,
+        engine: Motor,
+        idioma: str = "pt-BR",
+        vocabulario: str = "",
+        segmentador: Callable[[bytes], list] | None = None,
+    ) -> None:
         s = get_settings()
         self.engine, self.idioma, self.vocabulario = engine, idioma.split("-")[0], vocabulario
         self.janela_s, self.sobreposicao_s, self.silencio_s = s.stt_janela_s, s.stt_sobreposicao_s, s.stt_silencio_s
@@ -213,6 +223,7 @@ class Sessao:
         self.ultimo_parcial_s = 0.0
         self.ultimo_texto_parcial = ""
         self.bytes_total = 0
+        self.segmentador = segmentador  # PCM da frase -> trechos por falante (None: sem diarização)
 
     @property
     def fim(self) -> float:
@@ -251,6 +262,20 @@ class Sessao:
 
     def _evento_final(self, palavras: list[Palavra]) -> Evento:
         texto = " ".join(p.texto.strip() for p in palavras).strip()
+        tempos: tuple = ()
+        trechos: tuple = ()
+        if self.segmentador is not None:
+            tempos = tuple((p.texto.strip(), p.prob, self.ini + p.inicio, self.ini + p.fim) for p in palavras)
+            try:  # a diarização nunca custa uma fala: qualquer falha volta ao falante único
+                i0 = max(0, int(palavras[0].inicio * TAXA)) * 2
+                i1 = max(i0, int(palavras[-1].fim * TAXA) * 2)
+                base = self.ini + i0 / 2 / TAXA
+                trechos = tuple(
+                    replace(t, inicio=t.inicio + base, fim=t.fim + base)
+                    for t in self.segmentador(bytes(self.buf[i0:i1]))
+                )
+            except Exception:  # noqa: BLE001
+                trechos = ()
         return Evento(
             "final",
             texto,
@@ -258,6 +283,8 @@ class Sessao:
             self.ini + palavras[-1].fim,
             tuple((p.texto.strip(), p.prob) for p in palavras),
             getattr(self.engine, "ultimo_logprob", None),
+            tempos,
+            trechos,
         )
 
     def adicionar(self, pcm: bytes) -> list[Evento]:

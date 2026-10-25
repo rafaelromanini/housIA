@@ -628,6 +628,10 @@ export interface Segment {
   /** edição pelo profissional (#2): o original fica guardado; editado_em acende o selo "editada" */
   texto_original?: string | null;
   falante_original?: Speaker | null;
+  /** diarização (#40): como o rótulo nasceu, a confiança e se o profissional ainda precisa confirmar quem falou */
+  falante_origem?: "botao" | "heuristica" | "diarizacao" | "correcao" | null;
+  falante_confianca?: number | null;
+  falante_incerto?: boolean;
   editado_por?: string | null;
   editado_em?: string | null;
   /** marco de privacidade (origem "marco"): não é fala */
@@ -1559,11 +1563,27 @@ export interface Ambiente {
   checklist: AmbienteItem[];
 }
 
+/** Estado do perfil de voz do próprio profissional (#40). O vetor nunca chega ao navegador. */
+export interface VoiceProfile {
+  cadastrado: boolean;
+  diarizacao_ativa: boolean;
+  backend: "off" | "heuristico" | "externo";
+  termo_versao: string;
+  termo: string;
+  cifrado: boolean;
+  limiar: number;
+  compativel?: boolean;
+  consentimento_em?: string;
+  atualizado_em?: string;
+}
+
 export interface ConsultConfig {
   aviso_consentimento: Record<string, string>;
   finalidades: { value: keyof ConsentPurposes; label: string }[];
   llm_mode: "real" | "mock";
   stt_servidor: boolean;
+  /** diarização acústica (#40): quem fala vem da voz cadastrada do profissional */
+  diarizacao?: "off" | "heuristico" | "externo";
   /** o servidor aceita áudio em fluxo (WebSocket) com texto parcial; senão cai nos trechos de 8 s */
   stt_streaming?: boolean;
   /** false (ALLOW_BROWSER_STT): o áudio não vai ao fabricante do navegador e o modo Microfone some */
@@ -1813,4 +1833,35 @@ export interface PreConsulta {
   resumo_ia: { texto: string; refs: string[] }[];
   modo_resumo: "regras" | "ia" | null;
   aviso: string;
+}
+
+// ---------- Integridade da auditoria e dossiê de conformidade (#53) ----------
+export interface ChainStatus {
+  integra: boolean;
+  total: number;
+  encadeadas: number;
+  anteriores_ao_encadeamento: number;
+  primeira_quebra: { id: number; motivo: string } | null;
+  cabeca: string | null;
+  limite: string;
+}
+
+export interface Dossie {
+  versao: string;
+  atualizado_em: string;
+  aviso: string;
+  ropa: { id: string; operacao: string; dados: string; finalidade: string; base_legal: string; retencao: string; operadores: string[]; revisao_juridica?: boolean }[];
+  ripd: { escopo: string; fluxo: string; riscos: { risco: string; medida: string; residual: string }[]; pendencias: string[] };
+  matriz: { norma: string; artigo: string; exigencia: string; controle: string; status: "implementado" | "parcial" | "nao_implementado"; codigo: string[]; testes: string[]; revisao_juridica?: boolean }[];
+  resumo_matriz: Record<string, number>;
+  precisa_revisao_juridica: string[];
+  calculado: {
+    gerado_em: string;
+    retencao: { configurada: boolean; transcricao_dias_por_tipo: Record<string, number | null>; audit_log: string };
+    cadeia_audit_log: { integra: boolean; total: number; encadeadas: number; anteriores_ao_encadeamento: number; primeira_quebra: { id: number; motivo: string } | null };
+    acessos_quebra_de_vidro: { total: number; ultimos_90_dias: number };
+    criptografia_de_campo: boolean;
+    provedor_de_llm: { modo: string; provedor: string | null; modelo: string | null; regiao: string | null };
+    suboperadores_ativos: string[];
+  };
 }

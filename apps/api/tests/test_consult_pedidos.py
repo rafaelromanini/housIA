@@ -582,7 +582,7 @@ def test_prompt_clinico_foi_atualizado_para_os_pedidos():
     text = (knowledge.get_settings().data_dir.parent / "apps/api/app/llm/prompts/consult_live_clinica.md").read_text(
         encoding="utf-8"
     )
-    assert "version: 1.5.0" in text and "pedidos_ia" in text and "pedidos_em_rascunho" in text
+    assert "version: 1.5.1" in text and "pedidos_ia" in text and "pedidos_em_rascunho" in text
 
 
 def test_medicamentos_do_prontuario_mostram_a_prescricao_proposta(client, auth, monkeypatch, store):

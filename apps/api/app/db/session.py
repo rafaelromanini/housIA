@@ -35,4 +35,7 @@ def get_db() -> Iterator[Session]:
     try:
         yield db
     finally:
+        from app.llm import recibo
+
+        recibo.descarregar(db)  # recibos das chamadas de IA da requisição vão para o audit_log (#54)
         db.close()

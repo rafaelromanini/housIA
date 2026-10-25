@@ -1,29 +1,35 @@
 import asyncio
 import json
+import re
 import time
 from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
 from sqlalchemy.orm import Session
 
-from app.audit.service import log_action
+from app.audit.service import log_action, log_leitura
 from app.auth.deps import get_current_user, require_roles
 from app.auth.security import decode_access_token
 from app.config import get_settings
 from app.consult import (
+    acesso,
     adendo_service,
     antiglosa,
+    autorizacao_regras,
+    autorizacao_service,
     cid,
     consentimento,
     consultorio,
+    diarizacao,
     documentos_service,
     estilo,
     idiomas,
     knowledge,
     laudos,
     laudos_service,
+    ledi_service,
     note_templates,
     opme,
     perfis,
@@ -42,14 +48,32 @@ from app.consult import ask as copilot
 from app.consult.schemas import AdendoIn, ConsultCreate, FinishIn, Marker, SegmentEdit, SegmentsIn, Speaker
 from app.consult.templates import surgical_specialties
 from app.db import session as db_session
-from app.db.models import User
+from app.db.models import Consultation, User
 from app.db.session import get_db
 from app.db.tenancy import set_org
 from app.fhir_client.client import FhirSource, get_fhir
 from app.prontidao import ambiente
 
-router = APIRouter(tags=["consulta com IA"])
 clinician = require_roles("medico", "enfermagem")
+_INT = TypeAdapter(int)
+
+
+def guarda_consulta(request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    """Toda rota com {cid} passa pelo vínculo do médico com a consulta (#53), exceto o pedido de quebra de vidro."""
+    bruto = request.path_params.get("cid")
+    if bruto is None or request.url.path.endswith("/quebra-de-vidro"):
+        return
+    try:
+        cid = _INT.validate_python(bruto)  # a mesma leitura que o FastAPI faz do parâmetro (1_0, 1.0, +1 ...)
+    except ValidationError:
+        return  # a própria rota responde 422; nenhuma consulta é lida
+    if not 0 < cid < 2**63:
+        raise HTTPException(404, "Consulta não encontrada")
+    acesso.exigir(db, user, db.get(Consultation, cid))
+
+
+router = APIRouter(tags=["consulta com IA"], dependencies=[Depends(guarda_consulta)])
+ws_router = APIRouter(tags=["consulta com IA"])  # WebSocket: a trava de vínculo roda em service.stream_context
 
 
 @router.get("/consult/config")
@@ -60,6 +84,7 @@ def config(_: User = Depends(get_current_user)) -> dict:
     return {
         "llm_mode": s.llm_mode,
         "stt_servidor": stt.enabled(),
+        "diarizacao": diarizacao.backend(),
         "stt_streaming": stt_stream.disponivel(),
         "stt_navegador": s.allow_browser_stt,
         "privacidade": privacidade.panel(),
@@ -162,7 +187,7 @@ def search_consultations(
     deslocamento: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     fhir: FhirSource = Depends(get_fhir),
-    _: User = Depends(clinician),
+    user: User = Depends(clinician),
 ) -> dict:
     """Busca global de consultas da organização, com a fila de notas finalizadas e ainda não revisadas."""
     return consultorio.search(
@@ -177,6 +202,7 @@ def search_consultations(
         sandbox=sandbox,
         limit=limite,
         offset=deslocamento,
+        user=user,
     )
 
 
@@ -262,6 +288,21 @@ def list_consultations(patient_id: str, db: Session = Depends(get_db), _: User =
     return service.list_for_patient(db, patient_id)
 
 
+class QuebraDeVidroIn(BaseModel):
+    motivo: str = Field(max_length=2000)
+
+
+@router.post("/consultations/{cid}/quebra-de-vidro")
+def quebra_de_vidro(
+    cid: int, body: QuebraDeVidroIn, db: Session = Depends(get_db), user: User = Depends(require_roles("medico"))
+) -> dict:
+    """Acesso excepcional a consulta sem vínculo: motivo (10+ caracteres) auditado e aviso ao gestor (#53)."""
+    c = db.get(Consultation, cid)
+    if c is None:
+        raise HTTPException(404, "Consulta não encontrada")
+    return acesso.registrar_quebra(db, user, c, body.motivo)
+
+
 @router.get("/consultations/{cid}")
 def get_consultation(cid: int, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
     return service.get(db, user, cid)
@@ -276,6 +317,8 @@ def add_segments(
     user: User = Depends(clinician),
 ) -> dict:
     """Recebe falas transcritas e devolve os Smart Apps atualizados na hora (camada de regras)."""
+    for item in body.segmentos:  # a trilha do falante (#40) nasce no servidor: o cliente não forja "diarizacao"
+        item.falante_origem, item.falante_confianca, item.falante_incerto = None, None, False
     return service.append_segments(db, fhir, user, cid, body.segmentos)
 
 
@@ -443,6 +486,160 @@ def decide_referral(
     return service.decide_referral(db, fhir, user, cid, enc_id, body.escolha, body.motivo)
 
 
+class OperadoraIn(BaseModel):
+    operadora: str = Field("", max_length=120)
+
+
+class AutorizacaoIn(BaseModel):
+    regra_id: str = Field(..., min_length=2, max_length=60)
+
+
+class FraseAutorizacaoIn(BaseModel):
+    texto: str = Field("", max_length=1200)
+    refs: list[str] = Field(default_factory=list, max_length=20)
+
+
+class JustificativaIn(BaseModel):
+    frases: list[FraseAutorizacaoIn] = Field(default_factory=list, max_length=60)
+
+
+class StatusAutorizacaoIn(BaseModel):
+    status: Literal["rascunho", "enviado", "aprovado", "negado"]
+    protocolo: str = Field("", max_length=120)
+
+
+@router.get("/consultations/{cid}/autorizacoes")
+def autorizacoes(
+    cid: int, db: Session = Depends(get_db), fhir: FhirSource = Depends(get_fhir), user: User = Depends(clinician)
+) -> dict:
+    """Autorização prévia (#56): checklist ao vivo do Rol/DUT e da operadora, e os pedidos já montados."""
+    return autorizacao_service.listar(db, fhir, user, cid)
+
+
+@router.put("/consultations/{cid}/autorizacao/operadora")
+def autorizacao_operadora(
+    cid: int,
+    body: OperadoraIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Operadora do paciente nesta consulta (o cadastro não guarda convênio)."""
+    return autorizacao_service.definir_operadora(db, fhir, user, cid, body.operadora)
+
+
+@router.post("/consultations/{cid}/autorizacoes")
+def autorizacao_gerar(
+    cid: int,
+    body: AutorizacaoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """Gera (ou refaz, enquanto for rascunho) o pacote de justificativa de uma autorização citada na consulta."""
+    return autorizacao_service.gerar(db, fhir, user, cid, body.regra_id)
+
+
+@router.put("/consultations/{cid}/autorizacoes/{aid}/justificativa")
+def autorizacao_editar(
+    cid: int,
+    aid: int,
+    body: JustificativaIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return autorizacao_service.editar(db, fhir, user, cid, aid, [f.model_dump() for f in body.frases])
+
+
+@router.post("/consultations/{cid}/autorizacoes/{aid}/aprovar")
+def autorizacao_aprovar(
+    cid: int,
+    aid: int,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    """O médico revisa e aprova o pacote: sem isso, nada sai (PDF, JSON, envio)."""
+    return autorizacao_service.aprovar(db, fhir, user, cid, aid)
+
+
+@router.put("/consultations/{cid}/autorizacoes/{aid}/status")
+def autorizacao_status(
+    cid: int,
+    aid: int,
+    body: StatusAutorizacaoIn,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return autorizacao_service.mudar_status(db, fhir, user, cid, aid, body.status, body.protocolo)
+
+
+@router.get("/consultations/{cid}/autorizacoes/{aid}/export.json")
+def autorizacao_json(
+    cid: int,
+    aid: int,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> dict:
+    return autorizacao_service.exportar_json(db, fhir, user, cid, aid)
+
+
+@router.get("/consultations/{cid}/autorizacoes/{aid}/export.pdf")
+def autorizacao_pdf(
+    cid: int,
+    aid: int,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+) -> Response:
+    data, filename = autorizacao_service.exportar_pdf(db, fhir, user, cid, aid)
+    return Response(
+        data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+class ValidarRegrasIn(BaseModel):
+    tabela: Literal["regras", "operadoras"]
+    csv: str = Field(..., max_length=autorizacao_regras.MAX_BYTES)
+
+
+@router.post("/consult/autorizacao/validar-regras")
+def autorizacao_validar(body: ValidarRegrasIn, _: User = Depends(require_roles("gestor"))) -> dict:
+    """Confere uma tabela do Rol/DUT ou de operadora ANTES de importar (relatório de erros por linha). Não grava."""
+    rel = (
+        autorizacao_regras.validar_regras(body.csv)
+        if body.tabela == "regras"
+        else autorizacao_regras.validar_operadoras(body.csv)
+    )
+    return rel.publico()
+
+
+@router.get("/consult/autorizacao/base")
+def autorizacao_base(_: User = Depends(get_current_user)) -> dict:
+    """Qual base de regras está ativa (exemplo ou importada) e o que ainda falta conferir."""
+    base = autorizacao_regras.base_ativa()
+    return {
+        "aviso": base.aviso(),
+        "regras": [
+            {
+                "id": r.id,
+                "procedimento": r.procedimento,
+                "tipo": r.tipo,
+                "versao": r.versao,
+                "vigencia": r.vigencia.texto(),
+                "origem": r.origem,
+                "conferencia": r.conferencia,
+            }
+            for r in base.regras.values()
+        ],
+        "operadoras": sorted({e.nome for e in base.operadoras}),
+        "erros_ao_carregar": len(base.erros),
+    }
+
+
 class HypothesisDecisionIn(BaseModel):
     cid: str = Field(..., min_length=3, max_length=10)
     decisao: Literal["pendente", "confirmada", "provisoria", "descartada"]
@@ -575,8 +772,58 @@ async def add_audio(
     user: User = Depends(clinician),
 ) -> dict:
     """Trecho de áudio (corpo bruto, ex.: audio/webm) → transcrição no servidor (STT_URL) → falas."""
-    audio = await request.body()
-    return service.transcribe_audio(db, fhir, user, cid, audio, request.headers.get("content-type", ""), falante)
+    cabeca = request.headers.get("x-client-id")
+    if cabeca is not None and not _CLIENT_ID.fullmatch(cabeca):
+        raise HTTPException(422, "X-Client-Id inválido (até 56 caracteres: letras, números e _ . : -).")
+    audio = await _corpo_limitado(request, MAX_AUDIO_BYTES, "Áudio")
+    return service.transcribe_audio(
+        db, fhir, user, cid, audio, request.headers.get("content-type", ""), falante, cabeca
+    )
+
+
+_CLIENT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,56}$")
+MAX_AUDIO_BYTES = (
+    25 * 1024 * 1024
+)  # um trecho de consulta, não a gravação inteira: teto de memória e de CPU do POST /audio
+
+
+async def _corpo_limitado(request: Request, limite: int, nome: str) -> bytes:
+    """Lê o corpo no máximo até o limite + 1: corpo gigante é recusado (413) sem ocupar a memória do servidor."""
+    declarado = request.headers.get("content-length")
+    msg = f"{nome} maior que {limite // (1024 * 1024)} MB."
+    if declarado and declarado.isdigit() and int(declarado) > limite:
+        raise HTTPException(413, msg)
+    corpo = bytearray()
+    async for pedaco in request.stream():
+        corpo += pedaco
+        if len(corpo) > limite:
+            raise HTTPException(413, msg)
+    return bytes(corpo)
+
+
+# ---------- voz do profissional para a diarização (#40) ----------
+@router.get("/consult/perfil-voz")
+def perfil_voz(db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    """Estado do perfil de voz do PRÓPRIO profissional (nunca o vetor) e o termo de consentimento vigente."""
+    return diarizacao.estado_perfil(db, user)
+
+
+@router.put("/consult/perfil-voz")
+async def perfil_voz_cadastrar(
+    request: Request, db: Session = Depends(get_db), user: User = Depends(clinician)
+) -> dict:
+    """Amostra de voz (corpo bruto, WAV mono 16 kHz com o backend local) -> só o vetor cifrado é guardado, nunca o
+    áudio. Exige o cabeçalho X-Consentimento-Voz com a versão do termo (GET /consult/perfil-voz)."""
+    audio = await _corpo_limitado(request, diarizacao.MAX_AMOSTRA_BYTES, "Amostra de voz")
+    return diarizacao.cadastrar_voz(
+        db, user, audio, request.headers.get("content-type", ""), request.headers.get("x-consentimento-voz")
+    )
+
+
+@router.delete("/consult/perfil-voz")
+def perfil_voz_apagar(db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
+    diarizacao.apagar_voz(db, user)
+    return diarizacao.estado_perfil(db, user)
 
 
 @router.post("/patients/{patient_id}/documents")
@@ -689,7 +936,11 @@ def addendum(
 @router.get("/consultations/{cid}/note/diff")
 def note_diff(cid: int, db: Session = Depends(get_db), user: User = Depends(clinician)) -> dict:
     """Quanto o profissional mudou, seção a seção, em relação ao rascunho que a IA gerou (que fica guardado intacto)."""
-    return service.note_diff(db, user, cid)
+    out = service.note_diff(db, user, cid)
+    c = db.get(Consultation, cid)
+    if c is not None:
+        log_leitura(db, user, "consulta.nota_visualizada", "consultation", c.id, {"patient_id": c.patient_id})  # #53
+    return out
 
 
 class RewriteIn(BaseModel):
@@ -821,6 +1072,31 @@ def export(
 ) -> dict:
     """Texto pronto para o prontuário e o recurso FHIR (DocumentReference), sem enviar."""
     return service.export(db, fhir, user, cid)
+
+
+@router.get("/consultations/{cid}/export/ledi")
+def export_ledi(
+    cid: int,
+    baixar: bool = False,
+    db: Session = Depends(get_db),
+    fhir: FhirSource = Depends(get_fhir),
+    user: User = Depends(clinician),
+):
+    """Ficha de atendimento individual no formato LEDI do e-SUS APS (#52), da consulta finalizada, revisada e atestada.
+    `baixar=true` devolve só o arquivo (anexo); sem ele, o arquivo com as pendências e avisos de conferência."""
+    out = ledi_service.exportar(db, fhir, user, cid)
+    import json
+
+    sem_cache = {"Cache-Control": "no-store"}  # CPF/CNS do cidadão: nada de cache de navegador ou proxy
+    if not baixar:
+        return Response(
+            json.dumps(out, ensure_ascii=False).encode("utf-8"), media_type="application/json", headers=sem_cache
+        )
+    return Response(
+        json.dumps(out["arquivo"], ensure_ascii=False, indent=2).encode("utf-8"),
+        media_type="application/json",
+        headers=sem_cache | {"Content-Disposition": f'attachment; filename="ledi-consulta-{cid}.json"'},
+    )
 
 
 @router.get("/consultations/{cid}/export.pdf")
@@ -1049,11 +1325,25 @@ def _ws_persistir(
     t: float,
     palavras: list[tuple[str, float | None]] | None = None,
     avg_logprob: float | None = None,
+    palavras_t: list | None = None,
+    trechos: list | None = None,
 ) -> dict:
     with db_session.SessionLocal() as db:
         set_org(db, org_id)
         user = db.get(User, user_id)
-        return service.stream_segment(db, get_fhir(), user, cid, texto, speaker, t, palavras, avg_logprob)  # type: ignore[arg-type]
+        return service.stream_segment(
+            db,
+            get_fhir(),
+            user,
+            cid,
+            texto,
+            speaker,
+            t,
+            palavras,
+            avg_logprob,
+            palavras_t,
+            trechos,  # type: ignore[arg-type]
+        )
 
 
 def _ws_auditar(user_id: int, org_id: int, cid: int, payload: dict) -> None:
@@ -1062,7 +1352,7 @@ def _ws_auditar(user_id: int, org_id: int, cid: int, payload: dict) -> None:
         log_action(db, db.get(User, user_id), "consulta.audio_stream", "consultation", cid, payload)
 
 
-@router.websocket("/ws/consultations/{cid}/audio")
+@ws_router.websocket("/ws/consultations/{cid}/audio")
 async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -> None:
     """Áudio PCM 16 kHz mono int16 em blocos (~500 ms, binário) → {tipo:'parcial'} e {tipo:'final', novos, insights}.
 
@@ -1086,19 +1376,32 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
         language, vocab = await asyncio.to_thread(_ws_contexto, uid, org, cid, speaker)
     except HTTPException as exc:
         return await erro(str(exc.detail))
-    sessao = stt_stream.Sessao(engine, language, vocab)
-    finais = 0
+    sessao = stt_stream.Sessao(
+        engine, language, vocab, (lambda pcm: diarizacao.segmentar_pcm(pcm)[0]) if diarizacao.ativo() else None
+    )
+    finais = incertas = 0
 
     async def entregar(eventos: list[stt_stream.Evento], enviar: bool = True) -> bool:
-        nonlocal finais
+        nonlocal finais, incertas
         for ev in eventos:
             try:
                 if ev.tipo == "parcial":
                     if enviar:
                         await ws.send_json({"tipo": "parcial", "texto": ev.texto, "falante": speaker})
                     continue
+                palavras_t = [diarizacao.PalavraT(*p) for p in ev.tempos] if ev.trechos else None
                 res = await asyncio.to_thread(
-                    _ws_persistir, uid, org, cid, ev.texto, speaker, ev.inicio, list(ev.palavras), ev.avg_logprob
+                    _ws_persistir,
+                    uid,
+                    org,
+                    cid,
+                    ev.texto,
+                    speaker,
+                    ev.inicio,
+                    list(ev.palavras),
+                    ev.avg_logprob,
+                    palavras_t,
+                    list(ev.trechos) if ev.trechos else None,
                 )
             except HTTPException as exc:
                 if enviar:
@@ -1109,11 +1412,13 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                     await erro(str(exc), 1011)
                 return False
             finais += 1
+            incertas += sum(1 for n in res.get("novos") or [] if n.get("falante_incerto"))
             if enviar:
-                texto = (
-                    res["novos"][0]["texto"] if res.get("novos") else ev.texto
-                )  # com a correção por similaridade (#38)
-                await ws.send_json({"tipo": "final", "texto": texto, "falante": speaker, **res})
+                novos = res.get("novos") or []
+                # com a correção por similaridade (#38) e, com a diarização (#40), uma frase pode virar várias falas
+                texto = " ".join(n["texto"] for n in novos) if novos else ev.texto
+                quem = novos[0]["falante"] if novos else speaker
+                await ws.send_json({"tipo": "final", "texto": texto, "falante": quem, **res})
         return True
 
     await ws.send_json({"tipo": "pronto", "formato": "pcm16", "taxa": stt_stream.TAXA, "bloco_ms": 500})
@@ -1191,7 +1496,12 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                 pass
         sessao.buf.clear()
         await asyncio.to_thread(
-            _ws_auditar, uid, org, cid, {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
+            _ws_auditar,
+            uid,
+            org,
+            cid,
+            {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
+            | ({"diarizacao": diarizacao.backend(), "falas_incertas": incertas} if diarizacao.ativo() else {}),
         )
 
 

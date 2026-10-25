@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     llm_timeout_s: float = 120.0
     llm_max_tokens: int = 16000
     log_prompts: bool = False
+    # Provedor de IA substituível (#54): "anthropic" (padrão) ou "openai_compat" (servidor com /chat/completions,
+    # ex.: vLLM ou Ollama). LLM_BASE_URL troca o endpoint (regional/proxy no Anthropic; obrigatório no openai_compat).
+    llm_provider: Literal["anthropic", "openai_compat"] = "anthropic"
+    llm_base_url: str = ""
+    llm_api_key: str = ""  # chave do openai_compat (a do Anthropic continua em ANTHROPIC_API_KEY)
+    # true: servidor próprio na rede da instituição. Pula a pseudonimização de saída, mantém a auditoria.
+    llm_on_premise: bool = False
+    # Regiões aceitas (lista separada por vírgula). Vazia: sem política. Com valor, LLM_REGION precisa estar na lista.
+    llm_allowed_regions: str = ""
+    # Saída estruturada no openai_compat: auto tenta json_schema, depois json_object, depois só instrução no prompt.
+    llm_structured: Literal["auto", "json_schema", "json_object", "prompt"] = "auto"
 
     # Banco do HousIA
     database_url: str = "sqlite:///./housia.db"
@@ -48,6 +59,9 @@ class Settings(BaseSettings):
     jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_expires_minutes: int = 12 * 60
     cookie_secure: bool | None = None  # None: ligado em produção
+    # Chave do HMAC do encadeamento do audit_log (#53). Vazia: usa JWT_SECRET (trocar a chave quebra a verificação das
+    # linhas antigas: gire só com a exportação assinada guardada).
+    audit_chain_key: str = ""
 
     # E-mail (#33): verificação de cadastro, recuperação de senha e convites. Sem SMTP_HOST, a mensagem fica só no
     # log e na caixa de saída em memória (testes); no compose de dev o mailpit recebe tudo (UI 8025, API /api/v1).
@@ -77,6 +91,19 @@ class Settings(BaseSettings):
     # medicamento, dose ou alergia nessa situação pedem "confirmar o que foi ouvido". WER máximo aceito no CI.
     stt_confianca_minima: float = 0.6
     stt_wer_max: float = 0.15
+    # Diarização acústica (#40): "off" (padrão, comportamento antigo), "heuristico" (local, determinístico) ou "externo"
+    # (serviço on-premise em DIARIZATION_URL que devolve segmentos {inicio,fim,falante_id,embedding}).
+    diarization_backend: str = "off"
+    diarization_url: str = ""
+    diarization_api_key: str = ""
+    diarization_on_premise: bool = True  # a voz não sai da rede da instituição: padrão exige destino interno
+    diarization_timeout_s: float = 10.0
+    diarization_limiar: float = 0.75  # similaridade cosseno mínima com o perfil para ser o profissional
+    diarization_margem: float = 0.10  # faixa abaixo do limiar em que a fala fica "incerta"
+    # Autorização prévia (#56): vazio = tabelas de EXEMPLO do repositório; a instituição aponta para as importadas
+    autorizacao_regras_csv: str = ""
+    autorizacao_operadoras_csv: str = ""
+    diarization_pausa_s: float = 0.4  # pausa que separa turnos no backend heurístico
     # Vocabulário institucional do STT (CSV termo,tipo,observacao); vazio: data/reference/vocab_institucional.csv
     vocab_institucional_path: Path | None = None
     # Envio da nota aprovada ao prontuário (FHIR DocumentReference). Desligado por padrão; ligado no compose demo.

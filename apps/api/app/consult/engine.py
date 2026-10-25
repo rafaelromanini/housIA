@@ -11,6 +11,8 @@ import re
 from datetime import datetime
 
 from app.consult import (
+    autorizacao,
+    autorizacao_regras,
     coding,
     cronologia,
     dose_peso,
@@ -282,7 +284,10 @@ class Engine:
         self.kind = kind
         self.extra = extra or {}
         self.norm = {s.n: norm(s.texto) for s in segments}
-        self.patient_segments = [s for s in segments if s.falante in PATIENT_SIDE]
+        # falante incerto (#40) conta como possível fala do paciente para o que é SEGURANÇA (alergia, uso de remédio,
+        # exames, histórico): perder uma alergia dita por quem a diarização não soube rotular é pior que mostrar
+        # uma a mais com a Fala/N para conferir. Só as métricas de comunicação e as emoções o excluem.
+        self.patient_segments = [s for s in segments if s.falante in PATIENT_SIDE or s.falante_incerto]
         self.denied: dict[str, list[str]] = {}
         self.tags_denied: list[Tag] = []
         self.dropped: list[dict] = []  # itens recusados pelas regras (ex.: CID que a tabela oficial não aceita)
@@ -365,6 +370,8 @@ class Engine:
         timeline: list[EmotionPoint] = []
         defs = [] if self.extra.get("sem_emocoes") else knowledge.emotions()  # emocoes=false no consentimento (#13)
         for s in self.patient_segments if defs else []:
+            if s.falante_incerto:
+                continue  # falante não confirmado (#40): a emoção não é atribuída a ninguém até conferir
             # negação vale para emoção ("não estou preocupada") e uma pista anula outra ("não entendi" ≠ confiança)
             found = [
                 d
@@ -397,7 +404,11 @@ class Engine:
 
         words = {"pro": 0, "pac": 0}
         open_q = closed_q = 0
+        incertas = 0
         for s in self.segments:
+            if s.falante_incerto:
+                incertas += 1
+                continue  # só falas com falante de confiança entram nas métricas de comunicação (#40)
             n_words = len(s.texto.split())
             if s.falante in TEAM_SIDE:
                 words["pro"] += n_words
@@ -415,6 +426,7 @@ class Engine:
             palavras_profissional_pct=round(100 * words["pro"] / total),
             perguntas_abertas=open_q,
             perguntas_fechadas=closed_q,
+            falas_incertas=incertas,
         )
         return out, timeline, metrics
 
@@ -440,7 +452,7 @@ class Engine:
         """(princípio ou @classe, termo, ref) do que o PROFISSIONAL diz que vai prescrever ("vou passar X")."""
         out: list[tuple[str, str, str]] = []
         for s in self.segments:
-            if s.falante not in TEAM_SIDE:
+            if s.falante not in TEAM_SIDE and not s.falante_incerto:  # incerto (#40): "vou passar X" não pode sumir
                 continue
             for p in planned_drugs(s.texto):
                 if all(p.ingredient != o[0] for o in out):
@@ -1426,6 +1438,10 @@ class Engine:
         )
         drafts = orders.build(self.segments, self.chart, order_ctx, protocols, hyps, self.extra.get("pedidos_decisoes"))
         referrals = [] if self.kind == "cirurgia" else encaminhamento.build(self.chart, self.segments, hyps, self.extra)
+        auths = autorizacao.build(
+            autorizacao_regras.base_ativa(), self.chart, self.segments, hyps, drafts, self.extra
+        )  # Rol/DUT e operadora ao vivo (#56)
+        questions = autorizacao.perguntas(auths) + questions
         alerts = self.alerts(meds_safety)
         alerts = sorted(
             [
@@ -1463,6 +1479,7 @@ class Engine:
             protocolos=protocols,
             pedidos=drafts,
             encaminhamentos=referrals,
+            autorizacoes=auths,
             resumo=self.summary(tags, hyps, meds_safety, exams, emotions),
             lembretes=reminders.build(self),
             anamnese=self.anamnese(allergies, reported, sem.queixas, specialty_fields),

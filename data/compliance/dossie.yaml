@@ -1,0 +1,280 @@
+# Dossiê de conformidade do HousIA (#53): parte ESTÁTICA, versionada junto do código.
+# As partes calculadas (retenção configurada, cadeia do audit_log, quebras de vidro, provedor de IA ativo) vêm do
+# sistema em tempo de execução (app/compliance/service.py). Nada aqui afirma conformidade: descreve controles que
+# existem no código e apontam para testes. Tudo que for interpretação jurídica está marcado `revisao_juridica: true`.
+# Teste tests/test_compliance_dossie.py confere que todo arquivo de código e todo teste citado existe.
+versao: "2026.10.1"
+atualizado_em: "2026-10-24"
+aviso: >-
+  Documento técnico gerado a partir do sistema. Não é parecer jurídico nem atestado de conformidade com a LGPD ou
+  com as resoluções do CFM. Bases legais, prazos e artigos marcados para revisão precisam ser validados pelo
+  encarregado (DPO) e pelo jurídico da instituição antes de qualquer uso externo.
+papeis:
+  controlador: Instituição de saúde contratante (cada organização no HousIA).
+  operador: HousIA (software). Os suboperadores estão em cada operação do RoPA.
+  encarregado: Designado pela instituição (o sistema não nomeia nem verifica o encarregado).
+
+ropa:
+  - id: OP-01
+    operacao: Transcrição e análise da consulta (falas, insights, nota)
+    dados: Falas do atendimento em texto (o áudio nunca é gravado), sintomas, medicamentos, alergias, CID, nota clínica.
+    titulares: Pacientes e acompanhantes
+    finalidade: Apoiar o registro e a revisão clínica pelo profissional de saúde.
+    base_legal: "LGPD art. 11, II, f (tutela da saúde, por profissional de saúde); IA externa condicionada ao consentimento por finalidade (art. 11, I)."
+    retencao: "Configurável por tipo de atendimento (TRANSCRIPT_RETENTION_DAYS); a nota revisada segue a guarda do prontuário."
+    operadores: [Provedor de LLM (consulta com IA, só com consentimento "ia_externa"), Servidor de STT (opcional, só com consentimento), HousIA]
+    codigo: [apps/api/app/consult/service.py, apps/api/app/consult/consentimento.py, apps/api/app/llm/client.py, apps/api/app/llm/providers.py, apps/api/app/llm/camadas.py]
+    revisao_juridica: true
+  - id: OP-02
+    operacao: Consentimento do paciente por finalidade
+    dados: Quem consentiu, finalidades (transcrição, IA externa, tradução, emoções), recusa, marcos de pausa e revogação.
+    titulares: Pacientes e acompanhantes
+    finalidade: Comprovar a autorização e barrar tratamentos não autorizados.
+    base_legal: "LGPD art. 7º, I e art. 8º, § 6º (prova do consentimento); obrigação de registro (art. 7º, II)."
+    retencao: Junto da consulta; o FHIR Consent permanece no prontuário.
+    operadores: [HousIA, Sistema de prontuário da instituição (FHIR Consent)]
+    codigo: [apps/api/app/consult/consentimento.py]
+    revisao_juridica: true
+  - id: OP-03
+    operacao: Envio da nota ao prontuário (FHIR) e exportações (PDF, LEDI e-SUS)
+    dados: Nota revisada e atestada, pedidos propostos, identificadores do cidadão (CPF/CNS) no LEDI.
+    titulares: Pacientes
+    finalidade: Registro no prontuário e comunicação com a rede (e-SUS APS).
+    base_legal: "LGPD art. 11, II, f e II, a (cumprimento de obrigação legal/regulatória); revisão jurídica para o LEDI."
+    retencao: Guarda do prontuário pela instituição; o HousIA não guarda cópia do arquivo LEDI.
+    operadores: [Sistema de prontuário da instituição, e-SUS APS (destino escolhido pela instituição)]
+    codigo: [apps/api/app/consult/service.py, apps/api/app/consult/ledi_service.py]
+    revisao_juridica: true
+  - id: OP-04
+    operacao: Passagem de plantão, reconciliação medicamentosa e avaliação de alta
+    dados: Dados clínicos estruturados (FHIR) do paciente internado; saída da IA com fontes.
+    titulares: Pacientes internados
+    finalidade: Segurança do paciente e continuidade do cuidado.
+    base_legal: "LGPD art. 11, II, f (tutela da saúde)."
+    retencao: Registros operacionais (alertas, avaliações) mantidos enquanto a organização usar o serviço.
+    operadores: [Provedor de LLM (modo real), HousIA]
+    codigo: [apps/api/app/handoff, apps/api/app/medrec, apps/api/app/discharge]
+    revisao_juridica: true
+  - id: OP-05
+    operacao: Audit_log encadeado (quem fez o quê, quando)
+    dados: "Id do usuário, ação, entidade, id do paciente quando houver, motivos informados (ex.: quebra de vidro). Sem texto clínico bruto."
+    titulares: Usuários (profissionais) e pacientes (por id)
+    finalidade: Segurança, prestação de contas e detecção de acesso indevido.
+    base_legal: "LGPD art. 6º, X e art. 46 (segurança e prestação de contas); legítimo interesse/obrigação regulatória, a confirmar."
+    retencao: Sem expurgo automático (registro de segurança); exportável pelo gestor.
+    operadores: [HousIA]
+    codigo: [apps/api/app/audit/chain.py, apps/api/app/audit/service.py]
+    revisao_juridica: true
+  - id: OP-06
+    operacao: Cadastro e autenticação de profissionais
+    dados: Nome, e-mail, conselho/UF, CNS, CBO, hash de senha.
+    titulares: Profissionais de saúde
+    finalidade: Controle de acesso e identificação do autor dos atos clínicos.
+    base_legal: "LGPD art. 7º, V (execução de contrato) e II (obrigação regulatória de identificação do profissional)."
+    retencao: Enquanto durar o vínculo da conta com a organização.
+    operadores: [Servidor SMTP da instituição ou do HousIA (verificação de e-mail e convites), HousIA]
+    codigo: [apps/api/app/auth, apps/api/app/orgs]
+    revisao_juridica: true
+  - id: OP-07
+    operacao: Pré-consulta preenchida pelo paciente e documentos/laudos enviados
+    dados: Respostas da pré-consulta, laudos de exames anexados.
+    titulares: Pacientes
+    finalidade: Preparar o atendimento.
+    base_legal: "LGPD art. 11, II, f; consentimento do paciente para o envio."
+    retencao: Junto da consulta (expurgo e exclusão a pedido do titular cobrem estes dados).
+    operadores: [HousIA]
+    codigo: [apps/api/app/consult/pre_consulta_service.py, apps/api/app/consult/laudos_service.py]
+    revisao_juridica: true
+  - id: OP-08
+    operacao: Perfil de voz do profissional para a diarização (quem fala na consulta)
+    dados: "Vetor numérico (embedding) da voz do profissional: DADO BIOMÉTRICO (LGPD art. 5º, II). O áudio da amostra não é guardado. Os vetores de pacientes e acompanhantes existem só na memória da requisição, nunca são gravados."
+    titulares: Profissionais de saúde (o perfil); pacientes e acompanhantes têm a voz processada de forma transitória para separar os turnos
+    finalidade: Rotular quem falou cada trecho da consulta e dar confiança às métricas de comunicação.
+    base_legal: "LGPD art. 11, I (consentimento específico e destacado do profissional, versão do termo registrada); para a voz transitória de terceiros, art. 11, II, f no mesmo fluxo da transcrição. A confirmar."
+    retencao: Até o profissional apagar (a qualquer momento, pela tela ou pela API) ou a conta ser excluída; vetor cifrado em repouso com DATA_ENCRYPTION_KEY.
+    operadores: [Serviço de diarização on-premise (opcional, DIARIZATION_BACKEND=externo; o áudio da consulta não sai da rede da instituição), HousIA]
+    codigo: [apps/api/app/consult/diarizacao.py, apps/api/app/db/models.py, apps/api/app/db/migrations/versions/c305_perfil_de_voz.py]
+    revisao_juridica: true
+  - id: OP-09
+    operacao: Autorização prévia (Rol da ANS/DUT e operadora) com pacote de justificativa
+    dados: "Operadora informada na consulta, checklist de critérios com a evidência (Fala/N e referências FHIR), texto da justificativa clínica, anexos listados, protocolo e andamento (rascunho, enviado, aprovado, negado). Dado de saúde cifrado; o audit_log guarda só ações, ids e contagens."
+    titulares: Pacientes
+    finalidade: Documentar o pedido de exame, procedimento ou medicamento de alto custo para a operadora e evitar atraso de autorização.
+    base_legal: "LGPD art. 11, II, a e f (obrigação regulatória e tutela da saúde, pedido assistencial à operadora); a confirmar. A saída (PDF/JSON) só existe depois da revisão e aprovação do médico."
+    retencao: Junto da consulta (exclusão a pedido do titular cobre os pedidos); sem expurgo próprio.
+    operadores: [Provedor de LLM (opcional, só reescreve a justificativa, atrás da pseudonimização em camadas e do consentimento ia_externa), Operadora de saúde (destino escolhido pela instituição, envio manual), HousIA]
+    codigo: [apps/api/app/consult/autorizacao.py, apps/api/app/consult/autorizacao_service.py, apps/api/app/consult/autorizacao_regras.py, apps/api/app/db/models.py, apps/api/app/db/migrations/versions/c306_autorizacao_previa.py]
+    revisao_juridica: true
+
+ripd:
+  escopo: >-
+    Consulta com IA (transcrição, análise e nota), passagem de plantão, reconciliação, alta e auditoria. Dados de
+    saúde (sensíveis, LGPD art. 5º, II) de pacientes, tratados por profissionais de saúde.
+  fluxo: >-
+    Fala digitada ou transcrita (o áudio não é gravado) -> regras determinísticas e, com consentimento, provedor de
+    LLM -> insights com fonte (Fala/N e referência FHIR) -> nota revisada e atestada pelo profissional -> envio ao
+    prontuário. Nada da IA vai ao prontuário sem revisão humana.
+  riscos:
+    - risco: Acesso indevido ao prontuário por profissional sem vínculo
+      medida: Vínculo por autoria da consulta, quebra de vidro com motivo auditado e aviso ao gestor; leituras auditadas.
+      residual: Enfermagem ainda acessa a fila da unidade sem vínculo por equipe (pendente).
+    - risco: Adulteração ou apagamento do registro de auditoria
+      medida: Hash encadeado (HMAC), verificação pela API, bloqueio de UPDATE/DELETE na aplicação e no banco, exportação assinada.
+      residual: Quem tem a chave e o banco refaz a cadeia; apagar só a cauda exige comparar com a cabeça guardada fora.
+    - risco: Envio de dado de saúde a provedor externo de IA
+      medida: Consentimento por finalidade, modo regras quando o paciente recusa, política de sem retenção no provedor a ser confirmada em contrato. Provedor substituível (Anthropic, servidor compatível com OpenAI ou local on-premise), política de regiões (LLM_ALLOWED_REGIONS) e pseudonimização em camadas antes do envio externo, com recibo por chamada no audit_log (provedor, modelo, região, contagem por camada, sem texto).
+      residual: Contrato e transferência internacional dependem da instituição e do jurídico. A camada de nomes e endereços é por regras e dicionário, não modelo de linguagem; deixa passar nome comum em minúsculas sem título, nome raro, apelido e local que identifica por contexto. Texto pseudonimizado ainda é dado pessoal (LGPD art. 12) e pode reidentificar por contexto clínico.
+    - risco: Dado biométrico (voz do profissional) e voz de terceiros no processamento da diarização
+      medida: Consentimento explícito e versionado antes do cadastro (sem ele, 428 e nada é gravado), só o vetor cifrado (nunca o áudio), acesso apenas do próprio profissional, apagamento imediato e na exclusão da conta, serviço externo só on-premise com checagem anti-SSRF, falha do serviço cai no comportamento antigo, trilha de auditoria sem vetor nem texto. O vetor de paciente/acompanhante não é gravado.
+      residual: A qualidade do reconhecimento não foi validada com voz real (viés por sotaque, ruído e voz parecida possíveis; o rótulo incerto pede confirmação). Vetor em JSON puro se DATA_ENCRYPTION_KEY estiver vazia. O áudio da consulta vai ao serviço externo de diarização quando configurado, sob a mesma base da transcrição.
+    - risco: Vazamento por banco ou backup
+      medida: Criptografia de campo nas colunas clínicas (chave própria), isolamento por organização, texto de fala fora do audit_log.
+      residual: Cifra de campo só vale com DATA_ENCRYPTION_KEY configurada (ver parte calculada).
+    - risco: Recomendação errada da IA
+      medida: Toda afirmação exige fonte; regras de segurança nunca removidas pela IA; revisão e atestação obrigatórias.
+      residual: Viés e erro do modelo não são eliminados; monitorar pelo feedback e pela auditoria.
+  pendencias:
+    - As regras de autorização prévia do repositório são de EXEMPLO (não oficiais): importar e conferir por pessoa a tabela vigente do Rol da ANS/DUT e de cada operadora antes de depender do checklist.
+    - Validar a diarização (taxa de erro, viés por sotaque e ruído) com áudio real anonimizado antes de confiar no rótulo como prova.
+    - Medir a cobertura da pseudonimização de nomes e endereços com corpus real anonimizado pela instituição (o corpus do CI é sintético).
+    - Parecer do encarregado e do jurídico sobre bases legais e transferência internacional.
+    - Relatório de acessos para o paciente (LGPD art. 18) em PDF não implementado.
+    - Procedimento de incidente (art. 48) e canal do titular ficam com a instituição.
+
+matriz:
+  - norma: LGPD
+    artigo: "art. 37"
+    exigencia: Registro das operações de tratamento
+    controle: RoPA gerado a partir de dados versionados e do estado do sistema.
+    status: parcial
+    codigo: [apps/api/app/compliance/service.py, data/compliance/dossie.yaml]
+    testes: ["apps/api/tests/test_compliance_dossie.py::test_dossie_json_tem_ropa_ripd_matriz_e_partes_calculadas"]
+    revisao_juridica: true
+  - norma: LGPD
+    artigo: "art. 38"
+    exigencia: Relatório de impacto à proteção de dados
+    controle: RIPD resumido no dossiê (riscos, medidas, risco residual, pendências).
+    status: parcial
+    codigo: [apps/api/app/compliance/service.py, data/compliance/dossie.yaml]
+    testes: ["apps/api/tests/test_compliance_dossie.py::test_dossie_markdown_traz_as_tres_secoes_e_a_versao"]
+    revisao_juridica: true
+  - norma: LGPD
+    artigo: "art. 6º, X e art. 46"
+    exigencia: Prestação de contas e medidas de segurança contra adulteração
+    controle: 'audit_log com hash encadeado, verificação de cadeia, bloqueio de UPDATE/DELETE (app e, após a migração c304, banco), exportação assinada. Limites: apagar só as últimas linhas exige comparar a cabeça guardada fora do banco; quem tem a chave e o banco refaz a cadeia.'
+    status: implementado
+    codigo: [apps/api/app/audit/chain.py, apps/api/app/audit/router.py, apps/api/app/audit/trigger.py]
+    testes:
+      - "apps/api/tests/test_audit_integridade.py::test_alterar_uma_linha_faz_o_verify_falhar"
+      - "apps/api/tests/test_audit_integridade.py::test_apagar_linha_do_meio_quebra_o_elo_seguinte"
+      - "apps/api/tests/test_audit_integridade.py::test_gatilho_do_banco_barra_update_e_delete"
+  - norma: LGPD
+    artigo: "art. 6º, III e art. 46 (minimização no envio ao operador)"
+    exigencia: Limitar o dado pessoal enviado a provedor externo de IA e poder trocar o provedor
+    controle: 'Pseudonimização em camadas (FHIR, regex, regras de nomes/endereços) com reidentificação local; provedor local pula a saída externa; recibo por chamada no audit_log. Limites: regras e dicionário não pegam nome comum em minúsculas sem título, nome raro, apelido nem local por contexto; texto pseudonimizado segue sendo dado pessoal.'
+    status: parcial
+    codigo: [apps/api/app/llm/camadas.py, apps/api/app/llm/providers.py, apps/api/app/llm/client.py, apps/api/app/llm/recibo.py]
+    testes:
+      - "apps/api/tests/test_llm_camadas.py::test_vizinha_claudia_e_a_rua_nao_chegam_ao_provedor"
+      - "apps/api/tests/test_llm_providers.py::test_openai_compat_funciona_contra_servidor_simulado"
+    revisao_juridica: true
+  - norma: LGPD
+    artigo: "art. 46 e art. 6º, VII"
+    exigencia: Controle de acesso ao dado de saúde
+    controle: Médico só abre consulta própria (e não vê o CID das demais na busca); demais casos exigem quebra de vidro auditada com aviso ao gestor. Enfermagem e a listagem por paciente (metadados) não têm essa trava.
+    status: parcial
+    codigo: [apps/api/app/consult/acesso.py, apps/api/app/consult/router.py]
+    testes:
+      - "apps/api/tests/test_consult_acesso.py::test_medico_sem_vinculo_recebe_403_e_a_tentativa_e_auditada"
+      - "apps/api/tests/test_consult_acesso.py::test_quebra_de_vidro_com_motivo_libera_audita_e_avisa_o_gestor"
+  - norma: LGPD
+    artigo: "art. 46"
+    exigencia: Criptografia de dados em repouso
+    controle: 'Criptografia de campo AES-GCM nas colunas clínicas da consulta, com rotação de chave; só vale com DATA_ENCRYPTION_KEY definida (o estado atual está em "Estado do sistema").'
+    status: implementado
+    codigo: [apps/api/app/db/crypto.py, apps/api/app/db/rekey.py]
+    testes:
+      - "apps/api/tests/test_consult_privacidade.py::test_select_direto_nao_mostra_o_texto_e_o_app_continua_lendo"
+      - "apps/api/tests/test_consult_privacidade.py::test_rotacao_de_chave_le_dado_antigo_e_cifra_com_a_nova"
+  - norma: LGPD
+    artigo: "art. 15 e 16"
+    exigencia: Término do tratamento e eliminação
+    controle: Expurgo por prazo configurável (apaga o texto da fala, mantém referências com hash).
+    status: implementado
+    codigo: [apps/api/app/consult/privacidade.py, apps/api/app/consult/purge.py]
+    testes: ["apps/api/tests/test_consult_privacidade.py::test_purge_respeita_o_prazo_e_nao_toca_consulta_em_andamento"]
+  - norma: LGPD
+    artigo: "art. 18, VI"
+    exigencia: Eliminação a pedido do titular
+    controle: Exclusão dos dados de consulta do paciente pelo gestor, auditada.
+    status: implementado
+    codigo: [apps/api/app/consult/privacidade.py]
+    testes: ["apps/api/tests/test_consult_privacidade.py::test_exclusao_pelo_titular_so_o_gestor_apaga_e_audita"]
+  - norma: LGPD
+    artigo: "art. 18, II"
+    exigencia: Acesso do titular aos dados e aos acessos
+    controle: Não implementado (relatório de acessos do paciente em PDF).
+    status: nao_implementado
+    codigo: []
+    testes: []
+  - norma: LGPD
+    artigo: "art. 11, I"
+    exigencia: Consentimento específico para o tratamento por IA externa
+    controle: Consentimento por finalidade; sem ele nenhuma via de LLM roda.
+    status: implementado
+    codigo: [apps/api/app/consult/consentimento.py]
+    testes:
+      - "apps/api/tests/test_consult_transcricao_consentimento.py::test_nenhuma_via_de_llm_roda_sem_consentimento"
+      - "apps/api/tests/test_consult_transcricao_consentimento.py::test_revogacao_encerra_a_captura_inativa_o_consent_e_a_nota_sai_so_com_regras"
+    revisao_juridica: true
+  - norma: LGPD
+    artigo: "art. 20"
+    exigencia: Revisão humana de decisões automatizadas
+    controle: A IA propõe; nota e pedidos só saem após revisão e atestação do profissional.
+    status: implementado
+    codigo: [apps/api/app/consult/service.py]
+    testes: ["apps/api/tests/test_consult_revisao.py::test_send_without_review_and_without_attestation_is_409"]
+    revisao_juridica: true
+  - norma: LGPD
+    artigo: "art. 41 e art. 48"
+    exigencia: Encarregado e comunicação de incidente
+    controle: Não implementado no sistema (processo da instituição).
+    status: nao_implementado
+    codigo: []
+    testes: []
+  - norma: CFM
+    artigo: "Resolução CFM 2.454/2026 (artigos a confirmar)"
+    exigencia: Uso de IA em medicina com supervisão humana e transparência
+    controle: Revisão e atestação obrigatórias, fonte em cada afirmação da IA, registro de uso na auditoria.
+    status: parcial
+    codigo: [apps/api/app/consult/service.py, apps/api/app/consult/ai.py]
+    testes: ["apps/api/tests/test_consult_revisao.py::test_send_without_review_and_without_attestation_is_409"]
+    revisao_juridica: true
+  - norma: CFM
+    artigo: "Código de Ética Médica, art. 73 (sigilo; confirmar)"
+    exigencia: Sigilo profissional
+    controle: Isolamento por organização, vínculo do médico com a consulta e leituras auditadas.
+    status: parcial
+    codigo: [apps/api/app/db/tenancy.py, apps/api/app/consult/acesso.py]
+    testes: ["apps/api/tests/test_multiorg.py::test_consulta_de_outra_organizacao_e_404"]
+    revisao_juridica: true
+  - norma: CFM
+    artigo: "Resolução CFM 1.821/2007 (prontuário eletrônico; confirmar)"
+    exigencia: Rastreabilidade do registro e guarda do prontuário
+    controle: Autor, data e hora de cada ato no audit_log encadeado; guarda do prontuário fica no sistema de prontuário.
+    status: parcial
+    codigo: [apps/api/app/audit/service.py]
+    testes: ["apps/api/tests/test_audit_integridade.py::test_leituras_repetidas_viram_um_registro_so"]
+    revisao_juridica: true
+  - norma: LGPD
+    artigo: "art. 5º, II e art. 11, I (dado biométrico, consentimento)"
+    exigencia: Tratar voz do profissional (biometria) só com consentimento específico, minimização e direito de apagar
+    controle: 'Cadastro exige o aceite da versão vigente do termo (registrado no audit_log), guarda só o embedding cifrado (nunca o áudio), perfil visível e apagável só pelo próprio profissional e removido com a conta. Limites: sem DATA_ENCRYPTION_KEY o vetor fica em JSON puro; a acurácia do reconhecimento não foi validada com voz real; o texto do termo precisa de revisão jurídica.'
+    status: parcial
+    codigo: [apps/api/app/consult/diarizacao.py, apps/api/app/db/migrations/versions/c305_perfil_de_voz.py]
+    testes:
+      - "apps/api/tests/test_diarizacao.py::test_sem_consentimento_nada_e_guardado"
+      - "apps/api/tests/test_diarizacao.py::test_guarda_so_o_vetor_cifrado_e_audita_sem_vetor"
+      - "apps/api/tests/test_diarizacao.py::test_perfil_e_so_do_proprio_profissional"
+      - "apps/api/tests/test_diarizacao.py::test_apagar_remove_o_vetor_e_a_exclusao_do_usuario_tambem"
+    revisao_juridica: true

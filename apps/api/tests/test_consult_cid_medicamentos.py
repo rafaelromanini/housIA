@@ -631,10 +631,47 @@ def test_ai_output_models_stay_small_for_the_structured_output_grammar():
     assert "alergias_relatadas" not in consult_ai.ConversaOutput.model_fields
 
 
+def test_live_analysis_runs_three_small_schemas_that_cover_the_union(client, auth, monkeypatch):
+    """Com o LLM real, o schema único de Clínica+Anamnese estourou "compiled grammar is too large": a análise ao vivo
+    roda em três chamadas, sem campo repetido, e a união cobre o que o `ConsultLiveOutput` guarda."""
+    from tests.test_consult import SCRIPT, start
+
+    clinica, anamnese = set(consult_ai.ClinicaOutput.model_fields), set(consult_ai.AnamneseOutput.model_fields)
+    conversa = set(consult_ai.ConversaOutput.model_fields)
+    assert not clinica & anamnese and not conversa & (clinica | anamnese)
+    assert (conversa | clinica | anamnese) == set(consult_ai.ConsultLiveOutput.model_fields)
+
+    vistos: list[str] = []
+    real = consult_ai.generate_structured
+
+    def espiao(nome, variaveis, schema, mock, effort=None, rules_only=False):
+        vistos.append(schema.__name__)
+        r = real(nome, variaveis, schema, mock, effort, rules_only)
+        return LLMResult(output=r.output, model=r.model, prompt_version=r.prompt_version, mode="real")
+
+    monkeypatch.setattr(consult_ai, "generate_structured", espiao)
+    h = auth("medico")
+    cid = start(client, h)["id"]
+    segs = [{"falante": f["falante"], "texto": f["texto"], "t": f["t"], "origem": "demo"} for f in SCRIPT[:6]]
+    assert client.post(f"/consultations/{cid}/segments", json={"segmentos": segs}, headers=h).status_code == 200
+    assert client.post(f"/consultations/{cid}/insights?force=true", headers=h).status_code == 200
+    assert {"ConversaOutput", "ClinicaOutput", "AnamneseOutput"} <= set(vistos)
+
+
+def test_strict_schema_can_keep_defs_to_shrink_the_grammar():
+    from app.llm.schema import strict_schema
+
+    inline, compacto = strict_schema(ConsultNote), strict_schema(ConsultNote, True)
+    assert "$defs" not in inline and "NoteSection" in compacto["$defs"]
+    assert compacto["properties"]["hda"] == {"$ref": "#/$defs/NoteSection"}
+    assert all(d["additionalProperties"] is False for d in compacto["$defs"].values())
+    assert len(str(compacto)) < len(str(inline))
+
+
 def test_prompt_versions_were_bumped():
     from app.llm.client import load_prompt
 
-    assert load_prompt("consult_live_clinica").version == "1.5.0"
+    assert load_prompt("consult_live_clinica").version == "1.5.1"
     assert load_prompt("consult_note").version == "1.5.0"
     assert load_prompt("surgical_report").version == "1.2.0"
 

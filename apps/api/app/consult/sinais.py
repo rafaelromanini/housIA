@@ -160,9 +160,9 @@ def unanswered_concerns(segments: list[Segment], emotions_on: bool = True) -> li
         return []
     out: list[Concern] = []
     for i, s in enumerate(segments):
-        if s.falante not in PATIENT_SIDE:
-            continue
-        later = [x for x in segments[i + 1 :] if x.falante in TEAM_SIDE]
+        if s.falante not in PATIENT_SIDE or s.falante_incerto:
+            continue  # falante não confirmado (#40) não gera sinal de comunicação
+        later = [x for x in segments[i + 1 :] if x.falante in TEAM_SIDE and not x.falante_incerto]
         for kind, sentence in _doubts(s, emotions_on):
             keys = terms(sentence)[:6]
             reply = None

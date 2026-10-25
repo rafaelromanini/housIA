@@ -10,10 +10,12 @@ from app.alerts.router import router as alerts_router
 from app.audit.router import router as audit_router
 from app.auth.router import router as auth_router
 from app.auth.router import seed_demo_users
+from app.compliance.router import router as compliance_router
 from app.config import get_settings
 from app.consult import privacidade
 from app.consult import service as consult_service
 from app.consult.router import router as consult_router
+from app.consult.router import ws_router as consult_ws_router
 from app.db import (
     crypto,
     rekey,
@@ -28,6 +30,7 @@ from app.gestao.router import router as gestao_router
 from app.handoff.router import router as handoff_router
 from app.handoff.router import ws_router as handoff_ws_router
 from app.journey.router import router as journey_router
+from app.llm import recibo as llm_recibo
 from app.medrec.router import router as medrec_router
 from app.orgs.public import router as public_router
 from app.orgs.router import router as orgs_router
@@ -60,6 +63,18 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class _RecibosIA:
+    """Abre a fila de recibos de IA de cada requisição HTTP (descarregada em get_db)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            llm_recibo.iniciar()
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     exigir_producao_segura(settings)
@@ -70,6 +85,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         dependencies=[Depends(guard_path_patient)],  # paciente avulso só abre para a organização dona (#34)
     )
+    app.add_middleware(_RecibosIA)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
@@ -113,8 +129,10 @@ def create_app() -> FastAPI:
     app.include_router(medrec_router)
     app.include_router(discharge_router)
     app.include_router(audit_router)
+    app.include_router(compliance_router)
     app.include_router(feedback_router)
     app.include_router(consult_router)
+    app.include_router(consult_ws_router)
     app.include_router(journey_router)
     app.include_router(orgs_router)
     app.include_router(public_router)

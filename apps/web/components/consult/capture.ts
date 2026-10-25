@@ -286,7 +286,7 @@ export function useServerRecorder(onChunk: (audio: Blob) => void, seconds = 8, d
 
 /* ---------- Transcrição em fluxo no servidor (#11): AudioWorklet → PCM 16 kHz → WebSocket ---------- */
 // O worklet reamostra para 16 kHz mono e entrega blocos de 500 ms (int16). O áudio nunca é gravado no navegador.
-const PCM_WORKLET = `
+export const PCM_WORKLET = `
 class Pcm16 extends AudioWorkletProcessor {
   constructor() { super(); this.buf = []; this.pos = 0; }
   process(inputs) {

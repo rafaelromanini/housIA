@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.audit.service import log_action
-from app.consult import pre_consulta
+from app.consult import acesso, pre_consulta
 from app.consult.chart import ChartView, fmt_date
 from app.consult.schemas import Segment
 from app.db.models import Consultation, DischargeAssessment, DischargeDocument, JourneyTask, MedrecRun, User
@@ -150,6 +150,7 @@ def get(
     specialty = "clinica_medica"
     if consulta is not None:
         c = service._get(db, consulta)  # filtro por organização: de outra, 404
+        acesso.exigir(db, user, c)  # a conversa de uma consulta sem vínculo não vaza por este parâmetro (#53)
         if c.patient_id != patient_id:
             raise HTTPException(404, "Consulta não encontrada")
         segments = service._segments(c)

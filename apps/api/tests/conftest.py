@@ -1,5 +1,5 @@
 import os
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -19,7 +19,9 @@ from app.seed.scenarios import build_demo_resources  # noqa: E402
 from app.timeline.record import PatientRecord  # noqa: E402
 
 # Âncora fixa (15:00 em São Paulo) e relógio congelado: testes não dependem da hora em que rodam.
-ANCHOR = datetime.combine(date.today(), time(15, 0), tzinfo=ZoneInfo("America/Sao_Paulo")).astimezone(UTC)
+_SP = ZoneInfo("America/Sao_Paulo")
+# "hoje" no fuso do produto, não no do processo (o CI roda em UTC e vira o dia 3h antes do Brasil)
+ANCHOR = datetime.combine(datetime.now(_SP).date(), time(15, 0), tzinfo=_SP).astimezone(UTC)
 clock.freeze(ANCHOR + timedelta(minutes=1))
 
 

@@ -44,6 +44,10 @@ class Pseudonymizer:
         rules += self._name_rules(self.family_names, "[FAMILIAR]")
         rules += [(CPF_RE, "[CPF]"), (EMAIL_RE, "[EMAIL]"), (PHONE_RE, "[TELEFONE]")]
         self._rules = rules
+        # os nomes do prontuário também reforçam a camada de regras na saída ao provedor (app/llm/camadas.py)
+        from app.llm import camadas
+
+        camadas.registrar_nomes([*self.patient_names, *self.family_names])
 
     @staticmethod
     def _name_rules(names: list[str], token: str) -> list[tuple[re.Pattern, str]]:
