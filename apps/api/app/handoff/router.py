@@ -202,6 +202,22 @@ async def passagem_audio(
             conf = await asyncio.to_thread(conferir_ao_vivo, conferidor, list(falas), False)
             await ws.send_json({"tipo": "final", "fala": {"n": len(falas), "texto": ev.texto}, "conferencia": conf})
 
+    auditado = False
+
+    async def auditar() -> None:
+        """Grava a trilha uma única vez, ANTES de o cliente receber o aviso final (senão ele a lê cedo demais)."""
+        nonlocal auditado
+        if auditado:
+            return
+        auditado = True
+        await asyncio.to_thread(
+            _ws_auditar_passagem, uid, org, patient_id, {"bytes": sessao.bytes_total, "frases": finais, "ciente": True}
+        )
+
+    async def auditar_e_erro(msg: str, code: int = 1008) -> None:
+        await auditar()
+        await erro(msg, code)
+
     await ws.send_json({"tipo": "pronto", "formato": "pcm16", "taxa": stt_stream.TAXA, "bloco_ms": 500})
     try:
         while True:
@@ -209,19 +225,19 @@ async def passagem_audio(
             if msg["type"] == "websocket.disconnect":
                 break
             if time.time() >= exp:
-                await erro("Sessão expirada.")
+                await auditar_e_erro("Sessão expirada.")
                 break
             if msg.get("bytes") is not None:
                 if len(msg["bytes"]) > MAX_FRAME_BYTES:
-                    await erro("Bloco de áudio grande demais.", 1009)
+                    await auditar_e_erro("Bloco de áudio grande demais.", 1009)
                     break
                 if sessao.bytes_total + len(msg["bytes"]) > MAX_SESSAO_BYTES:
-                    await erro("Limite de duração da transmissão atingido.", 1009)
+                    await auditar_e_erro("Limite de duração da transmissão atingido.", 1009)
                     break
                 await entregar(await asyncio.to_thread(sessao.adicionar, msg["bytes"]))
             elif msg.get("text"):
                 if len(msg["text"]) > MAX_TEXTO_BYTES:
-                    await erro("Mensagem de controle grande demais.", 1009)
+                    await auditar_e_erro("Mensagem de controle grande demais.", 1009)
                     break
                 try:
                     cmd = json.loads(msg["text"])
@@ -229,6 +245,7 @@ async def passagem_audio(
                     continue
                 if isinstance(cmd, dict) and cmd.get("tipo") == "fim":
                     await entregar(await asyncio.to_thread(sessao.encerrar))
+                    await auditar()  # antes do "fim": quem recebe o fim já pode conferir a trilha
                     await ws.send_json({"tipo": "fim"})
                     await ws.close()
                     break
@@ -236,17 +253,15 @@ async def passagem_audio(
         pass
     except _RelatoGrande:
         try:
-            await erro("O relato passou do limite: encerre a passagem.", 1009)
+            await auditar_e_erro("O relato passou do limite: encerre a passagem.", 1009)
         except Exception:  # noqa: BLE001
             pass
     except stt.STTUnavailable as exc:
         try:
-            await erro(str(exc), 1011)
+            await auditar_e_erro(str(exc), 1011)
         except Exception:  # noqa: BLE001
             pass
     finally:
         sessao.buf.clear()
         falas.clear()  # o relato só existe na memória da conexão
-        await asyncio.to_thread(
-            _ws_auditar_passagem, uid, org, patient_id, {"bytes": sessao.bytes_total, "frases": finais, "ciente": True}
-        )
+        await auditar()
