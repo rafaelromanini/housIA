@@ -1073,3 +1073,25 @@ Vídeo da demo: gerado com `brag-output/scripts/record-consult.mjs` (ver "Como p
 - Contêiner do serviço externo de diarização (ECAPA) no compose/chart; fluxo de exclusão de conta chamando `apagar_do_usuario`.
 - E2E não cobre `/conformidade`, `/perfil-voz` nem o painel de autorização prévia: acrescentar.
 - Fora do piloto, salvo pedido: #39, #49, #50, #51, #55, #57.
+
+## Pausa 5 e próxima sessão (2026-10-25)
+
+Estado: `main` em #15 (cabeça Alembic **c306**); tudo do P1 entregue. Detalhes das pendências em "Fechamento da sessão" acima.
+
+### Itens fora do piloto (só se o usuário pedir)
+- **#39, #49:** parecem cobertos por #38 (vocabulário do prontuário) e #48 (laudos). Antes de qualquer coisa, conferir o que sobra: confiança por trecho e WER medido no CI (#39).
+- **#57** (pré-consulta por link, no idioma do paciente, QuestionnaireResponse): conferir o que a `consulta.pre_consulta` existente já cobre.
+- **Realmente abertos:** #50 (ingestão HL7 v2), #51 (SMART on FHIR e CDS Hooks; precisa de PEP real para validar) e #55 (pronto-socorro, sinais ditados, admissão de enfermagem).
+
+### Ordem sugerida
+1. E2E das telas novas (`/conformidade`, `/perfil-voz`, painel de autorização prévia) e telas de quebra de vidro e `sem_vinculo` (#53).
+2. Sonda de schema contra a API real e validação com o modelo real dos fluxos ainda não exercitados (ver pendências).
+3. Decidir com revisão clínica a reescrita por IA do #56.
+4. Contêiner da diarização externa e exclusão de conta.
+5. Itens abertos acima, se pedidos.
+
+### Prompt da próxima sessão
+
+> Continue o HousIA (rafaelromanini/housIA) de forma AUTÔNOMA a partir da `main` (`git fetch`, `git checkout main`, `git pull`; crie um branch novo por bloco). Leia "Pausa 5", "Fechamento da sessão" e "Regras do projeto" em docs/paridade-lya/STATUS.md.
+> Regras: UM agente por vez, em série (implementação, depois verificação cética de escopo fechado: critérios de aceite + ~12 entradas adversariais; effort alto só na verificação de segurança clínica/privacidade); agentes Sonnet (effort medium; Haiku para tarefa mecânica); orquestrador com effort baixo e respostas curtas; trabalhe em BLOCOS: testes direcionados por bloco, suíte completa + e2e só antes de abrir UM PR em português, com merge só com API/Web/Helm/E2E verdes; nunca push na main; LLM_MODE=mock nos testes, só dados sintéticos, nunca commitar chaves nem o .env (não leia o .env). Ambiente Windows: venv `apps/api/.venv` (Python 3.13), `npm ci` em apps/web; antes de `npm ci` encerre servidores node/uvicorn de e2e que seguram arquivos (o usuário precisa autorizar o kill). Migração nova encadeia na cabeça atual (c306) e atualiza o golden de tests/test_journey.py e os testes que fixam a cabeça.
+> Ordem: seguir "Ordem sugerida" da Pausa 5. Ao chegar a 80% da cota: não inicie entrega nova; commit wip, push e atualize o STATUS com nova pausa e prompt.
