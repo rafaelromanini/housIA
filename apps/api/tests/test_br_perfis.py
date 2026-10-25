@@ -195,6 +195,11 @@ def test_ledi_usa_cpf_quando_nao_ha_cns(client, auth):
     assert at["cpfCidadao"] == "52998224725" and "cnsCidadao" not in at
 
 
+def test_paciente_da_demo_cen6_tem_cpf_valido_para_o_e_sus(client):
+    """O CPF sintético do cenário 6 precisa passar no dígito verificador, senão a exportação LEDI da demo falha."""
+    assert ids.do_paciente(get_fhir().resources["Patient"]["cen6"])["cpf"] == "28461593782"
+
+
 def test_ledi_cns_e_cpf_invalidos_do_paciente_pedem_cadastro(client, auth):
     cadastrar(client, auth)
     paciente_com(cns="100000000010001", cpf="111.111.111-11")  # os dois inválidos

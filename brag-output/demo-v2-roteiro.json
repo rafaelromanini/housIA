@@ -1,0 +1,187 @@
+{
+ "voz": "pt-BR-FranciscaNeural",
+ "rate": "-4%",
+ "frases": [
+  {
+   "id": "open1",
+   "cena": "Abertura",
+   "texto": "Este é o HousIA, um sistema que apoia a equipe de saúde na consulta e nas transições do cuidado.",
+   "fala": "Este é o Áus-I-A, um sistema que apoia a equipe de saúde na consulta e nas transições do cuidado."
+  },
+  {
+   "id": "open2",
+   "cena": "Abertura",
+   "texto": "Tudo o que você vai ver usa dados sintéticos de demonstração. E cada informação da inteligência artificial traz a fonte de onde veio.",
+   "fala": "Tudo o que você vai ver usa dados sintéticos de demonstração. E cada informação da inteligência artificial traz a fonte de onde veio."
+  },
+  {
+   "id": "pil1",
+   "cena": "Três pilares",
+   "texto": "O painel de leitos reúne os pacientes internados. A partir dele, o produto se apoia em três pilares."
+  },
+  {
+   "id": "pil2",
+   "cena": "Três pilares",
+   "texto": "Primeiro, a passagem de plantão. O HousIA gera o resumo por perfil, médico ou enfermagem, e cada item aponta para o registro do prontuário.",
+   "fala": "Primeiro, a passagem de plantão. O Áus-I-A gera o resumo por perfil, médico ou enfermagem, e cada item aponta para o registro do prontuário."
+  },
+  {
+   "id": "pil2b",
+   "cena": "Três pilares",
+   "texto": "Ao clicar em ver fonte, o registro de origem aparece na hora."
+  },
+  {
+   "id": "pil3",
+   "cena": "Três pilares",
+   "texto": "Segundo, a alta segura. Com as respostas da equipe, o sistema calcula o risco, e a alta de alto risco fica travada até que alguém registre um plano justificado."
+  },
+  {
+   "id": "pil4",
+   "cena": "Três pilares",
+   "texto": "Terceiro, a reconciliação medicamentosa. Alergias, interações e omissões aparecem antes da dose, e a hipótese da IA fica separada, para o profissional confirmar.",
+   "fala": "Terceiro, a reconciliação medicamentosa. Alergias, interações e omissões aparecem antes da dose, e a hipótese da I A fica separada, para o profissional confirmar."
+  },
+  {
+   "id": "con1",
+   "cena": "Consulta com IA",
+   "texto": "Agora, a Consulta com IA. A agenda do dia vem do prontuário. Vamos atender a Joana, em retorno de diabetes e hipertensão.",
+   "fala": "Agora, a Consulta com I A. A agenda do dia vem do prontuário. Vamos atender a Joana, em retorno de diabetes e hipertensão."
+  },
+  {
+   "id": "con2",
+   "cena": "Consulta com IA",
+   "texto": "Antes de qualquer captura, o profissional lê o aviso ao paciente e registra a decisão dele. Sem o consentimento, a consulta não começa."
+  },
+  {
+   "id": "con3",
+   "cena": "Consulta com IA",
+   "texto": "Para a demonstração usamos o modo Simular, que reproduz uma conversa fictícia como se fosse transcrita ao vivo, identificando quem fala."
+  },
+  {
+   "id": "con4",
+   "cena": "Consulta com IA",
+   "texto": "À direita, as perguntas sugeridas a partir do prontuário. Quando o profissional pergunta, mesmo com outras palavras, a sugestão sai da lista."
+  },
+  {
+   "id": "con5",
+   "cena": "Consulta com IA",
+   "texto": "Os alertas de segurança chegam na hora, sempre com a fonte. Aqui, a glibenclamida com função renal reduzida, e a combinação de anti-inflamatório com losartana e diurético."
+  },
+  {
+   "id": "con6",
+   "cena": "Consulta com IA",
+   "texto": "Em Raciocínio clínico, as hipóteses com CID-10, cada uma ligada à fala do paciente que a sustenta.",
+   "fala": "Em Raciocínio clínico, as hipóteses com CID dez, cada uma ligada à fala do paciente que a sustenta."
+  },
+  {
+   "id": "con7",
+   "cena": "Consulta com IA",
+   "texto": "Em Medicamentos e alergias, o que está no prontuário e o que foi relatado na conversa, como a alergia a camarão, ainda a registrar."
+  },
+  {
+   "id": "con8",
+   "cena": "Consulta com IA",
+   "texto": "Os Smart Apps organizam o caso em painéis, e a análise de comunicação mostra o que o paciente deixou sem resposta. É um sinal para a conversa, não um diagnóstico.",
+   "fala": "Os Smárt Apps organizam o caso em painéis, e a análise de comunicação mostra o que o paciente deixou sem resposta. É um sinal para a conversa, não um diagnóstico."
+  },
+  {
+   "id": "not1",
+   "cena": "Nota SOAP",
+   "texto": "Ao finalizar, o HousIA monta a nota SOAP para revisão. Cada frase cita a fala de origem, Fala e número, ou o recurso do prontuário.",
+   "fala": "Ao finalizar, o Áus-I-A monta a nota sóap para revisão. Cada frase cita a fala de origem, Fala e número, ou o recurso do prontuário."
+  },
+  {
+   "id": "not2",
+   "cena": "Nota SOAP",
+   "texto": "Clicando na fala, a transcrição rola até o trecho exato."
+  },
+  {
+   "id": "not3",
+   "cena": "Nota SOAP",
+   "texto": "O profissional edita o que quiser e pode ditar por voz em qualquer seção; cada trecho ditado entra como adendo, ligado a uma fala."
+  },
+  {
+   "id": "not4",
+   "cena": "Nota SOAP",
+   "texto": "Um laudo em PDF vira exame com fonte. Aqui, a hemoglobina glicada de 8,2 por cento, comparada com o valor anterior e com a página de origem.",
+   "fala": "Um laudo em PDF vira exame com fonte. Aqui, a hemoglobina glicada de oito vírgula dois por cento, comparada com o valor anterior e com a página de origem."
+  },
+  {
+   "id": "not5",
+   "cena": "Nota SOAP",
+   "texto": "Nada segue sem a atestação do profissional. Havendo pendência crítica aberta, o envio exige uma justificativa, que fica na auditoria."
+  },
+  {
+   "id": "not6",
+   "cena": "Nota SOAP",
+   "texto": "Os documentos, como atestado, receita e encaminhamento, saem da própria consulta, com revisão e aprovação do médico."
+  },
+  {
+   "id": "aut1",
+   "cena": "Autorização prévia",
+   "texto": "A autorização prévia compara o pedido com as exigências do Rol da ANS e da operadora, e mostra o checklist do que falta, com a evidência de cada item.",
+   "fala": "A autorização prévia compara o pedido com as exigências do Rol da A N S e da operadora, e mostra o checklist do que falta, com a evidência de cada item."
+  },
+  {
+   "id": "aut2",
+   "cena": "Autorização prévia",
+   "texto": "O pacote de justificativa é montado com as mesmas fontes, e só o médico aprova. Os dados da operadora aqui são de exemplo."
+  },
+  {
+   "id": "int1",
+   "cena": "Integração",
+   "texto": "Para integrar, a nota aprovada é enviada ao prontuário como recurso FHIR, e também pode ser baixada em FHIR ou em PDF.",
+   "fala": "Para integrar, a nota aprovada é enviada ao prontuário como recurso fáir, e também pode ser baixada em fáir ou em PDF."
+  },
+  {
+   "id": "int2",
+   "cena": "Integração",
+   "texto": "Na atenção primária, a exportação e-SUS, no formato LEDI, gera a ficha de atendimento individual pronta para importar.",
+   "fala": "Na atenção primária, a exportação i-sus, no formato lédi, gera a ficha de atendimento individual pronta para importar."
+  },
+  {
+   "id": "gov1",
+   "cena": "Confiança e governança",
+   "texto": "Agora, a confiança e a governança. A voz do profissional só é cadastrada com consentimento explícito, e pode ser apagada a qualquer momento."
+  },
+  {
+   "id": "gov2",
+   "cena": "Confiança e governança",
+   "texto": "A trava de acesso por vínculo impede que um médico abra a consulta de outro, a não ser por quebra de vidro, justificada e auditada."
+  },
+  {
+   "id": "gov3",
+   "cena": "Confiança e governança",
+   "texto": "Na auditoria, cada ação fica registrada em uma cadeia em que cada registro guarda o código do anterior."
+  },
+  {
+   "id": "gov4",
+   "cena": "Confiança e governança",
+   "texto": "Verificar a cadeia confere a integridade: qualquer alteração ou exclusão é apontada."
+  },
+  {
+   "id": "gov5",
+   "cena": "Confiança e governança",
+   "texto": "O dossiê de conformidade reúne o registro das operações de tratamento, o relatório de impacto resumido e a matriz com a LGPD e as normas do CFM.",
+   "fala": "O dossiê de conformidade reúne o registro das operações de tratamento, o relatório de impacto resumido e a matriz com a LGPD e as normas do C F M."
+  },
+  {
+   "id": "gov6",
+   "cena": "Confiança e governança",
+   "texto": "E a tela Ambiente mostra, com transparência, como o sistema está configurado: a IA pode ser trocada por outro provedor, inclusive dentro da instituição, e os dados são pseudonimizados antes de sair.",
+   "fala": "E a tela Ambiente mostra, com transparência, como o sistema está configurado: a I A pode ser trocada por outro provedor, inclusive dentro da instituição, e os dados são pseudonimizados antes de sair."
+  },
+  {
+   "id": "end1",
+   "cena": "Fechamento",
+   "texto": "Em resumo: passagem de plantão, alta segura e reconciliação medicamentosa, e uma consulta com IA que transcreve, alerta e escreve a nota com a fonte, integrando ao prontuário, sempre com o profissional no controle.",
+   "fala": "Em resumo: passagem de plantão, alta segura e reconciliação medicamentosa, e uma consulta com I A que transcreve, alerta e escreve a nota com a fonte, integrando ao prontuário, sempre com o profissional no controle."
+  },
+  {
+   "id": "end2",
+   "cena": "Fechamento",
+   "texto": "O HousIA apoia a decisão clínica, não a substitui. Esta foi uma demonstração com dados sintéticos.",
+   "fala": "O Áus-I-A apoia a decisão clínica, não a substitui. Esta foi uma demonstração com dados sintéticos."
+  }
+ ]
+}
