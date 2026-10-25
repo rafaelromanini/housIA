@@ -1073,3 +1073,34 @@ Vídeo da demo: gerado com `brag-output/scripts/record-consult.mjs` (ver "Como p
 - Contêiner do serviço externo de diarização (ECAPA) no compose/chart; fluxo de exclusão de conta chamando `apagar_do_usuario`.
 - E2E não cobre `/conformidade`, `/perfil-voz` nem o painel de autorização prévia: acrescentar.
 - Fora do piloto, salvo pedido: #39, #49, #50, #51, #55, #57.
+
+## Pausa 5 e próxima sessão (2026-10-25)
+
+Estado: `main` em #15 (cabeça Alembic **c306**); tudo do P1 entregue. Detalhes das pendências em "Fechamento da sessão" acima.
+
+### Itens fora do piloto (só se o usuário pedir)
+- **#39, #49:** parecem cobertos por #38 (vocabulário do prontuário) e #48 (laudos). Antes de qualquer coisa, conferir o que sobra: confiança por trecho e WER medido no CI (#39).
+- **#57** (pré-consulta por link, no idioma do paciente, QuestionnaireResponse): conferir o que a `consulta.pre_consulta` existente já cobre.
+- **Realmente abertos:** #50 (ingestão HL7 v2), #51 (SMART on FHIR e CDS Hooks; precisa de PEP real para validar) e #55 (pronto-socorro, sinais ditados, admissão de enfermagem).
+
+### Ordem sugerida
+1. E2E das telas novas (`/conformidade`, `/perfil-voz`, painel de autorização prévia) e telas de quebra de vidro e `sem_vinculo` (#53).
+2. Sonda de schema contra a API real e validação com o modelo real dos fluxos ainda não exercitados (ver pendências).
+3. Decidir com revisão clínica a reescrita por IA do #56.
+4. Contêiner da diarização externa e exclusão de conta.
+5. Itens abertos acima, se pedidos.
+
+### Prompt da próxima sessão
+
+> Continue o HousIA (rafaelromanini/housIA) de forma AUTÔNOMA a partir da `main` (`git fetch`, `git checkout main`, `git pull`; crie um branch novo por bloco). Leia "Pausa 5", "Fechamento da sessão" e "Regras do projeto" em docs/paridade-lya/STATUS.md.
+> Regras: UM agente por vez, em série (implementação, depois verificação cética de escopo fechado: critérios de aceite + ~12 entradas adversariais; effort alto só na verificação de segurança clínica/privacidade); agentes Sonnet (effort medium; Haiku para tarefa mecânica); orquestrador com effort baixo e respostas curtas; trabalhe em BLOCOS: testes direcionados por bloco, suíte completa + e2e só antes de abrir UM PR em português, com merge só com API/Web/Helm/E2E verdes; nunca push na main; LLM_MODE=mock nos testes, só dados sintéticos, nunca commitar chaves nem o .env (não leia o .env). Ambiente Windows: venv `apps/api/.venv` (Python 3.13), `npm ci` em apps/web; antes de `npm ci` encerre servidores node/uvicorn de e2e que seguram arquivos (o usuário precisa autorizar o kill). Migração nova encadeia na cabeça atual (c306) e atualiza o golden de tests/test_journey.py e os testes que fixam a cabeça.
+> Ordem: seguir "Ordem sugerida" da Pausa 5. Ao chegar a 80% da cota: não inicie entrega nova; commit wip, push e atualize o STATUS com nova pausa e prompt.
+
+### Vídeo da demo (v2) — fica para a próxima sessão
+O vídeo da Consulta com IA (`brag-output/work/demo-consulta.mp4`) foi reprovado: qualidade ruim, mostrava pouco e sem voz. A regravação (v2) foi iniciada e interrompida a pedido; o trabalho parcial está na branch **`claude/video-demo-v2`** (commit WIP, sem PR): roteiro em `brag-output/demo-v2-roteiro.json`, `brag-output/scripts/build-demo-v2.py`, e a correção do CPF sintético do cen6 (estava inválido no dígito verificador e quebrava a exportação e-SUS da demo; vale levar para a main).
+Requisitos do usuário para o v2:
+- Apresentar as **funcionalidades** do sistema de ponta a ponta, não só uma cena: abertura com os 3 pilares; Consulta com IA (consentimento, transcrição, perguntas, hipóteses CID, alertas com fonte, Smart Apps); nota SOAP com Fala/N, revisão, ditado/adendo, documentos, laudo virando exame; autorização prévia (dados de exemplo); exportação e-SUS (LEDI) e envio FHIR; auditoria encadeada, dossiê de conformidade, perfil de voz, trava por vínculo, IA substituível/pseudonimização; fechamento "dados sintéticos".
+- **Com narração em português do Brasil**, voz neural muito usada da internet (sugestão: Microsoft Edge TTS via `edge-tts`, vozes `pt-BR-FranciscaNeural` ou `pt-BR-AntonioNeural`; alternativas: piper-tts `pt_BR-faber`, SAPI do Windows). Um áudio por cena, medir a duração e sincronizar a gravação; legenda `.srt`.
+- **Qualidade**: 1920x1080, 30 fps, H.264 CRF ~18, cursor visível e suave, destaque no que a fala descreve, transições curtas, sem telas quebradas. O `recordVideo` do Playwright é de baixa qualidade: preferir CDP screencast em jpeg 95 ou captura por frames, ou gdigrab. Conferir 15 frames extraídos antes de entregar.
+- Ambiente: API 8020, web 3020 (build com `NEXT_PUBLIC_API_URL=http://localhost:8020`, `CORS_ORIGINS=http://localhost:3020`), `LLM_MODE=mock`, SQLite novo. Para não mexer no `.next` em uso, copiar `apps/web` para o scratchpad e buildar lá (não commitar `distDir`).
+- O agente demorou mais de 15 min só montando; dividir em etapas menores (roteiro e áudios; gravação por cena; montagem) e verificar cada uma.
