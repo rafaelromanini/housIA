@@ -1015,3 +1015,39 @@ Branch `claude/p1-restantes`. Migração c306 (sobre c305): tabela `autorizacoes
   protocolo, operadora ou nome, migração c306 sobe e desce. Pendente: a reescrita da IA agora é conservadora (descarta paráfrases com palavra fora do
   vocabulário das regras); a operadora digitada livremente fica em coluna sem cifra; o pacote não reavalia se um CID citado foi refutado depois da aprovação;
   o painel web continua sem validação em navegador real.
+
+## Validação com LLM real (2026-10-24)
+
+Smoke com `LLM_MODE=real` (Anthropic, `claude-sonnet-5-5`, `LLM_EFFORT=medium`), `TestClient` em processo, banco SQLite descartável, FHIR local, só dados sintéticos
+(cen6 e um paciente de teste). Cerca de 15 chamadas de produto e ~25 sondas de schema de 64 tokens; custo estimado abaixo de US$ 1. Prompts conferidos no ponto
+de saída (depois da pseudonimização), sem `LOG_PROMPTS`.
+
+- **Achado principal (corrigido): a IA da consulta não funcionava com o modelo real.** A API respondeu `400 "The compiled grammar is too large"` para
+  `consult_live_clinica` (`ClinicaOutput`) e `consult_note` (`ConsultNote`). Efeito: `POST /insights` dava 502 e a nota SOAP caía em `regras_fallback`.
+  Os testes em mock nunca exercitaram a gramática (o limite só existe na API). Diagnóstico por sondas (uma chamada de 64 tokens por variante):
+  1. `strict_schema` copiava cada submodelo no ponto de uso (9 `NoteSection` na nota). Com `$defs`/`$ref` a nota passa. `strict_schema(model, usar_defs=True)` é usado
+     só no provedor Anthropic; o `openai_compat` segue recebendo o schema sem `$ref` (contrato do `test_handoff`).
+  2. Mesmo com `$defs`, `ClinicaOutput` (hipóteses, medicamentos, cirurgia, histórico, anamnese, alergias, pedidos) estourava; cada campo sozinho passa, anamnese+hipóteses+
+     medicamentos é o teto (mais um campo estoura). Dividido em `ClinicaOutput` (hipóteses, medicamentos, cirurgia, alergias relatadas) e `AnamneseOutput` (anamnese,
+     histórico relatado, posologia dos pedidos), 3 chamadas em paralelo (`max_workers=3`), mesmo prompt `consult_live_clinica` (1.5.1, com a linha "preencha só os campos do
+     schema recebido"). Regressão em mock: `test_live_analysis_runs_three_small_schemas_that_cover_the_union` e `test_strict_schema_can_keep_defs_to_shrink_the_grammar`.
+  3. Margem pequena: acrescentar campos a esses schemas pode estourar de novo; vale uma sonda real a cada mudança de schema (ver pendências).
+- **Fluxo 1, consulta cen6 (roteiro demo, 28 falas): passou depois do ajuste.** Análise ao vivo: 3 chamadas em paralelo, ~14 s, `modo: ia`, 16 perguntas, 10 hipóteses
+  (CID-10 válidos, hipoglicemia por sulfonilureia, hipotensão ortostática, piora renal por AINE, hiponatremia), 12 sugestões de medicamento. Nota SOAP: 1 chamada, ~44 s, sem erro
+  de schema nem reparo. Refs: ~1000 conferidas, nenhuma `Fala/N` fora de 1..28, nenhum recurso FHIR inexistente. Sem alucinação óbvia; a avaliação repete "hipoglicemia
+  por sulfonilureia" em duas frases (redundância, não erro).
+- **Fluxo 2, documentos (#45) e reescrita (#46): passou.** Receita e atestado são determinísticos (sem LLM); o atestado saiu, a receita exige pedido assinado e consulta
+  finalizada (conferido: amoxicilina para paciente alérgica a penicilina pede justificativa, 409 correto). A única chamada de IA dos documentos é a tradução do resumo ao paciente:
+  `en`, ~8 s, 1 item voltou em português por divergir na conferência por regra (comportamento previsto), 8 sem fonte ficaram de fora. Reescrita da seção Avaliação ("resuma, mais direta"):
+  ~3 s, 78 para 81 palavras (não encurtou, mas manteve refs e frases). Memória de estilo (#42/#46) não tem chamada de IA própria.
+- **Fluxo 3, laudo em texto (#48): não há caminho via LLM** (leitura por OCR/metadado); sem validação.
+- **Fluxo 4, autorização prévia (#56), pacote com reescrita por IA: schema válido, mas a reescrita é descartada.** O modelo devolve 3 frases, só com refs recebidas, sem número/CID novo,
+  porém com "realização", "realizou", "CIDs" fora do vocabulário das regras; `reescrita_segura` (deliberadamente estrita, ver verificação do #56) rejeita e o pacote sai com as frases das
+  regras e o aviso. Resultado: seguro, mas a IA praticamente nunca entra. Não alterei (é decisão de segurança); ver pendências.
+- **Fluxo 5, pseudonimização (#54): passou.** 7 recibos `llm.chamada` no `audit_log` (prompt, versão, provedor, modelo, contagens por camada, resultado), sem nenhum nome do paciente
+  ou familiar; nos prompts enviados (7 de 7) não aparecem nome, sobrenome nem CPF dos pacientes (o único "Lima" encontrado era a palavra "clima" dentro do prompt). Contagens de entidades > 0
+  nas chamadas com conversa, 0 nas demais (sem PII na entrada).
+- **Pendências:** a nota SOAP leva ~44 s (o `effort=medium`; considerar `low` ou streaming na tela); sonda real de schema no CI ou antes de release (cada chamada custa centavos; o teste em mock
+  não pega o limite da gramática); afrouxar `PALAVRAS_DE_REDACAO` com revisão clínica (realizar/realização, plural de siglas) se o produto quiser a reescrita de IA no #56; tradução ao vivo
+  (`consult_translate`), pré-consulta, handoff, alta, medrec, gestão e relatório cirúrgico não foram exercitados com o modelo real; o `openai_compat` com `$ref` não foi testado contra
+  servidor real; o painel web não foi validado em navegador.

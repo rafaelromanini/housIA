@@ -217,14 +217,20 @@ class AiPedido(BaseModel):
 
 
 class ClinicaOutput(BaseModel):
-    """Smart Apps clínicos (2ª chamada, em paralelo)."""
+    """Smart Apps clínicos (2ª chamada, em paralelo). Raciocínio: hipóteses, medicamentos, cirurgia e alergias."""
 
     hipoteses: list[AiHypothesis]
     sugestoes_medicamentos: list[AiMedSuggestion]
     cirurgia: list[AiText]
-    historico_relatado: list[AiText]
-    anamnese: AiAnamnese
     alergias_relatadas: list[AiAlergia] = []
+
+
+class AnamneseOutput(BaseModel):
+    """Anamnese, histórico relatado e posologia dos rascunhos (3ª chamada, em paralelo). Separada da `ClinicaOutput`
+    porque a soma dos dois schemas estoura a gramática da saída estruturada do Claude (validado com o modelo real)."""
+
+    anamnese: AiAnamnese
+    historico_relatado: list[AiText]
     pedidos_ia: list[AiPedido] = []
 
 
@@ -819,23 +825,30 @@ def run_live(engine: Engine, base: Insights, pseudo: Pseudonymizer, valid: set[s
         "deterministico": pseudo.apply(deterministic_payload(base)),
         "transcricao": transcript_text(engine.segments, pseudo),
     }
-    # duas chamadas em paralelo: schemas menores (limite da saída estruturada) e resposta mais rápida
+    # três chamadas em paralelo: schemas menores (limite da saída estruturada) e resposta mais rápida
     mock = mock_live(base)
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         f_conv = submit_em_contexto(
             pool, generate_structured, "consult_live_conversa", variables, ConversaOutput, lambda _v: mock, "low"
         )
         f_clin = submit_em_contexto(
             pool, generate_structured, "consult_live_clinica", variables, ClinicaOutput, lambda _v: mock, "low"
         )
-        conv, clin = f_conv.result(), f_clin.result()
-    clinical = clin.output.model_dump() | {"anamnese": anamnese_from_ai(clin.output.anamnese).model_dump()}
+        f_anam = submit_em_contexto(
+            pool, generate_structured, "consult_live_clinica", variables, AnamneseOutput, lambda _v: mock, "low"
+        )
+        conv, clin, anam = f_conv.result(), f_clin.result(), f_anam.result()
+    clinical = (
+        clin.output.model_dump()
+        | anam.output.model_dump(exclude={"anamnese"})
+        | {"anamnese": anamnese_from_ai(anam.output.anamnese).model_dump()}
+    )
     result = LLMResult(
         output=ConsultLiveOutput(**conv.output.model_dump(), **clinical),
         model=conv.model,
         prompt_version=f"{conv.prompt_version}+{clin.prompt_version}",
         mode=conv.mode,
-        repaired=conv.repaired or clin.repaired,
+        repaired=conv.repaired or clin.repaired or anam.repaired,
     )
     merged = merge_live(base, result.output, valid, engine.segments, engine.r.sex)
     reconcile_ai_allergies(engine, merged)

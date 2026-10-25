@@ -182,7 +182,7 @@ def generate_structured[T: BaseModel](
     if settings.log_prompts:
         logger.info("Prompt %s v%s (pseudonimizado):\n%s", prompt_name, prompt.version, user)
 
-    json_schema = strict_schema(schema)
+    json_schema = strict_schema(schema, usar_defs=settings.llm_provider == "anthropic")
     messages: list[dict] = [{"role": "user", "content": user}]
     estado = {"resultado": "erro", "reparado": False}
     try:

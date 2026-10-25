@@ -21,7 +21,10 @@ _DROP = {
 }
 
 
-def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
+def strict_schema(model: type[BaseModel], usar_defs: bool = False) -> dict[str, Any]:
+    """`usar_defs` mantém `$defs`/`$ref` em vez de copiar cada submodelo no ponto de uso. A gramática compilada pela
+    API do Claude cresce com as cópias (a nota SOAP, com 9 seções `NoteSection`, passa de "compiled grammar is too
+    large" só por isso); provedores compatíveis com OpenAI seguem recebendo o schema sem `$ref`."""
     raw = model.model_json_schema()
     defs = raw.pop("$defs", {})
 
@@ -31,6 +34,8 @@ def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
         if not isinstance(node, dict):
             return node
         if "$ref" in node:
+            if usar_defs:
+                return {"$ref": node["$ref"]}
             return walk(defs[node["$ref"].split("/")[-1]])
         out = {k: walk(v) for k, v in node.items() if k not in _DROP}
         if out.get("type") == "object" or "properties" in out:
@@ -39,4 +44,7 @@ def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
             out["required"] = list(out.get("properties", {}).keys())
         return out
 
-    return walk(raw)
+    out = walk(raw)
+    if usar_defs and defs:
+        out["$defs"] = {k: walk(v) for k, v in defs.items()}
+    return out
