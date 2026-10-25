@@ -1380,6 +1380,21 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
         engine, language, vocab, (lambda pcm: diarizacao.segmentar_pcm(pcm)[0]) if diarizacao.ativo() else None
     )
     finais = incertas = 0
+    auditado = False
+
+    async def auditar_uma_vez() -> None:
+        nonlocal auditado
+        if auditado:
+            return
+        auditado = True
+        await asyncio.to_thread(
+            _ws_auditar,
+            uid,
+            org,
+            cid,
+            {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
+            | ({"diarizacao": diarizacao.backend(), "falas_incertas": incertas} if diarizacao.ativo() else {}),
+        )
 
     async def entregar(eventos: list[stt_stream.Evento], enviar: bool = True) -> bool:
         nonlocal finais, incertas
@@ -1476,6 +1491,7 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
                     sessao.idioma = idioma.split("-")[0]
                 elif cmd.get("tipo") == "fim":
                     if await entregar(await asyncio.to_thread(sessao.encerrar)):
+                        await auditar_uma_vez()  # antes do aviso: quem recebe o "fim" já encontra a trilha gravada
                         await ws.send_json({"tipo": "fim"})
                     ok = False
                     await ws.close()
@@ -1495,14 +1511,7 @@ async def audio_stream(ws: WebSocket, cid: int, falante: str = "desconhecido") -
             except Exception:  # noqa: BLE001
                 pass
         sessao.buf.clear()
-        await asyncio.to_thread(
-            _ws_auditar,
-            uid,
-            org,
-            cid,
-            {"bytes": sessao.bytes_total, "frases": finais, "motor": type(engine).__name__}
-            | ({"diarizacao": diarizacao.backend(), "falas_incertas": incertas} if diarizacao.ativo() else {}),
-        )
+        await auditar_uma_vez()
 
 
 # ---------- pendências viram tarefas (#47) ----------
