@@ -5,8 +5,9 @@
 
 ## Respostas da inspeção
 
-- **O que é:** IA que lê o prontuário (FHIR) e protege as transições do paciente: passagem de plantão,
-  transferência de setor e alta.
+- **O que é:** IA que, na consulta e nas transições do paciente, trabalha com a fonte à vista: com o consentimento do
+  paciente transcreve a conversa ao vivo, sugere perguntas, hipóteses e alertas e prepara a nota SOAP; também lê o
+  prontuário (FHIR) na passagem de plantão, na transferência de setor e na alta.
 - **Para quem:** hospitais — médicos, enfermagem e gestão. Tira do caminho o que se perde entre um turno e outro.
 - **Diferencial:** cada afirmação da IA mostra a fonte no prontuário; regras determinísticas antes da IA; trava
   suave na alta de risco; conferência do que foi dito na passagem verbal.
@@ -43,3 +44,35 @@ whooshes curtos nas trocas de cena. Fade final no acorde de Ré.
 
 Sem segredos, chaves, URLs internas ou dados reais: só dados sintéticos do cenário de demonstração. Nenhum número,
 depoimento ou cliente inventado.
+
+## Versão 2: foco na Consulta com IA
+
+O roteiro acima (24 s, passagem/transferência/alta) segue valendo como corte curto. Para o pitch centrado na
+**Consulta com IA**, use a sequência abaixo (cerca de 40 a 60 s). Tudo vem do app rodando com dados sintéticos (paciente
+do cenário `cen6`); nenhuma afirmação de ganho, de conformidade ou de certificação (o produto **apoia**, não certifica).
+
+| # | Cena | Na tela | Texto para ler |
+|---|---|---|---|
+| 1 | **Gancho** | Médico olhando o paciente; tela com o aviso de consentimento marcado e "Iniciar". | "A consulta é sobre o paciente, não sobre o teclado." |
+| 2 | **Ao vivo** | Transcrição entrando; perguntas sugeridas saem da lista quando o profissional as faz. | "Transcrição ao vivo, com consentimento." |
+| 3 | **Com fonte** | Alertas de segurança e hipóteses, cada um com `Fala/N` ou o recurso FHIR; aba Medicamentos e alergias. | "Cada alerta mostra de onde veio." |
+| 4 | **Nota** | Nota SOAP citando as falas; profissional revisa, atesta e envia ao prontuário. | "O profissional revisa. A nota só vai com a aprovação dele." |
+| 5 | **Confiança** | Dossiê de conformidade e auditoria encadeada (telas `/conformidade` e `/auditoria`); menção a IA substituível e pseudonimização, autorização prévia e perfis BR/e-SUS (sem alegar certificação). | "Privacidade e rastro de auditoria desde o desenho." |
+| 6 | **Fechamento** | Logo e convite. | "Piloto com o seu hospital: vamos conversar." |
+
+### Como produzir
+
+Os scripts usam caminhos relativos ao repositório (funcionam no Windows e no Linux) e a URL do app vem de `BASE_URL`
+(padrão `http://localhost:3000`). Com API e web no ar (`LLM_MODE=mock`, `FHIR_MODE=local`; se a web não estiver na porta
+3000, inclua a origem dela em `CORS_ORIGINS` da API):
+
+```bash
+# gravação direta da demo (WebM), saída fora do git
+BASE_URL=http://localhost:3000 OUT_DIR=/caminho/fora/do/repo node brag-output/scripts/record-consult.mjs
+ffmpeg -i /caminho/fora/do/repo/*.webm -c:v libx264 -pix_fmt yuv420p -an demo-consulta.mp4
+
+# composição motion (trechos reais da UI -> quadros): capture-consult.mjs, capture.mjs, build_composition.py, render.mjs
+node brag-output/scripts/capture-consult.mjs   # grava em brag-output/work/ (ignorado pelo git)
+```
+
+Não versione vídeos grandes: guarde fora do repositório.
