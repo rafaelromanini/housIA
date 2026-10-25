@@ -99,3 +99,9 @@ def test_dossie_funciona_sem_usuario_de_outra_organizacao_vazar(client, auth):
     meu = dossie(client, auth).json()["calculado"]["cadeia_audit_log"]["total"]
     outro = client.get("/compliance/dossie", headers=outra_org_gestor(client)).json()["calculado"]["cadeia_audit_log"]
     assert outro["total"] <= meu and db_session.engine is not None
+
+
+def test_pendencias_do_ripd_sao_todas_texto(client, auth):
+    """Item de lista YAML com ': ' sem aspas vira objeto e quebra a tela de conformidade (React #31)."""
+    d = dossie(client, auth).json()
+    assert d["ripd"]["pendencias"] and all(isinstance(p, str) for p in d["ripd"]["pendencias"])

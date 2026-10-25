@@ -134,7 +134,7 @@ ripd:
       medida: Toda afirmação exige fonte; regras de segurança nunca removidas pela IA; revisão e atestação obrigatórias.
       residual: Viés e erro do modelo não são eliminados; monitorar pelo feedback e pela auditoria.
   pendencias:
-    - As regras de autorização prévia do repositório são de EXEMPLO (não oficiais): importar e conferir por pessoa a tabela vigente do Rol da ANS/DUT e de cada operadora antes de depender do checklist.
+    - "As regras de autorização prévia do repositório são de EXEMPLO (não oficiais): importar e conferir por pessoa a tabela vigente do Rol da ANS/DUT e de cada operadora antes de depender do checklist."
     - Validar a diarização (taxa de erro, viés por sotaque e ruído) com áudio real anonimizado antes de confiar no rótulo como prova.
     - Medir a cobertura da pseudonimização de nomes e endereços com corpus real anonimizado pela instituição (o corpus do CI é sintético).
     - Parecer do encarregado e do jurídico sobre bases legais e transferência internacional.
